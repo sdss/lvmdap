@@ -1,0 +1,15 @@
+0.017 0.002 0.0001 0.027 10 100 0.1 0.5 3800 5500
+3.2  0.0    1.9    6.5
+0.4  0.1    0.0   2.5
+9
+6530 7060 mask_elines.txt legacy/Ha_LVM.config 9 legacy/mask_elines_H.txt 20 4000
+6700 7300 mask_elines.txt legacy/SII_LVM.config 9 legacy/mask_elines_H.txt 20 4000
+4800 5400 mask_elines.txt legacy/OIII_LVM.config 9 legacy/mask_elines_H.txt 20 4000
+4310 4700 mask_elines.txt legacy/Hg_LVM.config 9 legacy/mask_elines_H.txt 20 4000
+4095 4450 mask_elines.txt legacy/Hd_LVM.config 9 legacy/mask_elines_H.txt 20 4000
+6260 6750 mask_elines.txt legacy/OI_LVM.config 9 legacy/mask_elines_H.txt 20 4000
+3700 3800 mask_elines.txt legacy/OII_LVM.config 9 legacy/mask_elines_H.txt 20 4000
+9030 9100 mask_elines.txt legacy/SIII_LVM_9060.config 9 legacy/mask_elines_H.txt 20 4000
+9500 9570 mask_elines.txt legacy/SIII_LVM_9530.config 9 legacy/mask_elines_H.txt 20 4000
+0.0001  1 0.00
+6588 6760

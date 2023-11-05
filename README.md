@@ -92,7 +92,13 @@ LVM_DAP_RSP : The directory in which the RSP (stellar templates) are stored
 
 We will assume hereafter that LVM_DAP_RSP corresponds to "_fitting_data" for simplicity.
 
-# TESTS
+# Tests
+
+Go to the _examples directory and run the script fit_6109_strong.sh. If everything runs ok,
+the you have the required files to run the DAP.
+
+
+# Addtional examples
 
 If you want to run the notebooks in the [testing notebooks](https://gitlab.com/chemical-evolution/lvm-dap/-/tree/master/notebooks/dap-testing) section, you will need also to download the required data stored in [google drive](https://drive.google.com/drive/folders/1FwEGhTxnAyM7ld6nsSorG15Dq3LVH1I9?usp=sharing) into the `lvm-dap` directory. Ask for access to amejia@astro.unam.mx.
 
@@ -100,7 +106,9 @@ If the installation went successfully (and you downloaded the data) your tree di
 
     ├── dist
     ├── lvmdap
-    ├── _legacy
+    ├── _examples
+    ├── _fitting_data
+    ├── _legacy    
     ├── notebooks
     ├── poetry.lock
     ├── pyproject.toml
