@@ -42,12 +42,13 @@ def auto_rsp_elines_rnd(
     fit_sigma_rnd=True, out_path=None):
 
     ssp_nl_fit_file = ssp_file if ssp_nl_fit_file is None else ssp_nl_fit_file
+    if delta_redshift == 0:
+      cc_redshift_boundaries = None
+    else:
+      cc_redshift_boundaries = [min_redshift, max_redshift]
 
+    
     if fit_gas and config_file is None:
-        if delta_redshift == 0:
-            cc_redshift_boundaries = None
-        else:
-            cc_redshift_boundaries = [min_redshift, max_redshift]
         if sigma_gas is None: sigma_gas = 3.0
         if out_path is None: out_path = "."
         wl_mask = (w_min<=wl__w)&(wl__w<=w_max)
@@ -408,7 +409,6 @@ def _main(cmd_args=sys.argv[1:]):
             #     guided_errors=guided_errors, ratio=ratio, y_ratio=y_ratio,
             #     fit_sigma_rnd=fit_sigma_rnd, sps_class=sps_class
             # )
-            print('PASO POR AQUI 1')
             _, SPS = auto_rsp_elines_rnd(
                 wl__w, f__w, ef__w, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
                 config_file=args.config_file,
@@ -424,11 +424,8 @@ def _main(cmd_args=sys.argv[1:]):
             y_ratio = SPS.ratio_master
             # if not guided_nl:
             #     SPS.output_gas_emission(filename=out_file_elines, spec_id=i)
-            print('PASO POR AQUI 2')
             SPS.output_gas_emission(filename=out_file_elines, spec_id=i)
-            print('PASO POR AQUI 3')
             SPS.output_coeffs_MC(filename=out_file_coeffs, write_header=i==0)
-            print('PASO POR AQUI 4')
             try:
                 SPS.output(filename=out_file_ps, write_header=i==0, block_plot=False)
             except:
@@ -460,7 +457,6 @@ def _main(cmd_args=sys.argv[1:]):
             #         if system['EL'] is not None:
             #             k = f'{system["start_w"]}_{system["end_w"]}'
             #             append_emission_lines_parameters(system['EL'], output_el_models[k], i)
-            print('PASO POR AQUI 5')
             model_spectra.append(SPS.output_spectra_list)
             # results.append(SPS.output_results)
             # results_coeffs.append(SPS.output_coeffs)
@@ -471,8 +467,6 @@ def _main(cmd_args=sys.argv[1:]):
         # results = np.array(results).T
         # output results_coeffs has dimensions (n_results_coeffs, n_models, n_s)
         # results_coeffs = np.array(results_coeffs).transpose(1, 2, 0)
-        print('PASO POR AQUI 6')
         dump_rss_output(out_file_fit=out_file_fit, wavelength=wl__w, model_spectra=model_spectra)
-        print('PASO POR AQUI 7')
     else:
         raise(NotImplementedError(f"--input-fmt='{args.input_fmt}'"))
