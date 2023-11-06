@@ -1,0 +1,101 @@
+#!/bin/csh
+
+
+# define path to model ingredients
+set rsp_models="$LVM_DAP_PATH/_fitting-data/_basis_mastar_v2/stellar-basis-spectra-100.fits.gz"
+set rsp_nl_models="$LVM_DAP_PATH/_fitting-data/_basis_mastar_v2/stellar-basis-spectra-5.fits.gz"
+# define original CUBE paths
+# @ofelia
+set LMC_CUBE_PATH="/nfs/ofelia/disk-a/sanchez/MUSE/ALL_CUBES"
+# @chiripa
+# set LMC_CUBE_PATH="$LVM_DAP_PATH/_fitting-data/LMC-MUSE/cubes"
+# define output paths
+# @ofelia
+set LMC_DATAPRODUCTS_PATH="/nfs/ofelia/disk-b/sanchez/MUSE/AMUSING/analysis/all_files_SSP"
+# @chiripa
+# set LMC_DATAPRODUCTS_PATH="$LVM_DAP_PATH/_fitting-data/LMC-MUSE/out"
+
+set LMC_PROCESSED_PATH="$LVM_DAP_PATH/_fitting-data/LMC-MUSE/preprocessed"
+set LMC_OUTPUT_PATH="$LVM_DAP_PATH/_fitting-data/LMC-MUSE/out"
+
+# check if output path already exists
+# if not, create it
+if (! -d $LMC_PROCESSED_PATH) mkdir $LMC_PROCESSED_PATH
+if (! -d $LMC_OUTPUT_PATH) mkdir $LMC_OUTPUT_PATH
+
+# run manga preprocessing script
+echo "starting preprocessing..."
+echo preprocess-muse --sigma-inst 6.0 -i $LMC_DATAPRODUCTS_PATH -o $LMC_PROCESSED_PATH
+echo "preprocessing done"
+
+# define analysis variables =======================================================================
+set sigma_inst=`echo "scale=4; sqrt(6.0*6.0-2.5*2.5)/2.355" | bc `
+echo "assuming differential instrumental sigma $sigma_inst"
+
+# Velocity dispersion of the gas in AA
+set sigma_gas=3.7
+# ranges to be masked out from the analysis
+set mask_list=None
+# wavelength range for the non-linear parameter fitting
+set nl_w_min=4800
+set nl_w_max=6000
+# wavelength range for the linear parameter fitting
+set w_min=4800
+set w_max=8000
+# emission lines list to cross match with the autodetect algorithm
+set elines_mask_file="$LVM_DAP_PATH/_fitting-data/_configs/MaNGA/emission_lines_long_list.txt"
+# redshift grid
+set z_guess=0.000875
+set z_step=0
+set z_min=-5
+set z_max=5
+# LOSVD grid
+set s_guess=0
+set s_step=0
+set s_min=0
+set s_max=350
+# dust extinction in V-band grid
+set d_guess=0
+set d_step=0.01
+set d_min=0
+set d_max=1.6
+# V-slice config
+set v_slice_config="$LVM_DAP_PATH/_fitting-data/_configs/slice_V.conf"
+# moment analysis
+set momana_lines_list="$LVM_DAP_PATH/_fitting-data/_configs/MaNGA/emission_lines_momana_v2.txt"
+
+# config tsp ======================================================================================
+tsp -S 30
+set tsp_dap_script="tsp-dap-lmc.txt"
+rm -f $tsp_dap_script
+# start run with tsp ==============================================================================
+set counter=0
+echo "starting spectral fitting..."
+foreach sed_file ( `ls $LMC_PROCESSED_PATH/CS.*.RSS.fits.gz` )
+    # extract filename & define error file
+    set filename=`basename $sed_file`
+    set err_file="$LMC_PROCESSED_PATH/e_$filename"
+    # remove CS. and .RSS.fits.gz from rss_file
+    set label=`echo $filename | sed s/CS.//`
+    set label=`echo $label | sed s/.RSS.fits.gz//`
+    
+    # if ( $label != "LMC_043" ) continue
+    echo tsp lvm-dap $sed_file $rsp_models $sigma_inst $label --input-fmt rss --error-file $err_file --rsp-nl-file $rsp_nl_models --w-range $w_min $w_max --w-range-nl $nl_w_min $nl_w_max --redshift $z_guess $z_step $z_min $z_max --sigma $s_guess $s_step $s_min $s_max --AV $d_guess $d_step $d_min $d_max --sigma-gas $sigma_gas --emission-lines-file $elines_mask_file -c --output-path $LMC_OUTPUT_PATH >> $tsp_dap_script
+    # just for testing
+    # @ counter=$counter + 1
+    # if ( $counter == 1 ) break
+end
+echo "queue done"
+
+set tsp_gas_script="tsp-gas-lmc.txt"
+rm -f $tsp_gas_script
+echo "starting gas cube extraction..."
+foreach sed_file ( `ls $LMC_PROCESSED_PATH/CS.*.RSS.fits.gz` )
+    # extract filename & define error file
+    set filename=`basename $sed_file`
+    # remove CS. and .RSS.fits.gz from rss_file
+    set label=`echo $filename | sed s/CS.//`
+    set label=`echo $label | sed s/.RSS.fits.gz//`
+    echo tsp gas-cube-extractor --kind "muse" --pointing $label -i $LMC_CUBE_PATH -p $LMC_DATAPRODUCTS_PATH -o $LMC_OUTPUT_PATH -n 1 -v --slice-config-file $v_slice_config --elines-list-file $momana_lines_list --overwrite >> $tsp_gas_script
+end
+echo "extraction done"

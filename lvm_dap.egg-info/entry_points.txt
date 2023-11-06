@@ -1,0 +1,4 @@
+[console_scripts]
+clean-outputs = lvmdap._cmdline.clean_outputs:_main
+lvm-dap = lvmdap._cmdline.dap:_main
+
