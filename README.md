@@ -81,12 +81,18 @@ http://ifs.astroscu.unam.mx/LVM/lvmdap_fitting-data/
 
 We recommend you to define three environmental variables:
 
-LVM_DAP     => The directory in which the DAP is installed
-LVM_DAP_CFG => The directory in which the configuration files are stored
+LVM_DAP     :   The directory in which the DAP is installed
+
+LVM_DAP_CFG : The directory in which the configuration files are stored
                nominally ${LVM_DAP}/_legacy
-LVM_DAP_RSP => The directory in which the RSP (stellar templates) are stored
+	       
+LVM_DAP_RSP : The directory in which the RSP (stellar templates) are stored
                that would be the directory were is stored the content of the "lvmdap_fitting-data" URL
 	       e.g., export LVM_DAP_RSP="_fitting_data";
+
+We will assume hereafter that LVM_DAP_RSP corresponds to "_fitting_data" for simplicity.
+
+# TESTS
 
 If you want to run the notebooks in the [testing notebooks](https://gitlab.com/chemical-evolution/lvm-dap/-/tree/master/notebooks/dap-testing) section, you will need also to download the required data stored in [google drive](https://drive.google.com/drive/folders/1FwEGhTxnAyM7ld6nsSorG15Dq3LVH1I9?usp=sharing) into the `lvm-dap` directory. Ask for access to amejia@astro.unam.mx.
 
