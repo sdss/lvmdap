@@ -71,18 +71,31 @@ We recommend installing in a virtual environment to avoid dependencies crashing.
 
 Once you have created a virtual environment (if you chose to do so), simply run the following commands:
 
-    git clone git@gitlab.com:chemical-evolution/lvm-dap.git
-    cd lvm-dap
-    pip install .
+git clone https://github.com/sdss/lvmdap
+cd lvmdap
+pip install .
 
-If you want to run the notebooks in the [testing notebooks](https://gitlab.com/chemical-evolution/lvm-dap/-/tree/master/noteboooks/dap-testing) section, you will need also to download the required data stored in [google drive](https://drive.google.com/drive/folders/1FwEGhTxnAyM7ld6nsSorG15Dq3LVH1I9?usp=sharing) into the `lvm-dap` directory. Ask for access to amejia@astro.unam.mx.
+Then you need to download the content of the following directory in your computer:
+
+http://ifs.astroscu.unam.mx/LVM/lvmdap_fitting-data/
+
+We recommend you to define three environmental variables:
+
+LVM_DAP     => The directory in which the DAP is installed
+LVM_DAP_CFG => The directory in which the configuration files are stored
+               nominally ${LVM_DAP}/_legacy
+LVM_DAP_RSP => The directory in which the RSP (stellar templates) are stored
+               that would be the directory were is stored the content of the "lvmdap_fitting-data" URL
+	       e.g., export LVM_DAP_RSP="_fitting_data";
+
+If you want to run the notebooks in the [testing notebooks](https://gitlab.com/chemical-evolution/lvm-dap/-/tree/master/notebooks/dap-testing) section, you will need also to download the required data stored in [google drive](https://drive.google.com/drive/folders/1FwEGhTxnAyM7ld6nsSorG15Dq3LVH1I9?usp=sharing) into the `lvm-dap` directory. Ask for access to amejia@astro.unam.mx.
 
 If the installation went successfully (and you downloaded the data) your tree directory should look like:
 
     ├── dist
-    ├── _fitting-data
     ├── lvmdap
-    ├── noteboooks
+    ├── _legacy
+    ├── notebooks
     ├── poetry.lock
     ├── pyproject.toml
     ├── README.md
@@ -94,7 +107,9 @@ If the installation went successfully (and you downloaded the data) your tree di
 
 and you should be able to run the following example:
 
-    lvm-dap _fitting-data/simulations/ssps/fsps-ssp-mist-miles-1p00000_0p00100gyr.txt _fitting-data/_basis_mastar_v2/stellar-basis-spectra-100.fits.gz 0.33283937056926377 1p00000_0p00100gyr --mask-file _fitting-data/_configs/MaNGA/mask_elines.txt --emission-lines-file _fitting-data/_configs/MaNGA/emission_lines_long_list.MaNGA --w-range 3600 10000 --w-range-nl 3600 4700 --redshift 0 0 0 0 --sigma 0 0 0 0 --AV 0 0 0 0
+lvm-dap _fitting-data/simulations/ssps/fsps-ssp-mist-miles-1p00000_0p00100gyr.txt _fitting-data/_basis_mastar_v2/stellar-basis-spectra-100.fits.gz 0.33283937056926377 1p00000_0p00100gyr --mask-file _fitting-data/_configs/MaNGA/mask_elines.txt --emission-lines-file _fitting-data/_configs/MaNGA/emission_lines_long_list.MaNGA --w-range 3600 10000 --w-range-nl 3600 4700 --redshift 0 0 0 0 --sigma 0 0 0 0 --AV 0 0 0 0
+
+lvm-dap _fitting-data/simulations/ssps/fsps-ssp-mist-miles-1p00000_0p00100gyr.txt _fitting-data/_basis_mastar_v2/stellar-basis-spectra-100.fits.gz 0.33283937056926377 1p00000_0p00100gyr --mask-file _fitting-data/_configs/MaNGA/mask_elines.txt --emission-lines-file _fitting-data/_configs/MaNGA/emission_lines_long_list.MaNGA --w-range 3600 10000 --w-range-nl 3600 4700 --redshift 0 0 0 0 --sigma 0 0 0 0 --AV 0 0 0 0
 
 which will produce the following output files:
 
