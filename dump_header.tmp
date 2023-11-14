@@ -1,0 +1,15 @@
+SIMPLE | 1 
+BITPIX | -64 
+NAXIS | 2 
+NAXIS1 | 6351 
+NAXIS2 | 4 
+EXTEND | T 
+CRVAL1 | 3650.0 
+CDELT1 | 1.0 
+CRPIX1 | 1 
+CTYPE1 | wavelength 
+CUNIT1 | AA 
+CTYPE2 | flux 
+CUNIT2 |  
+WAVENORM | 5500 
+END |   

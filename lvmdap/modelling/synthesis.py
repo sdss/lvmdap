@@ -493,6 +493,57 @@ class StellarSynthesis(StPopSynt):
         if not isinstance(filename, io.TextIOWrapper):
             f_out_coeffs.close()
 
+    def _print_header(self, filename):
+        """
+        Writes the main output file header.
+
+        Parameters
+        ----------
+        filename : str
+            Output filename.
+        """
+        cf = self.config
+        wavenorm = self.ssp.wavenorm
+
+        if isinstance(filename, io.TextIOWrapper):
+            f_outfile = filename
+        else:
+            f_outfile = open(filename, 'a')
+
+        print(f'# (1) MIN_CHISQ', file=f_outfile)
+        print(f'# (2) Teff', file=f_outfile)
+        print(f'# (3) e_Teff', file=f_outfile)
+        print(f'# (4) Log_g', file=f_outfile)
+        print(f'# (5) e_Log_g', file=f_outfile)
+        print(f'# (6) Fe', file=f_outfile)
+        print(f'# (7) e_Fe', file=f_outfile)
+        print(f'# (8) alpha', file=f_outfile)
+        print(f'# (9) e_alpha', file=f_outfile)
+        print(f'# (10) Av', file=f_outfile)
+        print(f'# (11) e_Av', file=f_outfile)
+        print(f'# (12) z', file=f_outfile)
+        print(f'# (13) e_z', file=f_outfile)
+        print(f'# (14) disp', file=f_outfile)
+        print(f'# (15) e_disp', file=f_outfile)
+        print(f'# (16) flux', file=f_outfile)
+        print(f'# (17) redshift', file=f_outfile)
+        print(f'# (18) med_flux', file=f_outfile)
+        print(f'# (19) Teff_MW', file=f_outfile)
+        print(f'# (20) e_Teff_MW', file=f_outfile)
+        print(f'# (21) Log_g_MW', file=f_outfile)
+        print(f'# (22) e_Log_g_MW', file=f_outfile)
+        print(f'# (23) Fe_MW', file=f_outfile)
+        print(f'# (24) e_Fe_MW', file=f_outfile)
+        print(f'# (25) alpha_MW', file=f_outfile)
+        print(f'# (26) e_alpha_MW', file=f_outfile)
+        print(f'# (27) sys_vel', file=f_outfile)
+        print(f'# (28) log_ML', file=f_outfile)
+        print(f'# (29) log_Mass', file=f_outfile)
+        if not isinstance(filename, io.TextIOWrapper):
+            f_outfile.close()
+
+
+            
     def output(self, filename, write_header=True, block_plot=True):
         """
         Summaries the run in a csv file.
@@ -590,15 +641,18 @@ class StellarSynthesis(StPopSynt):
                 self._print_header(filename)
             f_outfile = open(filename, 'a')
 
+
         outbuf = f'{chi_joint},'
         outbuf = f'{outbuf}{self.teff_min},{self.e_teff_min},{self.logg_min},{self.e_logg_min},{self.meta_min},'
-        outbuf = f'{self.e_meta_min},{self.alph_min},{self.e_alph_min},'
+        outbuf = f'{outbuf}{self.e_meta_min},{self.alph_min},{self.e_alph_min},'
         outbuf = f'{outbuf}{self.AV_min},{self.e_AV_min},{self.best_redshift},{self.e_redshift},'
         outbuf = f'{outbuf}{self.best_sigma},{self.e_sigma},{FLUX},{self.best_redshift},'
         outbuf = f'{outbuf}{med_flux},{rms},{self.teff_min_mass},{self.e_teff_min_mass},{self.logg_min_mass},{self.e_logg_min_mass},'
-        outbuf = f'{outbuf}{self.meta_min_mass},{self.e_meta_min_mass},{self.systemic_velocity},'
+        outbuf = f'{outbuf}{self.meta_min_mass},{self.e_meta_min_mass},{self.alph_min_mass},{self.e_alph_min_mass},{self.systemic_velocity},'
         outbuf = f'{outbuf}{lml},{lmass}'
-        print(outbuf, file=f_outfile)
+        print(f'OUTBUF= {outbuf}')
 
         if not isinstance(filename, io.TextIOWrapper):
             f_outfile.close()
+
+        

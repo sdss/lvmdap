@@ -1,4 +1,5 @@
 ---
+ output_path: "/disk-a/sanchez/LVM/LVM/Oct2023/output_dap/"
  lvmdap_dir: "/home/sanchez/sda2/code/python/lvmdap"
  rsp-file: "../_fitting-data/_basis-binned_mastar/stellar-basis-spectra-binned-110-mastar.fits.gz"
  sigma-inst: 1
@@ -11,7 +12,7 @@
   -  0.001
  sigma:
   - 1
-  - 1
+  - 0
   - 1
   - 1
  AV:
@@ -22,13 +23,22 @@
  emission-lines-file: ../_legacy/emission_lines_strong.LVM 
  emission-lines-file-long: ../_legacy/emission_lines_long_list.LVM
  w-range:
-  - 3600
-  - 9700
+  - 3700
+  - 4300
  ask-file: ../_legacy/mask_bands_LVM.txt
  config-file: ../_legacy/auto_ssp_LVM_none.config
- c: True
- range-nl:
-  - 3750
-  - 4900
+ clear_outputs: True
+ w-range-nl:
+  - 3800
+  - 4300
  bin-nl: 3
  bin-AV: 50
+ mask_file: none
+ ignore_gas: False
+ single-gas-fit: True
+ sigma-gas: 1.5
+ flux-scale-org:
+  - -1
+  - 1
+ single_rsp: False
+ do_plots: 0 

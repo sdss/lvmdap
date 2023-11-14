@@ -20,7 +20,10 @@ from pyFIT3D.common.io import create_emission_lines_file_from_list
 from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
 
 from lvmdap.modelling.synthesis import StellarSynthesis
-from lvmdap.dap_tools import load_LVM_rss,read_PT
+from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header
+from lvmdap.flux_elines_tools import flux_elines_RSS_EW
+
+from scipy.ndimage import gaussian_filter1d,median_filter
 
 from astropy.table import Table
 from astropy.table import vstack as vstack_table
@@ -50,14 +53,25 @@ def auto_rsp_elines_rnd(
     input_AV=None, delta_AV=None, min_AV=None, max_AV=None, ratio=True, y_ratio=None,
     fit_sigma_rnd=True, out_path=None):
 
+  #
+  # If there is no RSP for the Non-Linear (nl) fitting, they it is 
+  # used the one for the Linear Fitting (that it is slower)
+  #
     ssp_nl_fit_file = ssp_file if ssp_nl_fit_file is None else ssp_nl_fit_file
     if delta_redshift == 0:
       cc_redshift_boundaries = None
     else:
       cc_redshift_boundaries = [min_redshift, max_redshift]
 
-    
+  #
+  # If the emission lines are fitted, but there is no config file, then
+  # the program creates a set of configuraton files for the detected emission lines
+  # NOTE: I think this is overdoing having the flux_elines script
+  # But needs to be explored!
+  #
     if fit_gas and config_file is None:
+        print("##############################");
+        print("# START: Autodectecting emission lines...");
         if sigma_gas is None: sigma_gas = 3.0
         if out_path is None: out_path = "."
         wl_mask = (w_min<=wl__w)&(wl__w<=w_max)
@@ -91,7 +105,14 @@ def auto_rsp_elines_rnd(
 
         config_file = os.path.join(out_path, f"{spaxel_id}.autodetect.auto_ssp_several.config")
         if not refine_gas: elines_mask_file = os.path.join(out_path, f"{spaxel_id}.autodetect.emission_lines.txt")
-
+        print("# END: Autodectecting emission lines...");     
+    else:
+      print("# Using predefined configuration file for the emission lines");
+    #
+    # The spectrum is fitted for the 1st time in here
+    #
+    print("##############################");
+    print(f"# START: fitting the continuum+emission lines, fit_gas:{fit_gas} ...");
     cf, SPS = auto_ssp_elines_single_main(
         wl__w, f__w, ef__w, ssp_file,
         config_file=config_file,
@@ -105,8 +126,14 @@ def auto_rsp_elines_rnd(
         plot=plot, single_ssp=False, ratio=ratio, y_ratio=y_ratio, fit_sigma_rnd=fit_sigma_rnd,
         sps_class=StellarSynthesis
     )
-
+    print(f"# END: fitting the continuum+emission lines, fit_gas:{fit_gas} ...");
+    print("##############################");
+    #
+    # There is refinement in the fitting
+    #
+    print(f"# refine_gas: {refine_gas}");
     if refine_gas:
+        print(f"# START: refining gas fitting, refine_gas:{refine_gas} ...");
         if sigma_gas is None: sigma_gas = 3.0
         if out_path is None: out_path = "."
         wl_mask = (w_min<=wl__w)&(wl__w<=w_max)
@@ -155,7 +182,10 @@ def auto_rsp_elines_rnd(
             plot=plot, single_ssp=False, ratio=ratio, y_ratio=y_ratio, fit_sigma_rnd=fit_sigma_rnd,
             sps_class=StellarSynthesis
         )
-
+        print(f"# END: refining gas fitting, refine_gas:{refine_gas} ...");
+        print("########################################");
+    print("# END RSP fitting...");
+    print("########################################");
     return cf, SPS
 
 ####################################################
@@ -228,7 +258,7 @@ def _main(cmd_args=sys.argv[1:]):
     parser.add_argument(
         "--flux-scale", metavar=("min","max"), type=np.float, nargs=2,
         help="scale of the flux in the input spectrum",
-        default=[-np.inf, +np.inf]
+        default=[-1,1]
     )
     parser.add_argument(
         "--w-range", metavar=("wmin","wmax"), type=np.float, nargs=2,
@@ -361,35 +391,10 @@ def _main(cmd_args=sys.argv[1:]):
         input_min_sigma = args.sigma[2]
         input_max_sigma = args.sigma[3]
         model_spectra = []
-        # results = []
-        # results_coeffs = []
         y_ratio = None
         ns = rss_flux.shape[0]
-        # output_el_models = {}
-        # if not guided_nl:
-        #     _tmpcf = ConfigAutoSSP(config_file)
-        #     for i_s in range(_tmpcf.n_systems):
-        #         system = _tmpcf.systems[i_s]
-        #         elcf = _tmpcf.systems_config[i_s]
-        #         k = f'{system["start_w"]}_{system["end_w"]}'
-        #         output_el_models[k] = create_emission_lines_parameters(elcf, ns)
-        #     del _tmpcf
         for i, (f__w, ef__w) in enumerate(zip(rss_flux, rss_eflux)):
             print(f"\n# ID {i}/{ns - 1} ===============================================\n")
-            # if guided_nl:
-            #     input_redshift = input_guided[0][i]
-            #     delta_redshift = 0
-            #     input_sigma = input_guided[1][i]
-            #     delta_sigma = 0
-            #     input_AV = input_guided[2][i]
-            #     delta_AV = 0
-            #     # (e_AV, e_sigma, e_redshift)
-            #     guided_errors = (input_guided_errors[0][i], input_guided_errors[1][i], input_guided_errors[2][i])
-            #     print(f'-> Forcing non-linear fit parameters (input guided):')
-            #     print(f'-> input_guided_redshift:{input_redshift} e:{guided_errors[0]}')
-            #     print(f'-> input_guided_sigma:{input_sigma} e:{guided_errors[1]}')
-            #     print(f'-> input_guided_AV:{input_AV} e:{guided_errors[2]}')
-            # if i > 0 and (not guided_nl and is_guided_sigma):
             if i > 0 and is_guided_sigma:
                 if SPS.best_sigma > 0:
                     sigma_seq.append(SPS.best_sigma)
@@ -408,22 +413,6 @@ def _main(cmd_args=sys.argv[1:]):
                     min_sigma = input_min_sigma
                 if max_sigma > input_max_sigma:
                     max_sigma = input_max_sigma
-            # cf, SPS = auto_ssp_elines_single_main(
-            #     wavelength=wavelength, flux=f__w, eflux=ef__w, ssp_file=ssp_file, config_file=config_file,
-            #     ssp_nl_fit_file=ssp_nl_fit_file, sigma_inst=sigma_inst, out_file=out_file,
-            #     mask_list=mask_list, elines_mask_file=elines_mask_file,
-            #     min=min, max=max, w_min=w_min, w_max=w_max, nl_w_min=nl_w_min, nl_w_max=nl_w_max,
-            #     input_redshift=input_redshift, delta_redshift=delta_redshift,
-            #     min_redshift=min_redshift, max_redshift=max_redshift,
-            #     input_sigma=input_sigma, delta_sigma=delta_sigma, min_sigma=min_sigma, max_sigma=max_sigma,
-            #     input_AV=input_AV, delta_AV=delta_AV, min_AV=min_AV, max_AV=max_AV,
-            #     plot=plot, single_ssp=False,
-            #     is_guided_sigma=is_guided_sigma,
-            #     # guided_sigma=guided_sigma,
-            #     spec_id=spec_id,
-            #     guided_errors=guided_errors, ratio=ratio, y_ratio=y_ratio,
-            #     fit_sigma_rnd=fit_sigma_rnd, sps_class=sps_class
-            # )
             _, SPS = auto_rsp_elines_rnd(
                 wl__w, f__w, ef__w, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
                 config_file=args.config_file,
@@ -437,8 +426,6 @@ def _main(cmd_args=sys.argv[1:]):
                 sigma_inst=args.sigma_inst, spaxel_id=f"{args.label}_{i}", out_path=args.output_path, plot=args.plot
             )
             y_ratio = SPS.ratio_master
-            # if not guided_nl:
-            #     SPS.output_gas_emission(filename=out_file_elines, spec_id=i)
             SPS.output_gas_emission(filename=out_file_elines, spec_id=i)
             SPS.output_coeffs_MC(filename=out_file_coeffs, write_header=i==0)
             try:
@@ -467,21 +454,9 @@ def _main(cmd_args=sys.argv[1:]):
                 SPS.e_alph_min_mass = np.nan
                 SPS.e_AV_min_mass = np.nan
                 SPS.output(filename=out_file_ps, write_header=i==0, block_plot=False)
-            # if not guided_nl:
-            #     for system in SPS.config.systems:
-            #         if system['EL'] is not None:
-            #             k = f'{system["start_w"]}_{system["end_w"]}'
-            #             append_emission_lines_parameters(system['EL'], output_el_models[k], i)
             model_spectra.append(SPS.output_spectra_list)
-            # results.append(SPS.output_results)
-            # results_coeffs.append(SPS.output_coeffs)
 
-        # output model_spectra has dimensions (n_output_spectra_list, n_s, n_wavelength)
         model_spectra = np.array(model_spectra).transpose(1, 0, 2)
-        # output results has dimensions (n_results, n_s)
-        # results = np.array(results).T
-        # output results_coeffs has dimensions (n_results_coeffs, n_models, n_s)
-        # results_coeffs = np.array(results_coeffs).transpose(1, 2, 0)
         dump_rss_output(out_file_fit=out_file_fit, wavelength=wl__w, model_spectra=model_spectra)
     else:
         raise(NotImplementedError(f"--input-fmt='{args.input_fmt}'"))
@@ -520,6 +495,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         action="store_true"
     )
 
+
+
+    
     args = parser.parse_args(cmd_args)
     print(cmd_args)
     print(args)
@@ -533,7 +511,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #    if args.w_range_nl is None:
 #        args.w_range_nl = copy(args.w_range)
 
-    wl__w, rss_flux_org, rss_eflux_org = load_LVM_rss(args.lvm_file)
+    wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org = load_LVM_rss(args.lvm_file)
 #   just a check
 #    print(rss_flux.shape)
 
@@ -553,16 +531,38 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # We add the full list of arguments
     #
     for k, v in dap_config_args.items():
-      v.replace("..",dap_config_args['lvmdap_dir'])
+      if(isinstance(v, str)):
+        v=v.replace("..",dap_config_args['lvmdap_dir'])
       parser.add_argument(
         '--' + k, default=v
       )
     #
     # We transform it to a set of arguments
     #
+
+    parser.add_argument(
+        "--flux-scale", metavar=("min","max"), type=np.float, nargs=2,
+        help="scale of the flux in the input spectrum",
+        default=[-1, +1]
+    )
+
+    parser.add_argument(
+      "--plot", type=np.int,
+      help="whether to plot (1) or not (0, default) the fitting procedure. If 2, a plot of the result is store in a file without display on screen",
+      default=0
+    )
+    
     args = parser.parse_args(cmd_args)
-    print(args.rsp_file)
-     
+
+
+    
+#    print(args.rsp_file)
+
+
+    if ((args.flux_scale[0]==-1) and (args.flux_scale[1]==1)):
+      args.flux_scale[0]=args.flux_scale_org[0]
+      args.flux_scale[1]=args.flux_scale_org[1]
+      
     #
     # We mask the bad spectra
     #
@@ -574,5 +574,90 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # First we create a mean spectrum
     #
     m_flux = rss_flux.mean(axis=0)
-    print(m_flux.shape)
+    e_flux = rss_eflux.mean(axis=0)
+    s_flux = median_filter(m_flux,51)
+
+    vel__yx=np.zeros(1)
+    sigma__yx=1.5
+    print(m_flux.shape[0])
+    m_flux_rss = np.zeros((1,m_flux.shape[0]))
+    m_flux_rss[0,:]=m_flux
+    m_e_flux_rss = np.zeros((1,m_flux.shape[0]))
+    m_e_flux_rss[0,:]=e_flux
+    m_s_flux_rss = np.zeros((1,s_flux.shape[0]))
+    m_s_flux_rss[0,:]=s_flux
+
+    if ((args.flux_scale[0]==-1) and (args.flux_scale[1]==1)):
+      args.flux_scale[0]=-0.1*np.abs(np.median(m_flux_rss))
+      args.flux_scale[1]=3*np.abs(np.median(m_flux_rss))+10*np.std(m_flux_rss)
+
+    #
+    # Run flux_elines on the mean spectrum
+    #
+    fe_m_data, fe_m_hdr =flux_elines_RSS_EW(m_flux_rss, hdr_flux_org, 5, args.emission_lines_file, vel__yx,\
+                                              sigma__yx,eflux__wyx=m_e_flux_rss,\
+                                              flux_ssp__wyx=m_s_flux_rss,w_range=15)
+    colnames=[]
+    for i in range(fe_m_data.shape[0]):
+      colname=str(fe_m_hdr[f'NAME{i}'])+'_'+str(fe_m_hdr[f'WAVE{i}'])
+      colname=colname.replace(' ','_')
+      colnames.append(colname)
+    colnames=np.array(colnames)
+    tab_fe_m=Table(np.transpose(fe_m_data),names=colnames)  
+    print(tab_fe_m)
+    
+    #########################################################
+    # We fit the mean spectrum with RSPs 
+    #
+    # OUTPUT NAMES ---------------------------------------------------------------------------------
+    out_file_fe = os.path.join(args.output_path, f"m_{args.label}.fe.txt")
+    out_file_elines = os.path.join(args.output_path, f"m_{args.label}.elines.txt")
+    out_file_single = os.path.join(args.output_path, f"m_{args.label}.single.txt")
+    out_file_coeffs = os.path.join(args.output_path, f"m_{args.label}.coeffs.txt")
+    out_file_fit = os.path.join(args.output_path, f"m_{args.label}.output.fits.gz")
+    out_file_ps = os.path.join(args.output_path, f"m_{args.label}.rsp.txt")
+    
+    # remove previous outputs with the same label
+    if args.clear_outputs:
+        clean_preview_results_files(out_file_ps, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
+        clean_preview_results_files(out_file_fe, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
+    # ----------------------------------------------------------------------------------------------
+
+    seed = print_time(print_seed=False, get_time_only=True)
+    # initial time used as the seed of the random number generator.
+    np.random.seed(seed)
+
+    #
+    # We start the fitting
+    #
+#    print(f'ignore_gas = {args.ignore_gas}')
+ #   print(f'single_gas_fit = {args.single_gas_fit}')
+    print(f'### START RSP fitting the integrated spectrum...')
+    _, SPS = auto_rsp_elines_rnd(
+      wl__w, m_flux, e_flux, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
+      config_file=args.config_file,
+      w_min=args.w_range[0], w_max=args.w_range[1], nl_w_min=args.w_range_nl[0],
+      nl_w_max=args.w_range_nl[1], mask_list=args.mask_file,
+      min=args.flux_scale[0], max=args.flux_scale[1], elines_mask_file=args.emission_lines_file,
+      fit_gas=not args.ignore_gas, refine_gas=not args.single_gas_fit, sigma_gas=args.sigma_gas,
+      input_redshift=args.redshift[0], delta_redshift=args.redshift[1], min_redshift=args.redshift[2], max_redshift=args.redshift[3],
+            input_sigma=args.sigma[0], delta_sigma=args.sigma[1], min_sigma=args.sigma[2], max_sigma=args.sigma[3],
+            input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3],
+      sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot
+    )
+    print(f'#### END RSP fitting the intengrated spectrum...')
+    
+    # WRITE OUTPUTS --------------------------------------------------------------------------------
+    SPS.output_gas_emission(filename=out_file_elines)
+    if args.single_rsp:
+      SPS.output_single_ssp(filename=out_file_single)
+    else:
+      SPS.output_fits(filename=out_file_fit)
+      SPS.output_coeffs_MC(filename=out_file_coeffs)    
+      SPS.output(filename=out_file_ps)
+
+      ####################################################################
+
+
+    
 

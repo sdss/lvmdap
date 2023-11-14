@@ -24,6 +24,8 @@ from pyFIT3D.common.constants import __solar_luminosity__, __solar_metallicity__
 from astropy.table import Table
 from astropy.table import vstack as vstack_table
 
+
+
 warnings.simplefilter('ignore', category=VerifyWarning)
 
 __indices__ = {
@@ -256,7 +258,10 @@ def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16):
     wl__w = wl__w*m2a
     rss_f_spectra=rss_f_spectra*flux_scale
     rss_e_spectra=rss_e_spectra*flux_scale
-    return wl__w, rss_f_spectra, rss_e_spectra
+    rss_f_hdr["CRVAL1"]=rss_f_hdr["CRVAL1"]*m2a
+    rss_f_hdr["CDELT1"]=rss_f_hdr["CDELT1"]*m2a
+
+    return wl__w, rss_f_spectra, rss_e_spectra, rss_f_hdr
 
 
 
@@ -491,3 +496,47 @@ def read_PT(fitsfile, agcam_coadd, nobad=False):
 #    print(sci)
     return tab
 
+
+
+def rsp_print_header(filename,wavenorm=None):
+    """
+        Writes the main output file header.
+    
+        Parameters
+        ----------
+        filename : str
+            Output filename.
+        """
+    if isinstance(filename, io.TextIOWrapper):
+        f_outfile = filename
+    else:
+        f_outfile = open(filename, 'a')
+        
+    print(f'# (1) MIN_CHISQ', file=f_outfile)
+    print(f'# (2) LW Age (Gyr)', file=f_outfile)
+    print(f'# (3) LW Age error', file=f_outfile)
+    print(f'# (4) LW metallicity', file=f_outfile)
+    print(f'# (5) LW metallicity error', file=f_outfile)
+    print(f'# (6) Av', file=f_outfile)
+    print(f'# (7) AV error', file=f_outfile)
+    print(f'# (8) redshift', file=f_outfile)
+    print(f'# (9) redshift error', file=f_outfile)
+    print(f'# (10) velocity dispersion sigma, in AA', file=f_outfile)
+    print(f'# (11) velocity dispersion error', file=f_outfile)
+    print(f'# (12) median_FLUX', file=f_outfile)
+    print(f'# (13) redshift_ssp', file=f_outfile)
+    print(f'# (14) med_flux', file=f_outfile)
+    print(f'# (15) StdDev_residual', file=f_outfile)
+    print(f'# (16) MW Age (Gyr)', file=f_outfile)
+    print(f'# (17) MW Age error', file=f_outfile)
+    print(f'# (18) MW metallicity', file=f_outfile)
+    print(f'# (19) MW metallicity error', file=f_outfile)
+    print(f'# (20) Systemic Velocity km/s ', file=f_outfile)
+    print(f'# (21) Log10 Average Mass-to-Light Ratio', file=f_outfile)
+    print(f'# (22) Log10 Mass', file=f_outfile)
+    print(f'# SSP_SFH {self.filename} ', file=f_outfile)
+    print(f'# SSP_KIN {self.filename_nl_fit} ', file=f_outfile)
+    print(f'# WAVE_NORM {wavenorm} AA', file=f_outfile)
+    
+    if not isinstance(filename, io.TextIOWrapper):
+        f_outfile.close()
