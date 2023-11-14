@@ -548,14 +548,31 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     print(args.config_yaml)
     with open(args.config_yaml, 'r') as yaml_file:
-        dap_config_args = yaml.safe_load(yaml_file)
-    print(dap_config_args)
-
-
+      dap_config_args = yaml.safe_load(yaml_file)
+    #
+    # We add the full list of arguments
+    #
+    for k, v in dap_config_args.items():
+      v.replace("..",dap_config_args['lvmdap_dir'])
+      parser.add_argument(
+        '--' + k, default=v
+      )
+    #
+    # We transform it to a set of arguments
+    #
+    args = parser.parse_args(cmd_args)
+    print(args.rsp_file)
+     
     #
     # We mask the bad spectra
     #
     rss_flux = rss_flux_org[tab_PT_org['mask']]
     rss_eflux = rss_eflux_org[tab_PT_org['mask']]
     tab_PT = tab_PT_org[tab_PT_org['mask']]
-    print(tab_PT)
+
+    #
+    # First we create a mean spectrum
+    #
+    m_flux = rss_flux.mean(axis=0)
+    print(m_flux.shape)
+

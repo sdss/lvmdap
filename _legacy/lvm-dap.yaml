@@ -1,4 +1,5 @@
 ---
+ lvmdap_dir: "/home/sanchez/sda2/code/python/lvmdap"
  rsp-file: "../_fitting-data/_basis-binned_mastar/stellar-basis-spectra-binned-110-mastar.fits.gz"
  sigma-inst: 1
  rsp-nl-file: "../_fitting-data/_basis-binned_mastar/stellar-basis-spectra-binned-4-mastar.fits.gz"
