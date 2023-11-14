@@ -20,7 +20,12 @@ from pyFIT3D.common.io import create_emission_lines_file_from_list
 from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
 
 from lvmdap.modelling.synthesis import StellarSynthesis
+from lvmdap.dap_tools import load_LVM_rss,read_PT
 
+from astropy.table import Table
+from astropy.table import vstack as vstack_table
+
+import yaml
 
 CWD = os.path.abspath(".")
 EXT_CHOICES = ["CCM", "CAL"]
@@ -31,6 +36,10 @@ N_MC = 20
 def _no_traceback(type, value, traceback):
   print(value)
 
+
+#######################################################
+# RSP version of the auto_ssp_elines_rnd from pyFIT3D
+#######################################################
 def auto_rsp_elines_rnd(
     wl__w, f__w, ef__w, ssp_file, spaxel_id, config_file=None, plot=None,
     ssp_nl_fit_file=None, sigma_inst=None, mask_list=None,
@@ -149,6 +158,9 @@ def auto_rsp_elines_rnd(
 
     return cf, SPS
 
+####################################################
+# MAIN script. Uses the entries from commands lines
+####################################################
 def _main(cmd_args=sys.argv[1:]):
     parser = argparse.ArgumentParser(
         description="Run the spectral fitting procedure for the LVM"
@@ -283,6 +295,9 @@ def _main(cmd_args=sys.argv[1:]):
         help="debugging mode. Defaults to false.",
         action="store_true"
     )
+
+#    print(cmd_args)
+
     args = parser.parse_args(cmd_args)
     if not args.debug:
         sys.excepthook = _no_traceback
@@ -470,3 +485,77 @@ def _main(cmd_args=sys.argv[1:]):
         dump_rss_output(out_file_fit=out_file_fit, wavelength=wl__w, model_spectra=model_spectra)
     else:
         raise(NotImplementedError(f"--input-fmt='{args.input_fmt}'"))
+
+
+
+
+
+####################################################
+# MAIN script. Uses the entries from commands lines
+####################################################
+def _dap_yaml(cmd_args=sys.argv[1:]):
+    PLATESCALE = 112.36748321030637
+
+    parser = argparse.ArgumentParser(
+        description="lvm-dap-yaml LVM_FILE OUTPUT_LABEL CONFIG.YAML"
+    )
+    parser.add_argument(
+        "lvm_file", metavar="lvm_file",
+        help="input LVM spectrum to fit"
+    )
+
+    parser.add_argument(
+        "label",
+        help="string to label the current run"
+    )
+
+    parser.add_argument(
+        "config_yaml",
+        help="config_yaml with the fitting parameters"
+    )
+
+    parser.add_argument(
+        "-d", "--debug",
+        help="debugging mode. Defaults to false.",
+        action="store_true"
+    )
+
+    args = parser.parse_args(cmd_args)
+    print(cmd_args)
+    print(args)
+    if not args.debug:
+        sys.excepthook = _no_traceback
+    else:
+        pprint("COMMAND LINE ARGUMENTS")
+        pprint(f"{args}\n")
+#    if args.rsp_nl_file is None:
+#        args.rsp_nl_file = args.rsp_file
+#    if args.w_range_nl is None:
+#        args.w_range_nl = copy(args.w_range)
+
+    wl__w, rss_flux_org, rss_eflux_org = load_LVM_rss(args.lvm_file)
+#   just a check
+#    print(rss_flux.shape)
+
+    # Include here the AG-cam meadiand file!
+    #
+    tab_PT_org = read_PT(args.lvm_file,'none')
+
+
+
+    #
+    # Read the YAML file
+    #
+    print(args.config_yaml)
+    with open(args.config_yaml, 'r') as yaml_file:
+        dap_config_args = yaml.safe_load(yaml_file)
+    print(dap_config_args)
+
+
+    #
+    # We mask the bad spectra
+    #
+    rss_flux = rss_flux_org[tab_PT_org['mask']]
+    rss_eflux = rss_eflux_org[tab_PT_org['mask']]
+    tab_PT = tab_PT_org[tab_PT_org['mask']]
+    print(tab_PT)

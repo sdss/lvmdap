@@ -50,6 +50,7 @@ preprocess-muse="lvmdap._cmdline.preprocess_muse:_main"
 preprocess-manga="lvmdap._cmdline.preprocess_manga:_main"
 gas-cube-extractor="lvmdap._cmdline.gas_cube_extractor:_main"
 mwm-dap="lvmdap._cmdline.mwm_dap:_main"
+lvm-dap-conf="lvmdap._cmdline.dap:_dap_yaml"
 
 [tool.dephell.main]
 from = {format = "poetry", path = "pyproject.toml"}
