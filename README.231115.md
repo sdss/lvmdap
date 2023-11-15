@@ -92,6 +92,15 @@ LVM_DAP_RSP : The directory in which the RSP (stellar templates) are stored
 
 We will assume hereafter that LVM_DAP_RSP corresponds to "_fitting_data" for simplicity.
 
+# Tests
+
+Go to the _examples directory and run the script fit_6109_strong.sh. If everything runs ok,
+the you have the required files to run the DAP.
+
+
+# Addtional examples
+
+If you want to run the notebooks in the [testing notebooks](https://gitlab.com/chemical-evolution/lvm-dap/-/tree/master/notebooks/dap-testing) section, you will need also to download the required data stored in [google drive](https://drive.google.com/drive/folders/1FwEGhTxnAyM7ld6nsSorG15Dq3LVH1I9?usp=sharing) into the `lvm-dap` directory. Ask for access to amejia@astro.unam.mx.
 
 If the installation went successfully (and you downloaded the data) your tree directory should look like:
 
@@ -110,15 +119,24 @@ If the installation went successfully (and you downloaded the data) your tree di
     ├── run-fsps-MaNGA-v2
     └── setup.py
 
-and you should be able to run the following examples
+and you should be able to run the following example:
 
-# Tests
+lvm-dap _fitting-data/simulations/ssps/fsps-ssp-mist-miles-1p00000_0p00100gyr.txt _fitting-data/_basis_mastar_v2/stellar-basis-spectra-100.fits.gz 0.33283937056926377 1p00000_0p00100gyr --mask-file _fitting-data/_configs/MaNGA/mask_elines.txt --emission-lines-file _fitting-data/_configs/MaNGA/emission_lines_long_list.MaNGA --w-range 3600 10000 --w-range-nl 3600 4700 --redshift 0 0 0 0 --sigma 0 0 0 0 --AV 0 0 0 0
 
-(1) Go to the _examples directory and run the script fit_6109_strong.sh. If everything runs ok,
-the you have the required files to run the DAP.
+lvm-dap _fitting-data/simulations/ssps/fsps-ssp-mist-miles-1p00000_0p00100gyr.txt _fitting-data/_basis_mastar_v2/stellar-basis-spectra-100.fits.gz 0.33283937056926377 1p00000_0p00100gyr --mask-file _fitting-data/_configs/MaNGA/mask_elines.txt --emission-lines-file _fitting-data/_configs/MaNGA/emission_lines_long_list.MaNGA --w-range 3600 10000 --w-range-nl 3600 4700 --redshift 0 0 0 0 --sigma 0 0 0 0 --AV 0 0 0 0
 
-(2) Go to the _examples directory and run the command line:
+which will produce the following output files:
 
-lvm-dap-conf data/lvmCFrame-00006109.fits dap-4-00006109 ../_legacy/lvm-dap_fast.yaml
+    1p00000_0p00100gyr                            1p00000_0p00100gyr.autodetect.8400_9999.conf           coeffs_1p00000_0p00100gyr
+    1p00000_0p00100gyr.autodetect.3600_5199.conf  1p00000_0p00100gyr.autodetect.auto_ssp_several.config  elines_1p00000_0p00100gyr
+    1p00000_0p00100gyr.autodetect.5200_6799.conf  1p00000_0p00100gyr.autodetect.emission_lines.txt       output.1p00000_0p00100gyr.fits.gz
+    1p00000_0p00100gyr.autodetect.6800_8399.conf  1p00000_0p00100gyr.autodetect.mask_elines.txt
 
+# Examples
+
+You can get familiar with the full spectral analysis implemented in `lvm-dap` either running the notebooks in the `notebooks` folder or running the following example in the console:
+
+    lvm-dap CS.LMC_043.RSS.fits.gz _fitting-data/_basis_mastar_v2/stellar-basis-spectra-100.fits.gz 2.31 test --input-fmt rss --error-file e_CS.LMC_043.RSS.fits.gz --rsp-nl-file _fitting-data/_basis_mastar_v2/stellar-basis-spectra-5.fits.gz --w-range 4800 8000 --w-range-nl 4800 6000 --redshift 0.000875 0 -0.5 0.5 --sigma 0 0 0 350 --AV 0 0.01 0 1.6 --sigma-gas 3.7 --emission-lines-file _fitting-data/_configs/MaNGA/emission_lines_long_list.txt -c
+
+This will analyse the MUSE-LMC pointing 43 in RSS format and produce the outputs in the same format as `pyFIT3D`.
 

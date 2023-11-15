@@ -21,6 +21,7 @@ from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
 
 from lvmdap.modelling.synthesis import StellarSynthesis
 from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header, plot_spec, read_rsp
+from lvmdap.dap_tools import plot_spectra
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW
 
 from scipy.ndimage import gaussian_filter1d,median_filter
@@ -499,7 +500,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     )
 
 
-
     
     args = parser.parse_args(cmd_args)
     print(cmd_args)
@@ -509,19 +509,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     else:
         pprint("COMMAND LINE ARGUMENTS")
         pprint(f"{args}\n")
-#    if args.rsp_nl_file is None:
-#        args.rsp_nl_file = args.rsp_file
-#    if args.w_range_nl is None:
-#        args.w_range_nl = copy(args.w_range)
-
-    wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org = load_LVM_rss(args.lvm_file)
-#   just a check
-#    print(rss_flux.shape)
-
-    # Include here the AG-cam meadiand file!
-    #
-    tab_PT_org = read_PT(args.lvm_file,'none')
-
 
 
     #
@@ -557,6 +544,30 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     
     args = parser.parse_args(cmd_args)
 
+    try:
+        ny_range=args.ny_range
+    except:
+        ny_range=None
+
+
+
+
+
+
+
+#    if args.rsp_nl_file is None:
+#        args.rsp_nl_file = args.rsp_file
+#    if args.w_range_nl is None:
+#        args.w_range_nl = copy(args.w_range)
+
+    wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org = load_LVM_rss(args.lvm_file,ny_range=ny_range)
+#   just a check
+#    print(rss_flux.shape)
+
+    # Include here the AG-cam meadiand file!
+    #
+    tab_PT_org = read_PT(args.lvm_file,'none',ny_range=ny_range)
+
 
     
 #    print(args.rsp_file)
@@ -572,7 +583,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     rss_flux = rss_flux_org[tab_PT_org['mask']]
     rss_eflux = rss_eflux_org[tab_PT_org['mask']]
     tab_PT = tab_PT_org[tab_PT_org['mask']]
+    hdr_flux=copy(hdr_flux_org)
+    hdr_flux['NAXIS2']=len(tab_PT)
 
+    print(f'# Number of spectra to analyze : {len(tab_PT)}')
     #
     # First we create a mean spectrum
     #
@@ -582,7 +596,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     vel__yx=np.zeros(1)
     sigma__yx=1.5
-    print(m_flux.shape[0])
+    print(f'# Number of spectral pixels : {m_flux.shape[0]}')
     m_flux_rss = np.zeros((1,m_flux.shape[0]))
     m_flux_rss[0,:]=m_flux
 #    m_e_flux_rss = np.zeros((1,m_flux.shape[0]))
@@ -669,7 +683,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       SPS.output_coeffs_MC(filename=out_file_coeffs)    
       SPS.output(filename=out_file_ps)
 
-      ####################################################################
+    ####################################################################
+    # Preliminar version of the output plot
     if (args.do_plots==1):
         plot_spec(dir='',file=out_file_fit,\
             file_ssp = out_file_ps,\
@@ -711,6 +726,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print("##############################################")
     print("# End fitting the integrated spectrum ########")
     print("##############################################")
+    print("\n")
+    print("##############################################")
+    print("# Start fitting full RSS spectra  with RSPs ##")
+    print("##############################################")
 
     ############################################################################
     # FIT all the RSS
@@ -731,7 +750,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         clean_preview_results_files(out_file_ps, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
         clean_preview_results_files(out_file_fe, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
     # ----------------------------------------------------------------------------------------------
-       # OUTPUT NAMES ---------------------------------------------------------------------------------
+    # OUTPUT NAMES ---------------------------------------------------------------------------------
     is_guided_sigma = False
     guided_nl = False
     guided_errors = None
@@ -807,3 +826,46 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     model_spectra = np.array(model_spectra).transpose(1, 0, 2)
     dump_rss_output(out_file_fit=out_file_fit, wavelength=wl__w, model_spectra=model_spectra)
+    #
+    # Do a plot of the 1st and the last spectra
+    #
+    if (args.do_plots==1):
+        plot_spectra(dir='',n_sp=0, file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_first.{args.label}.pdf')
+        plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1, file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_last.{args.label}.pdf')
+
+    print("##############################################")
+    print("# End fitting full RSS spectra with RSPs #####")
+    print("##############################################")
+    print("\n")
+    print("#####################################################")
+    print("# START: Flux_elines analysis on full RSS spectra ###")
+    print("#####################################################")
+
+    ############################################################################
+    # Run flux_elines full SSP spectrum spectrum
+    #
+    print(f'model_spectra_shape {model_spectra.shape}')
+    vel__yx=np.zeros(hdr_flux['NAXIS2'])
+    sigma__yx=1.5
+
+
+    fe_data, fe_hdr =flux_elines_RSS_EW(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5, args.emission_lines_file, vel__yx,\
+                                              sigma__yx,eflux__wyx=rss_eflux,\
+                                              flux_ssp__wyx=model_spectra[1,:,:],w_range=15)
+    colnames=[]
+    for i in range(fe_data.shape[0]):
+      colname=str(fe_hdr[f'NAME{i}'])+'_'+str(fe_hdr[f'WAVE{i}'])
+      colname=colname.replace(' ','_')
+      colnames.append(colname)
+    colnames=np.array(colnames)
+    tab_fe=Table(np.transpose(fe_data),names=colnames)  
+    print(tab_fe)
+    print("##################################################")
+    print("# END Flux_elines analysis on full RSS spectra ###")
+    print("##################################################")
+ 
+    print(tab_PT)
