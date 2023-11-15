@@ -20,15 +20,18 @@ from pyFIT3D.common.io import create_emission_lines_file_from_list
 from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
 
 from lvmdap.modelling.synthesis import StellarSynthesis
-from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header
+from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header, plot_spec, read_rsp
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW
 
 from scipy.ndimage import gaussian_filter1d,median_filter
 
 from astropy.table import Table
 from astropy.table import vstack as vstack_table
+from astropy.io import fits, ascii
 
 import yaml
+import re
+from collections import Counter
 
 CWD = os.path.abspath(".")
 EXT_CHOICES = ["CCM", "CAL"]
@@ -582,41 +585,51 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print(m_flux.shape[0])
     m_flux_rss = np.zeros((1,m_flux.shape[0]))
     m_flux_rss[0,:]=m_flux
-    m_e_flux_rss = np.zeros((1,m_flux.shape[0]))
-    m_e_flux_rss[0,:]=e_flux
-    m_s_flux_rss = np.zeros((1,s_flux.shape[0]))
-    m_s_flux_rss[0,:]=s_flux
+#    m_e_flux_rss = np.zeros((1,m_flux.shape[0]))
+#    m_e_flux_rss[0,:]=e_flux
+#    m_s_flux_rss = np.zeros((1,s_flux.shape[0]))
+#    m_s_flux_rss[0,:]=s_flux
 
     if ((args.flux_scale[0]==-1) and (args.flux_scale[1]==1)):
       args.flux_scale[0]=-0.1*np.abs(np.median(m_flux_rss))
       args.flux_scale[1]=3*np.abs(np.median(m_flux_rss))+10*np.std(m_flux_rss)
 
-    #
+    ############################################################################
     # Run flux_elines on the mean spectrum
     #
-    fe_m_data, fe_m_hdr =flux_elines_RSS_EW(m_flux_rss, hdr_flux_org, 5, args.emission_lines_file, vel__yx,\
-                                              sigma__yx,eflux__wyx=m_e_flux_rss,\
-                                              flux_ssp__wyx=m_s_flux_rss,w_range=15)
-    colnames=[]
-    for i in range(fe_m_data.shape[0]):
-      colname=str(fe_m_hdr[f'NAME{i}'])+'_'+str(fe_m_hdr[f'WAVE{i}'])
-      colname=colname.replace(' ','_')
-      colnames.append(colname)
-    colnames=np.array(colnames)
-    tab_fe_m=Table(np.transpose(fe_m_data),names=colnames)  
-    print(tab_fe_m)
+#    fe_m_data, fe_m_hdr =flux_elines_RSS_EW(m_flux_rss, hdr_flux_org, 5, args.emission_lines_file, vel__yx,\
+#                                              sigma__yx,eflux__wyx=m_e_flux_rss,\
+#                                              flux_ssp__wyx=m_s_flux_rss,w_range=15)
+#    colnames=[]
+#    for i in range(fe_m_data.shape[0]):
+#      colname=str(fe_m_hdr[f'NAME{i}'])+'_'+str(fe_m_hdr[f'WAVE{i}'])
+#      colname=colname.replace(' ','_')
+#      colnames.append(colname)
+#    colnames=np.array(colnames)
+#    tab_fe_m=Table(np.transpose(fe_m_data),names=colnames)  
+#    print(tab_fe_m)
     
     #########################################################
     # We fit the mean spectrum with RSPs 
     #
     # OUTPUT NAMES ---------------------------------------------------------------------------------
+    #
+    try:
+        os.makedirs(args.output_path)
+        print(f'# dir {args.output_path} created')
+    except:
+        print(f'# dir {args.output_path} alrady exists')
     out_file_fe = os.path.join(args.output_path, f"m_{args.label}.fe.txt")
     out_file_elines = os.path.join(args.output_path, f"m_{args.label}.elines.txt")
     out_file_single = os.path.join(args.output_path, f"m_{args.label}.single.txt")
     out_file_coeffs = os.path.join(args.output_path, f"m_{args.label}.coeffs.txt")
     out_file_fit = os.path.join(args.output_path, f"m_{args.label}.output.fits.gz")
     out_file_ps = os.path.join(args.output_path, f"m_{args.label}.rsp.txt")
-    
+
+    #
+    #
+    #
+
     # remove previous outputs with the same label
     if args.clear_outputs:
         clean_preview_results_files(out_file_ps, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
@@ -657,7 +670,140 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       SPS.output(filename=out_file_ps)
 
       ####################################################################
+    if (args.do_plots==1):
+        plot_spec(dir='',file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_m.{args.label}.pdf')
+
+    ############################################################################
+    # Run flux_elines on the mean spectrum once subtracted the RSP model
+    #
+    out_model = np.array(SPS.output_spectra_list)
+    m_flux_rss = np.zeros((1,m_flux.shape[0]))
+    m_flux_rss[0,:]=out_model[0,:]-out_model[1,:]
+    m_e_flux_rss = np.zeros((1,m_flux.shape[0]))
+    m_e_flux_rss[0,:]=e_flux
+    m_s_flux_rss = np.zeros((1,s_flux.shape[0]))
+    m_s_flux_rss[0,:]=out_model[1,:]
+
+#    if ((args.flux_scale[0]==-1) and (args.flux_scale[1]==1)):
+#      args.flux_scale[0]=-0.1*np.abs(np.median(m_flux_rss))
+#      args.flux_scale[1]=3*np.abs(np.median(m_flux_rss))+10*np.std(m_flux_rss)
 
 
+
+    ############################################################################
+    # Run flux_elines on the mean spectrum
+    #
+    fe_m_data, fe_m_hdr =flux_elines_RSS_EW(m_flux_rss, hdr_flux_org, 5, args.emission_lines_file, vel__yx,\
+                                              sigma__yx,eflux__wyx=m_e_flux_rss,\
+                                              flux_ssp__wyx=m_s_flux_rss,w_range=15)
+    colnames=[]
+    for i in range(fe_m_data.shape[0]):
+      colname=str(fe_m_hdr[f'NAME{i}'])+'_'+str(fe_m_hdr[f'WAVE{i}'])
+      colname=colname.replace(' ','_')
+      colnames.append(colname)
+    colnames=np.array(colnames)
+    tab_fe_m=Table(np.transpose(fe_m_data),names=colnames)  
+    print(tab_fe_m)
     
 
+    print("##############################################")
+    print("# End fitting the integrated spectrum ########")
+    print("##############################################")
+
+    ############################################################################
+    # FIT all the RSS
+    ############################################################################
+    out_file_fe = os.path.join(args.output_path, f"{args.label}.fe.txt")
+    out_file_elines = os.path.join(args.output_path, f"{args.label}.elines.txt")
+    out_file_single = os.path.join(args.output_path, f"{args.label}.single.txt")
+    out_file_coeffs = os.path.join(args.output_path, f"{args.label}.coeffs.txt")
+    out_file_fit = os.path.join(args.output_path, f"{args.label}.output.fits.gz")
+    out_file_ps = os.path.join(args.output_path, f"{args.label}.rsp.txt")
+
+    #
+    #
+    #
+
+    # remove previous outputs with the same label
+    if args.clear_outputs:
+        clean_preview_results_files(out_file_ps, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
+        clean_preview_results_files(out_file_fe, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
+    # ----------------------------------------------------------------------------------------------
+       # OUTPUT NAMES ---------------------------------------------------------------------------------
+    is_guided_sigma = False
+    guided_nl = False
+    guided_errors = None
+    sigma_seq = []
+    input_delta_sigma = args.sigma[1]
+    input_min_sigma = args.sigma[2]
+    input_max_sigma = args.sigma[3]
+    model_spectra = []
+    y_ratio = None
+    ns = rss_flux.shape[0]
+    for i, (f__w, ef__w) in enumerate(zip(rss_flux, rss_eflux)):
+        print(f"\n# ID {i}/{ns - 1} ===============================================\n")
+        if i > 0 and is_guided_sigma:
+            if SPS.best_sigma > 0:
+                sigma_seq.append(SPS.best_sigma)
+            guided_sigma = SPS.best_sigma
+            k_seq = len(sigma_seq)
+            n_seq_last = int(0.2*i)
+            if n_seq_last < 10:
+                n_seq_last = 10
+            if k_seq > n_seq_last:
+                guided_sigma = np.median(np.asarray(sigma_seq)[-n_seq_last:])
+            input_sigma = guided_sigma
+            min_sigma = guided_sigma - input_delta_sigma
+            max_sigma = guided_sigma + input_delta_sigma
+            delta_sigma = 0.25*input_delta_sigma
+            if min_sigma < input_min_sigma:
+                min_sigma = input_min_sigma
+            if max_sigma > input_max_sigma:
+                max_sigma = input_max_sigma
+        _, SPS = auto_rsp_elines_rnd(
+            wl__w, f__w, ef__w, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
+            config_file=args.config_file,
+            w_min=args.w_range[0], w_max=args.w_range[1], nl_w_min=args.w_range_nl[0],
+            nl_w_max=args.w_range_nl[1], mask_list=args.mask_file,
+            min=args.flux_scale[0], max=args.flux_scale[1], elines_mask_file=args.emission_lines_file,
+            fit_gas=not args.ignore_gas, refine_gas=not args.single_gas_fit, sigma_gas=args.sigma_gas,
+            input_redshift=args.redshift[0], delta_redshift=args.redshift[1], min_redshift=args.redshift[2], max_redshift=args.redshift[3],
+            input_sigma=args.sigma[0], delta_sigma=args.sigma[1], min_sigma=args.sigma[2], max_sigma=args.sigma[3],
+            input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3], y_ratio=y_ratio,
+            sigma_inst=args.sigma_inst, spaxel_id=f"{args.label}_{i}", out_path=args.output_path, plot=args.plot
+        )
+        y_ratio = SPS.ratio_master
+        SPS.output_gas_emission(filename=out_file_elines, spec_id=i)
+        SPS.output_coeffs_MC(filename=out_file_coeffs, write_header=i==0)
+        try:
+            SPS.output(filename=out_file_ps, write_header=i==0, block_plot=False)
+        except:
+            SPS.mass_to_light = np.nan
+            SPS.teff_min = np.nan
+            SPS.logg_min = np.nan
+            SPS.meta_min = np.nan
+            SPS.alph_min = np.nan
+            SPS.AV_min = np.nan
+            SPS.mass_to_light = np.nan
+            SPS.teff_min_mass = np.nan
+            SPS.logg_min_mass = np.nan
+            SPS.meta_min_mass = np.nan
+            SPS.alph_min_mass = np.nan
+            SPS.AV_min_mass = np.nan
+            SPS.e_teff_min = np.nan
+            SPS.e_logg_min = np.nan
+            SPS.e_meta_min = np.nan
+            SPS.e_alph_min = np.nan
+            SPS.e_AV_min = np.nan
+            SPS.e_teff_min_mass = np.nan
+            SPS.e_logg_min_mass = np.nan
+            SPS.e_meta_min_mass = np.nan
+            SPS.e_alph_min_mass = np.nan
+            SPS.e_AV_min_mass = np.nan
+            SPS.output(filename=out_file_ps, write_header=i==0, block_plot=False)
+        model_spectra.append(SPS.output_spectra_list)
+
+    model_spectra = np.array(model_spectra).transpose(1, 0, 2)
+    dump_rss_output(out_file_fit=out_file_fit, wavelength=wl__w, model_spectra=model_spectra)

@@ -3,7 +3,7 @@ import sys
 import warnings
 import itertools
 import numpy as np
-from astropy.io import fits
+from astropy.io import fits, ascii
 from copy import deepcopy as copy
 from os.path import basename, isfile
 import os
@@ -12,6 +12,7 @@ from scipy.ndimage import median_filter
 from astropy.io.fits.verify import VerifyWarning
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 
 from pyFIT3D.common.stats import median_filter as st_median_filter
 from pyFIT3D.common.stats import hyperbolic_fit_par, std_m, pdl_stats, _STATS_POS
@@ -23,8 +24,9 @@ from pyFIT3D.common.constants import __solar_luminosity__, __solar_metallicity__
 
 from astropy.table import Table
 from astropy.table import vstack as vstack_table
-
-
+from lvmdap.cmaps_CLC import vel_map_CLC
+import re
+from collections import Counter
 
 warnings.simplefilter('ignore', category=VerifyWarning)
 
@@ -497,7 +499,6 @@ def read_PT(fitsfile, agcam_coadd, nobad=False):
     return tab
 
 
-
 def rsp_print_header(filename,wavenorm=None):
     """
         Writes the main output file header.
@@ -540,3 +541,145 @@ def rsp_print_header(filename,wavenorm=None):
     
     if not isinstance(filename, io.TextIOWrapper):
         f_outfile.close()
+
+def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
+              name='none',cmap=None,\
+              x_min=3600,x_max=9400,y_min=-0.2,y_max=2,text='',\
+              file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
+             id_lines=None,output='junk.pdf'):
+    tab_SSP=read_rsp(file_ssp)
+    
+    if (cmap==None):
+        color_cm_now = vel_map_CLC()
+        cmap=color_cm_now
+    file=dir+'/'+file
+    hdu=fits.open(file)
+    data=hdu[0].data
+    (ny,nx)=data.shape
+#    data=np.mean(data,axis=1)
+    i0 = int(nx*0.45)
+    i1 = int(nx*0.55)
+
+    data = data / np.median(data[0,i0:i1])
+    hdr=hdu[0].header
+    crval = hdr['crval1']
+    cdelt = hdr['cdelt1']
+    crpix = hdr['crpix1']
+    #print(data.shape)
+    (ny,nx) = data.shape
+    wave = crval+cdelt*(np.arange(0,nx)-(crpix-1))
+    fig = plt.figure(figsize=(17,6)) 
+    gs = fig.add_gridspec(nrows=5, ncols=7, left=0.075, right=0.97, hspace=0.0, wspace=0.05, bottom=0.12, top=0.99)
+    ax0 = fig.add_subplot(gs[:-1, 0:6])
+    ax1 = fig.add_subplot(gs[-1:, 0:6], sharex=ax0)
+    ax2 = fig.add_subplot(gs[:, 6:7])
+    ax2.axis('off')
+    ax0.set_xlim(x_min,x_max)
+    ax1.set_xlim(x_min,x_max)
+    ax0.set_ylim(y_min,y_max)
+    colors=color_cm_now(np.linspace(0,1,10))
+    if (no_st==False):
+        ax0.plot(wave,data[0,:],color=colors[7],alpha=1.0,label=r'Observed (O$_\lambda$)')
+        if (no_model==False):
+            ax0.plot(wave,data[1,:],color=colors[0],alpha=1.0,label=r'Model (M$_\lambda$)')
+    res = data[0,:]-data[1,:]
+    gas_model = data[2,:]-data[1,:]
+    ax0.plot(wave,res,color=colors[4],alpha=0.7,\
+             label=r'Residual (O$_\lambda$-M$_\lambda$)',linewidth=3)
+    if (no_model==False):
+        ax0.plot(wave,gas_model,color=colors[9],alpha=0.7,\
+                 label=r'EL model')
+    
+    std_res = np.std(res[2000:2500])
+    flux = np.median(data[1,2000:2500])
+    ax0.axvspan(5600, 5850, alpha=0.7, color='grey',zorder=10)
+    ax0.axvspan(7400, 7800, alpha=0.7, color='grey',zorder=10)
+    
+    
+#    print(len(res),std_res,flux,flux/std_res)
+    
+#    ax0.plot(wave,data[1,:],color=colors[9],alpha=0.7)
+    #ticks = np.arange(crval,crval+nx*cdelt, 500*cdelt)
+    #print(ticks)
+    #ax0.set_xticks(ticks)
+    ax0.xaxis.set_minor_locator(MultipleLocator(100))
+    ax0.axes.get_xaxis().set_visible(False)
+    handles, labels = ax0.get_legend_handles_labels()
+    ax0.legend(handles, labels,loc=(0.5,0.7),frameon=False,handlelength=1.5,\
+               ncol=2,columnspacing=0.15, prop={'size': 22})
+    x = np.arange(x_min,1.1*x_max,100)
+    y1 = 5+0*x
+    y0 = -5+0*x
+
+    ax1.fill_between(x, y0, y1,color=colors[4],alpha=1.0)
+#    ax1.plot(wave,100*res,color=colors[4],alpha=1.0,label=r'Residual (O$_\lambda$-M$_\lambda$)')    
+    ax1.plot(wave,100*res,color='white',alpha=0.3,label=r'Residual (O$_\lambda$-M$_\lambda$)')   
+    if (id_lines != None):
+        colors=['darkred','firebrick','indianred']
+        mask_lines = (id_lines['wl'].value>=x_min) & (id_lines['wl'].value<x_max)
+        tab_elines = id_lines[mask_lines]
+        even=0
+        for line in tab_elines:
+            ax1.plot([line['wl'],line['wl']],[-1+2.5*even,6],color=colors[even])
+            ax1.text(line['wl'],-4+2.5*even,line['eline'],color=colors[even],\
+                     fontsize='16',horizontalalignment='center')
+            ax0.text(line['wl'],y_max-0.16*(even+1)*(y_max-y_min),\
+                     f"{line['wl']}",color=colors[even],\
+                     fontsize='16',horizontalalignment='center',rotation='vertical')
+            even=even+1
+            if (even>2):
+                even=0
+        #print(tab_elines)
+    ax1.set_ylim(-6.5,6.5)
+    ax1.set_xlabel(r'rest-frame wavelength [\AA]', fontsize=23)
+    ax1.set_ylabel(r'$<$R$_\lambda$/O$_{5500}$$>$[\%]', fontsize=23)
+    ax0.set_ylabel(r'$<$O$_\lambda$/O$_{5500}$$>$', fontsize=23)
+    ax0.text(x_min+0.05*(x_max-x_min),y_min+0.85*(y_max-y_min),text,fontsize=21)
+
+    if (no_model==False):
+        cols=('MIN_CHISQ','Teff','e_Teff','Log_g','e_Log_g','Fe','e_Fe','alpha','e_alpha','z','e_z','disp','e_disp','Av','e_Av')
+#        cols=('MIN_CHISQ','Av','AV_error','vel_sys','Teff','e_Teff','log_g','e_log_g','Fe_H','e_Fe_H','a_Fe','e_a_Fe')
+        d=0.95/len(cols)
+        for i,key in enumerate(cols):
+            val=np.round(tab_SSP[key].value[0],3)
+            skey=key.replace('_','\_')
+            ax2.text(0.05,0.95-d*i,f'{skey} : {val}');   
+    if (log==True):
+        ax0.set_yscale('log')
+    fig.tight_layout()
+    fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+
+
+def read_rsp(file_ssp = 'output/m_lvmSCFrame-00006109'):
+    col_SSP=header_columns_space(file_ssp,2)
+    tab_SSP=ascii.read(file_ssp, delimiter=',', guess=True, comment='\s*#', names=col_SSP,\
+                       fill_values=[('BAD', np.nan)])
+    return tab_SSP
+
+#tab_SSP=read_rsp()
+#list_columns(tab_SSP.columns)
+
+def header_columns_space(filename,column):
+    COMMENT_CHAR = '#'
+    col_NAME = []
+    with open(filename, 'r') as td:
+        for line in td:
+            if ((line[0] == COMMENT_CHAR) and (line.find('HEADER')==-1) and (line.find(')')>-1)):
+                line.replace("\)","")
+                line.replace("\(","")
+                line.replace("\/","")
+                info = re.split(' +', line.rstrip('\n'))
+                info_now=info[column]
+                for i in np.arange(column+1,len(info)):
+                    if ((info[i]) and not (")" in info[i])):
+                        info_now=info_now+'_'+info[i]
+                col_NAME.append(info_now)
+    counts = {k:v for k,v in Counter(col_NAME).items() if v > 1}
+    col_NAME_NEW = col_NAME[:]
+    for i in reversed(range(len(col_NAME))):
+        item = col_NAME[i]
+        if item in counts and counts[item]:
+            if (counts[item]>1):
+                col_NAME_NEW[i] += str(counts[item]-1)
+            counts[item]-=1                
+    return col_NAME_NEW
