@@ -250,15 +250,23 @@ def dap_indices_spec(wave__w, flux_ssp__w, res__w, redshift, n_sim, plot=0, wl_h
 def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None):
     """Return the RSS from the given and LVM filename in the parsed command line arguments"""
     hdu = fits.open(lvm_file, memmap=False)
+    rss_0_hdr = hdu[0].data
     rss_f_spectra = hdu['FLUX'].data
     rss_f_hdr = hdu['FLUX'].header
     try:
         rss_e_spectra = hdu['ERROR'].data
     except:
-        rss_e_spectra = np.abs(rss_f_spectra-median_filter(rss_f_spectra,size=(1,51)))        
+        rss_e_spectra = np.abs(rss_f_spectra-median_filter(rss_f_spectra,size=(1,51)))  
+    # We force an arbitrary (?) error      
+    #rss_e_spectra = np.abs(0.07*rss_f_spectra)+0.07*np.nanmean(np.abs(rss_f_spectra[rss_f_spectra>0]))
+    #rss_e_spectra = np.abs(0.07*rss_f_spectra)+0.07*np.nanmean(np.abs(rss_f_spectra[rss_f_spectra>0]))
+#    rss_e_spectra = 2*median_filter(np.abs(rss_f_spectra-median_filter(rss_f_spectra,size=(1,51))),size=(1,51))        
     wl__w = np.array([rss_f_hdr["CRVAL1"] + i*rss_f_hdr["CDELT1"] for i in range(rss_f_hdr["NAXIS1"])])
     wl__w = wl__w*m2a
     rss_f_spectra=rss_f_spectra*flux_scale
+    #
+    # We need to revise the errors!
+    #
     rss_e_spectra=rss_e_spectra*flux_scale
     rss_f_hdr["CRVAL1"]=rss_f_hdr["CRVAL1"]*m2a
     rss_f_hdr["CDELT1"]=rss_f_hdr["CDELT1"]*m2a
@@ -266,7 +274,7 @@ def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None):
         rss_f_spectra=rss_f_spectra[ny_range[0]:ny_range[1],:]
         rss_e_spectra=rss_e_spectra[ny_range[0]:ny_range[1],:]
         rss_f_hdr['NAXIS2']=ny_range[1]-ny_range[0]+1
-    return wl__w, rss_f_spectra, rss_e_spectra, rss_f_hdr
+    return wl__w, rss_f_spectra, rss_e_spectra, rss_f_hdr, rss_0_hdr
 
 
 
@@ -493,12 +501,16 @@ def read_PT(fitsfile, agcam_coadd, nobad=False, ny_range=None):
 
     ra_fib, dec_fib = make_radec(tab['xpmm'][sci], tab['ypmm'][sci], racen, deccen, pa)
     fiberid=tab['fiberid'][sci]
+    exp_fib=[]
+    for fibID in fiberid:
+        exp_fib.append(str(hdr['exposure'])+'.'+str(fibID))
     tab=Table()
-    tab['fiberid']=fiberid
+    tab['id']=np.array(exp_fib)
     tab['ra']=ra_fib.data
     tab['dec']=dec_fib.data
     tab['mask']=mask_bad
-    tab['exposure']=hdr['exposure']*np.arange(len(tab))
+    tab['fiberid']=fiberid
+    tab['exposure']=hdr['exposure']*np.ones(len(tab),dtype=int)
     if (ny_range != None):
         tab=tab[ny_range[0]:ny_range[1]]
 #    print(len(sci))
@@ -801,3 +813,71 @@ def header_columns_space(filename,column):
                 col_NAME_NEW[i] += str(counts[item]-1)
             counts[item]-=1                
     return col_NAME_NEW
+
+
+def read_coeffs_RSP(coeffs_file='output_dap/dap-4-00006109.coeffs.txt'):
+    COMMENT_CHAR = '#'
+    tab=Table()
+    nfb=0
+    vals_max=-1
+    a_vals=[]
+    with open(coeffs_file, 'r') as td:
+        for line in td:
+            if line[0] == COMMENT_CHAR:
+                cols=line.split()
+                cols=cols[1:]
+                cols[0]='rsp'
+            else:
+                vals=line.split()
+                a_vals.append(vals)
+    a_vals=np.array(a_vals, dtype=float)
+    n_models=np.int(np.max(a_vals[:,0]))
+    n_fib=np.int(a_vals.shape[0]/n_models)
+    id_fib=[]
+    i_fib=0
+    for i in a_vals[:,0]:
+        if (i==0):
+            i_fib=i_fib+1
+        I_fib=i_fib-1
+        id_fib.append(I_fib)
+    tab=Table()
+    tab['id_fib']=id_fib
+    for i,col_now in enumerate(cols):
+        val_now=a_vals[:,i]
+        if (col_now=='rsp'):
+            val_now=val_now.astype(int)
+        tab.add_column(val_now,name=col_now)
+    return(tab)
+
+def read_elines_RSP(elines_file='output_dap/dap-4-00006109.elines.txt'):
+    COMMENT_CHAR = '#'
+    tab=Table()
+    nfb=0
+    vals_max=-1
+    a_vals=[]
+    id_fib=0
+    with open(elines_file, 'r') as td:
+        for line in td:
+            if line[0] == COMMENT_CHAR:
+                cols=line.split()
+                id_fib=int(cols[1])
+            else:
+                vals=line.split()
+                vals=np.array(vals)
+                if ((vals[0]=='eline') or (vals[0]=='poly1d')):
+                    line_new=str(id_fib)+' '+line
+                    vals=line_new.split()
+                    a_vals.append(vals)
+    a_vals=np.array(a_vals)
+    a_vals=a_vals[:,0:10]
+    tab=Table()
+    tab.add_column(a_vals[:,0].astype(int),name='id_fib')
+    tab.add_column(a_vals[:,1],name='model')
+    tab.add_column(a_vals[:,2].astype(float),name='wl')
+    tab.add_column(a_vals[:,4].astype(float),name='flux')
+    tab.add_column(a_vals[:,5].astype(float),name='e_flux')
+    tab.add_column(a_vals[:,6].astype(float),name='disp')
+    tab.add_column(a_vals[:,7].astype(float),name='e_disp')
+    tab.add_column(a_vals[:,8].astype(float),name='vel')
+    tab.add_column(a_vals[:,9].astype(float),name='e_vel')    
+    return tab

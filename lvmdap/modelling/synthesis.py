@@ -251,7 +251,7 @@ class StellarSynthesis(StPopSynt):
 
         return chi_sq_median_norm[i_C_median_min]
 
-    def ssp_fit(self, n_MC=20):
+    def ssp_fit(self, n_MC=5):
         """
         Generates minimal ssp model through a Monte-Carlo search of the coefficients.
         I.e. go through fit_WLS_invmat() `n_MC` times (using fit.WLS_invmat_MC).

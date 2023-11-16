@@ -18,10 +18,11 @@ from pyFIT3D.common.gas_tools import detect_create_ConfigEmissionModel
 from pyFIT3D.common.io import create_ConfigAutoSSP_from_lists
 from pyFIT3D.common.io import create_emission_lines_file_from_list
 from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
+#from pyFIT3D.common.tools import read_coeffs_CS
 
 from lvmdap.modelling.synthesis import StellarSynthesis
 from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header, plot_spec, read_rsp
-from lvmdap.dap_tools import plot_spectra
+from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW
 
 from scipy.ndimage import gaussian_filter1d,median_filter
@@ -475,6 +476,9 @@ def _main(cmd_args=sys.argv[1:]):
 def _dap_yaml(cmd_args=sys.argv[1:]):
     PLATESCALE = 112.36748321030637
 
+#    print(f'n_MC = {__n_Monte_Carlo__}')
+#    quit()
+
     parser = argparse.ArgumentParser(
         description="lvm-dap-yaml LVM_FILE OUTPUT_LABEL CONFIG.YAML"
     )
@@ -560,7 +564,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #    if args.w_range_nl is None:
 #        args.w_range_nl = copy(args.w_range)
 
-    wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org = load_LVM_rss(args.lvm_file,ny_range=ny_range)
+    wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVM_rss(args.lvm_file,ny_range=ny_range)
 #   just a check
 #    print(rss_flux.shape)
 
@@ -591,7 +595,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # First we create a mean spectrum
     #
     m_flux = rss_flux.mean(axis=0)
-    e_flux = rss_eflux.mean(axis=0)
+    e_flux = rss_eflux.mean(axis=0)/np.sqrt(rss_flux.shape[0])
     s_flux = median_filter(m_flux,51)
 
     vel__yx=np.zeros(1)
@@ -683,12 +687,28 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       SPS.output_coeffs_MC(filename=out_file_coeffs)    
       SPS.output(filename=out_file_ps)
 
+    tab_m_coeffs=read_coeffs_RSP(coeffs_file=out_file_coeffs)
+    tab_m_elines=read_elines_RSP(elines_file=out_file_elines)
+    tab_m_rsp=read_rsp(file_ssp=out_file_ps)
+
     ####################################################################
     # Preliminar version of the output plot
     if (args.do_plots==1):
         plot_spec(dir='',file=out_file_fit,\
             file_ssp = out_file_ps,\
             name=args.label,text=args.label,output=f'{args.output_path}/output_m.{args.label}.pdf')
+        plot_spec(dir='',file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            x_min=6500,x_max=6600,y_min=-0.2,y_max=15.5,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_m_6500.{args.label}.pdf')
+        plot_spec(dir='',file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            x_min=6700,x_max=6750,y_min=-0.2,y_max=15.5,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_m_6700.{args.label}.pdf')
+        plot_spec(dir='',file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            x_min=4800,x_max=5030,y_min=-0.2,y_max=15.5,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_m_5000.{args.label}.pdf')
 
     ############################################################################
     # Run flux_elines on the mean spectrum once subtracted the RSP model
@@ -701,9 +721,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     m_s_flux_rss = np.zeros((1,s_flux.shape[0]))
     m_s_flux_rss[0,:]=out_model[1,:]
 
-#    if ((args.flux_scale[0]==-1) and (args.flux_scale[1]==1)):
-#      args.flux_scale[0]=-0.1*np.abs(np.median(m_flux_rss))
-#      args.flux_scale[1]=3*np.abs(np.median(m_flux_rss))+10*np.std(m_flux_rss)
 
 
 
@@ -719,8 +736,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       colname=colname.replace(' ','_')
       colnames.append(colname)
     colnames=np.array(colnames)
-    tab_fe_m=Table(np.transpose(fe_m_data),names=colnames)  
-    print(tab_fe_m)
+    tab_m_fe=Table(np.transpose(fe_m_data),names=colnames)  
     
 
     print("##############################################")
@@ -740,15 +756,13 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     out_file_coeffs = os.path.join(args.output_path, f"{args.label}.coeffs.txt")
     out_file_fit = os.path.join(args.output_path, f"{args.label}.output.fits.gz")
     out_file_ps = os.path.join(args.output_path, f"{args.label}.rsp.txt")
-
-    #
-    #
-    #
+    out_file_dap = os.path.join(args.output_path, f"{args.label}.dap.fits.gz")
 
     # remove previous outputs with the same label
     if args.clear_outputs:
         clean_preview_results_files(out_file_ps, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
         clean_preview_results_files(out_file_fe, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
+        clean_preview_results_files(out_file_dap, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
     # ----------------------------------------------------------------------------------------------
     # OUTPUT NAMES ---------------------------------------------------------------------------------
     is_guided_sigma = False
@@ -826,6 +840,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     model_spectra = np.array(model_spectra).transpose(1, 0, 2)
     dump_rss_output(out_file_fit=out_file_fit, wavelength=wl__w, model_spectra=model_spectra)
+
+    tab_rsp=read_rsp(file_ssp=out_file_ps)
+    tab_coeffs=read_coeffs_RSP(coeffs_file=out_file_coeffs)
+    tab_elines=read_elines_RSP(elines_file=out_file_elines)
     #
     # Do a plot of the 1st and the last spectra
     #
@@ -833,9 +851,37 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         plot_spectra(dir='',n_sp=0, file=out_file_fit,\
             file_ssp = out_file_ps,\
             name=args.label,text=args.label,output=f'{args.output_path}/output_first.{args.label}.pdf')
+        plot_spectra(dir='',n_sp=0,file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            x_min=6500,x_max=6600,y_min=-0.2,y_max=15.5,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_first_6500.{args.label}.pdf')
+        plot_spectra(dir='',n_sp=0,file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            x_min=6700,x_max=6750,y_min=-0.2,y_max=15.5,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_first_6700.{args.label}.pdf')
+        plot_spectra(dir='',n_sp=0,file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            x_min=4800,x_max=5030,y_min=-0.2,y_max=15.5,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_first_5000.{args.label}.pdf')        
+
+
         plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1, file=out_file_fit,\
             file_ssp = out_file_ps,\
             name=args.label,text=args.label,output=f'{args.output_path}/output_last.{args.label}.pdf')
+        plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            x_min=6500,x_max=6600,y_min=-0.2,y_max=15.5,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_last_6500.{args.label}.pdf')
+        plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            x_min=6700,x_max=6750,y_min=-0.2,y_max=15.5,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_last_6700.{args.label}.pdf')
+        plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
+            file_ssp = out_file_ps,\
+            x_min=4800,x_max=5030,y_min=-0.2,y_max=15.5,\
+            name=args.label,text=args.label,output=f'{args.output_path}/output_last_5000.{args.label}.pdf')        
+
+
 
     print("##############################################")
     print("# End fitting full RSS spectra with RSPs #####")
@@ -853,7 +899,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     sigma__yx=1.5
 
 
-    fe_data, fe_hdr =flux_elines_RSS_EW(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5, args.emission_lines_file, vel__yx,\
+    fe_data, fe_hdr =flux_elines_RSS_EW(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5, args.emission_lines_file_long, vel__yx,\
                                               sigma__yx,eflux__wyx=rss_eflux,\
                                               flux_ssp__wyx=model_spectra[1,:,:],w_range=15)
     colnames=[]
@@ -863,9 +909,45 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       colnames.append(colname)
     colnames=np.array(colnames)
     tab_fe=Table(np.transpose(fe_data),names=colnames)  
-    print(tab_fe)
     print("##################################################")
     print("# END Flux_elines analysis on full RSS spectra ###")
     print("##################################################")
  
-    print(tab_PT)
+
+
+    print("##################################################")
+    print("# START: Storing the results in a single file  ###")
+    print("##################################################")
+
+    tab_rsp.add_column(tab_PT['id'].value,name='id',index=0)
+    tab_fe.add_column(tab_PT['id'].value,name='id',index=0)
+
+    id_elines=[]    
+    for id_fib in tab_elines['id_fib']:
+        id_elines.append(tab_PT['id'].value[id_fib])
+    id_elines=np.array(id_elines)
+    tab_elines.add_column(id_elines,name='id',index=0)
+    
+    id_coeffs=[]    
+    for id_fib in tab_coeffs['id_fib']:
+        id_coeffs.append(tab_PT['id'].value[id_fib])
+    id_coeffs=np.array(id_coeffs)
+    tab_coeffs.add_column(id_coeffs,name='id',index=0)
+    
+
+    hdu_hdr_0 = fits.PrimaryHDU(header=hdr_0) 
+    hdu_PT = fits.BinTableHDU(tab_PT,name='PT')
+    hdu_ELINES = fits.BinTableHDU(tab_elines,name='ELINES')
+    hdu_FE = fits.BinTableHDU(tab_fe,name='FE')
+    hdu_RSP = fits.BinTableHDU(tab_rsp,name='RSP')
+    hdu_COEFFS = fits.BinTableHDU(tab_coeffs,name='COEFFS')
+
+    hdu_dap =fits.HDUList([hdu_hdr_0,hdu_PT,hdu_RSP,hdu_COEFFS,hdu_ELINES,hdu_FE])
+    hdu_dap.writeto(out_file_dap,overwrite=True)
+    print(f'# dap_file: {out_file_dap} written')
+    print("##################################################")
+    print("# END: Storing the results in a single file    ###")
+    print("##################################################")
+
+
+    print("#******   ALL DONE ******#")
