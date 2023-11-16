@@ -72,8 +72,11 @@ We recommend installing in a virtual environment to avoid dependencies crashing.
 Once you have created a virtual environment (if you chose to do so), simply run the following commands:
 
 git clone https://github.com/sdss/lvmdap
+
 cd lvmdap
+
 pip install .
+
 
 Then you need to download the content of the following directory in your computer:
 
@@ -81,12 +84,18 @@ http://ifs.astroscu.unam.mx/LVM/lvmdap_fitting-data/
 
 We recommend you to define three environmental variables:
 
-LVM_DAP     :   The directory in which the DAP is installed
+LVM_DAP     :
 
-LVM_DAP_CFG : The directory in which the configuration files are stored
+The directory in which the DAP is installed
+
+LVM_DAP_CFG :
+
+The directory in which the configuration files are stored
                nominally ${LVM_DAP}/_legacy
 	       
-LVM_DAP_RSP : The directory in which the RSP (stellar templates) are stored
+LVM_DAP_RSP :
+
+The directory in which the RSP (stellar templates) are stored
                that would be the directory were is stored the content of the "lvmdap_fitting-data" URL
 	       e.g., export LVM_DAP_RSP="_fitting_data";
 
@@ -119,6 +128,7 @@ the you have the required files to run the DAP.
 
 (2) Go to the _examples directory and run the command line:
 
-lvm-dap-conf data/lvmCFrame-00006109.fits dap-4-00006109 ../_legacy/lvm-dap_fast.yaml
+lvm-dap-conf data/lvmCFrame-00006109.fits.gz dap-4-00006109 ../_legacy/lvm-dap_fast.yaml
+
 
 
