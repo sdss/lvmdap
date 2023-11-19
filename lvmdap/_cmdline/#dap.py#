@@ -18,8 +18,12 @@ from pprint import pprint
 
 # pyFIT3D dependencies
 from pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
-from pyFIT3D.common.auto_ssp_tools import auto_ssp_elines_single_main, dump_rss_output
-from pyFIT3D.common.auto_ssp_tools import load_rss
+
+# 18.11.2023
+# So far we were ysing the auto_ssp_tools from pyFIT3D
+# We will attempt to modify them
+from pyFIT3D.common.auto_ssp_tools import auto_ssp_elines_single_main
+from pyFIT3D.common.auto_ssp_tools import load_rss, dump_rss_output
 from pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
 
 from pyFIT3D.common.gas_tools import detect_create_ConfigEmissionModel
