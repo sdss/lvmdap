@@ -18,8 +18,12 @@ from pprint import pprint
 
 # pyFIT3D dependencies
 from pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
-from pyFIT3D.common.auto_ssp_tools import auto_ssp_elines_single_main, dump_rss_output
-from pyFIT3D.common.auto_ssp_tools import load_rss
+
+# 18.11.2023
+# So far we were ysing the auto_ssp_tools from pyFIT3D
+# We will attempt to modify them
+from pyFIT3D.common.auto_ssp_tools import auto_ssp_elines_single_main
+from pyFIT3D.common.auto_ssp_tools import load_rss, dump_rss_output
 from pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
 
 from pyFIT3D.common.gas_tools import detect_create_ConfigEmissionModel
@@ -561,6 +565,16 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
         ny_range=None
 
+    try:
+        out_plot_format=args.out_plot_format
+    except:
+        out_plot_format="pdf"        
+
+    try:
+        only_integrated=args.only_integrated
+    except:
+        only_integrated=False
+
 
 
 
@@ -695,7 +709,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3],
       sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot
     )
-    print(f'#### END RSP fitting the intengrated spectrum...')
+    print(f'#### END RSP fitting the integrated spectrum...')
     
     # WRITE OUTPUTS --------------------------------------------------------------------------------
     SPS.output_gas_emission(filename=out_file_elines)
@@ -703,8 +717,34 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       SPS.output_single_ssp(filename=out_file_single)
     else:
       SPS.output_fits(filename=out_file_fit)
-      SPS.output_coeffs_MC(filename=out_file_coeffs)    
-      SPS.output(filename=out_file_ps)
+      SPS.output_coeffs_MC(filename=out_file_coeffs)
+      try:
+        SPS.output(filename=out_file_ps)
+      except:
+        SPS.mass_to_light = np.nan
+        SPS.teff_min = np.nan
+        SPS.logg_min = np.nan
+        SPS.meta_min = np.nan
+        SPS.alph_min = np.nan
+        SPS.AV_min = np.nan
+        SPS.mass_to_light = np.nan
+        SPS.teff_min_mass = np.nan
+        SPS.logg_min_mass = np.nan
+        SPS.meta_min_mass = np.nan
+        SPS.alph_min_mass = np.nan
+        SPS.AV_min_mass = np.nan
+        SPS.e_teff_min = np.nan
+        SPS.e_logg_min = np.nan
+        SPS.e_meta_min = np.nan
+        SPS.e_alph_min = np.nan
+        SPS.e_AV_min = np.nan
+        SPS.e_teff_min_mass = np.nan
+        SPS.e_logg_min_mass = np.nan
+        SPS.e_meta_min_mass = np.nan
+        SPS.e_alph_min_mass = np.nan
+        SPS.e_AV_min_mass = np.nan
+        SPS.output(filename=out_file_ps)#, write_header=i==0, block_plot=False)
+      
 
     tab_m_coeffs=read_coeffs_RSP(coeffs_file=out_file_coeffs)
     tab_m_elines=read_elines_RSP(elines_file=out_file_elines)
@@ -715,7 +755,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     if (args.do_plots==1):
         plot_spec(dir='',file=out_file_fit,\
             file_ssp = out_file_ps,\
-                  name=args.label,text=args.label,output=f'{args.output_path}/output_m.{args.label}.pdf',\
+                  name=args.label,text=args.label,output=f'{args.output_path}/output_m.{args.label}.{out_plot_format}',\
                   insets=((0.25, 0.5, 0.22, 0.47,4840,5020,-0.5,16,''),\
                       (0.01, 0.5, 0.22, 0.47,3851,3999,-0.5,3,''),\
                       (0.52, 0.5, 0.22, 0.47,6303,6322,0.5,2,'[SIII]6312'),\
@@ -725,15 +765,15 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         plot_spec(dir='',file=out_file_fit,\
             file_ssp = out_file_ps,\
             x_min=6500,x_max=6600,y_min=-0.2,y_max=15.5,\
-            name=args.label,text=args.label,output=f'{args.output_path}/output_m_6500.{args.label}.pdf')
+            name=args.label,text=args.label,output=f'{args.output_path}/output_m_6500.{args.label}.{out_plot_format}')
         plot_spec(dir='',file=out_file_fit,\
             file_ssp = out_file_ps,\
             x_min=6700,x_max=6750,y_min=-0.2,y_max=15.5,\
-            name=args.label,text=args.label,output=f'{args.output_path}/output_m_6700.{args.label}.pdf')
+            name=args.label,text=args.label,output=f'{args.output_path}/output_m_6700.{args.label}.{out_plot_format}')
         plot_spec(dir='',file=out_file_fit,\
             file_ssp = out_file_ps,\
             x_min=4800,x_max=5030,y_min=-0.2,y_max=15.5,\
-            name=args.label,text=args.label,output=f'{args.output_path}/output_m_5000.{args.label}.pdf')
+            name=args.label,text=args.label,output=f'{args.output_path}/output_m_5000.{args.label}.{out_plot_format}')
 
     ############################################################################
     # Run flux_elines on the mean spectrum once subtracted the RSP model
@@ -762,6 +802,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       colnames.append(colname)
     colnames=np.array(colnames)
     tab_m_fe=Table(np.transpose(fe_m_data),names=colnames)  
+
+    if (args.only_integrated == True):
+      print("# Only mean spectrum analyzed: END ALL")
+      quit()
     
 
     print("##############################################")
@@ -875,7 +919,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     if (args.do_plots==1):
       plot_spectra(dir='',n_sp=0, file=out_file_fit,\
                    file_ssp = out_file_ps,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_first.{args.label}.pdf',\
+                   name=args.label,text=args.label,output=f'{args.output_path}/output_first.{args.label}.{out_plot_format}',\
                    insets=((0.25, 0.5, 0.22, 0.47,4840,5020,-0.5,16,''),\
                            (0.01, 0.5, 0.22, 0.47,3851,3999,-0.5,3,''),\
                            (0.52, 0.5, 0.22, 0.47,6303,6322,0.5,2,'[SIII]6312'),\
@@ -885,20 +929,20 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       plot_spectra(dir='',n_sp=0,file=out_file_fit,\
                    file_ssp = out_file_ps,\
                    x_min=6500,x_max=6600,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_first_6500.{args.label}.pdf')
+                   name=args.label,text=args.label,output=f'{args.output_path}/output_first_6500.{args.label}.{out_plot_format}')
       plot_spectra(dir='',n_sp=0,file=out_file_fit,\
                    file_ssp = out_file_ps,\
                    x_min=6700,x_max=6750,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_first_6700.{args.label}.pdf')
+                   name=args.label,text=args.label,output=f'{args.output_path}/output_first_6700.{args.label}.{out_plot_format}')
       plot_spectra(dir='',n_sp=0,file=out_file_fit,\
                    file_ssp = out_file_ps,\
                    x_min=4800,x_max=5030,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_first_5000.{args.label}.pdf')        
+                   name=args.label,text=args.label,output=f'{args.output_path}/output_first_5000.{args.label}.{out_plot_format}')        
 
 
       plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1, file=out_file_fit,\
                    file_ssp = out_file_ps,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_last.{args.label}.pdf',\
+                   name=args.label,text=args.label,output=f'{args.output_path}/output_last.{args.label}.{out_plot_format}',\
                    insets=((0.25, 0.5, 0.22, 0.47,4840,5020,-0.5,16,''),\
                            (0.01, 0.5, 0.22, 0.47,3851,3999,-0.5,3,''),\
                            (0.52, 0.5, 0.22, 0.47,6303,6322,0.5,2,'[SIII]6312'),\
@@ -908,15 +952,15 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
                    file_ssp = out_file_ps,\
                    x_min=6500,x_max=6600,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_last_6500.{args.label}.pdf')
+                   name=args.label,text=args.label,output=f'{args.output_path}/output_last_6500.{args.label}.{out_plot_format}')
       plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
                    file_ssp = out_file_ps,\
                    x_min=6700,x_max=6750,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_last_6700.{args.label}.pdf')
+                   name=args.label,text=args.label,output=f'{args.output_path}/output_last_6700.{args.label}.{out_plot_format}')
       plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
                    file_ssp = out_file_ps,\
                    x_min=4800,x_max=5030,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_last_5000.{args.label}.pdf')        
+                   name=args.label,text=args.label,output=f'{args.output_path}/output_last_5000.{args.label}.{out_plot_format}')        
 
 
 
