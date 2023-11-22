@@ -66,9 +66,9 @@ def list_columns(obj, cols=4, columnwise=True, gap=4):
     
 def make_colourmap(ind, red, green, blue, name):
     newInd = range(0, 256)
-    r = np.interp(newInd, ind, red, left=None, right=None)
-    g = np.interp(newInd, ind, green, left=None, right=None)
-    b = np.interp(newInd, ind, blue, left=None, right=None)
+    r = interp(newInd, ind, red, left=None, right=None)
+    g = interp(newInd, ind, green, left=None, right=None)
+    b = interp(newInd, ind, blue, left=None, right=None)
     colours = np.transpose(np.asarray((r, g, b)))
     fctab= colours/255.0
     cmap = colors.ListedColormap(fctab, name=name,N=None)
@@ -513,7 +513,7 @@ def my_contour(ax,x_cont,y_cont,x_min,x_max,y_min,y_max,c_color='red', title='',
         vals.append(counts[mask_now].sum()/sum_total)
 #    vals_cont=np.array([0.95,0.65,0.40])
     vals_cont=np.array(conts)
-    levels_cont=np.interp(vals_cont,np.array(levels),np.array(vals))
+    levels_cont=interp(vals_cont,np.array(levels),np.array(vals))
     counts_rot=np.rot90(counts,3)
     xbins=xbins+0.5*(x_max-x_min)/nbins
     ybins=ybins+0.5*(y_max-y_min)/nbins
@@ -550,7 +550,7 @@ def my_contourf(ax,x_cont,y_cont,x_min,x_max,y_min,y_max,c_color='red', title=''
         vals.append(counts[mask_now].sum()/sum_total)
 #    vals_cont=np.array([0.95,0.65,0.40])
     vals_cont=np.array(conts)
-    levels_cont=np.interp(vals_cont,np.array(levels),np.array(vals))
+    levels_cont=interp(vals_cont,np.array(levels),np.array(vals))
     counts_rot=np.rot90(counts,3)
     xbins=xbins+0.5*(x_max-x_min)/nbins
     ybins=ybins+0.5*(y_max-y_min)/nbins
@@ -622,7 +622,7 @@ def my_scatter(ax,x_par,y_par,c_par,x_cont,y_cont,x_min,x_max,y_min,y_max,c_min,
         vals.append(counts[mask_now].sum()/sum_total)
         #print(idx,levels[idx],vals[idx])
     vals_cont=np.array([0.95,0.80,0.40])
-    levels_cont=np.interp(vals_cont,np.array(levels),np.array(vals))
+    levels_cont=interp(vals_cont,np.array(levels),np.array(vals))
     figure=ax.scatter(x_par, y_par, c=c_par, vmin=c_min,vmax=c_max,alpha=0.4,edgecolor='none',\
                       rasterized=True,cmap=cm)
     counts_rot=np.rot90(counts,3)
@@ -653,7 +653,7 @@ def my_scatter(ax,x_par,y_par,c_par,x_cont,y_cont,x_min,x_max,y_min,y_max,c_min,
         vals_new.append(counts[mask_now].sum()/sum_total)
         #print(idx,levels[idx],vals[idx])
     vals_cont=np.array([0.95,0.80,0.40])
-    levels_cont=np.interp(vals_cont,np.array(levels_new),np.array(vals))
+    levels_cont=interp(vals_cont,np.array(levels_new),np.array(vals))
     
 #    figure=ax.scatter(x_par, y_par, c=c_par, vmin=c_min,vmax=c_max,alpha=0.4,edgecolor='none',cmap=cm)
     counts_rot=np.rot90(counts,3)
@@ -668,7 +668,7 @@ def my_scatter(ax,x_par,y_par,c_par,x_cont,y_cont,x_min,x_max,y_min,y_max,c_min,
             i_x=np.argmin(np.abs(xbins-x_par[i]))
             i_y=np.argmin(np.abs(ybins-y_par[i]))
             if ((i_x>0) and (i_x<nbins) and (i_y>0) and (i_y<nbins)):
-                den_par[i]=np.interp(counts[i_x,i_y],np.array(levels_new),np.array(vals_new))
+                den_par[i]=interp(counts[i_x,i_y],np.array(levels_new),np.array(vals_new))
 
 # Density plot!
 #    figure=ax.scatter(x_par, y_par, c=den_par, vmin=0,vmax=1,alpha=0.4,edgecolor='none',cmap=cm)
@@ -723,7 +723,7 @@ def my_scatter(ax,x_par,y_par,c_par,x_cont,y_cont,x_min,x_max,y_min,y_max,c_min,
             #    i_y=np.argmin(np.abs(ybins-sMNOW[i]))
             #    if ((i_x>0) and (i_x<nbins) and (i_y>0) and (i_y<nbins)):
             #        sDNOW[i]=0.5*sDNOW[i]+\
-            #        0.1*np.interp(counts[i_x,i_y],np.array(levels_new),np.array(vals_new))
+            #        0.1*interp(counts[i_x,i_y],np.array(levels_new),np.array(vals_new))
 #                    if (iMC==0):
 #                        print(mNOW[i],sDNOW[i])
             sDNOW=0.001/sDNOW

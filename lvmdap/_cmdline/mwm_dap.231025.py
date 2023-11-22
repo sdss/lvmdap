@@ -47,30 +47,30 @@ def _main(cmd_args=sys.argv[1:]):
         help=f"the normalization windows in wavelength. The processed fluxes (and errors) will be normalized using the median within this range. Defaults to {WAVELENGTH_NORM}",
         nargs=2,
         default=WAVELENGTH_NORM,
-        type=np.float
+        type=float
     )
     parser.add_argument(
-        "--w-range", metavar=("wmin","wmax"), type=np.float, nargs=2,
+        "--w-range", metavar=("wmin","wmax"), type=float, nargs=2,
         help="the wavelength range for the fitting procedure",
         default=[-np.inf, np.inf]
     )
     parser.add_argument(
-        "--w-range-nl", metavar=("wmin2","wmax2"), type=np.float, nargs=2,
+        "--w-range-nl", metavar=("wmin2","wmax2"), type=float, nargs=2,
         help="the wavelength range for the *non-linear* fitting procedure"
     )
 
     parser.add_argument(
-        "--redshift", metavar=("input_redshift","delta_redshift","min_redshift","max_redshift"), type=np.float, nargs=4,
+        "--redshift", metavar=("input_redshift","delta_redshift","min_redshift","max_redshift"), type=float, nargs=4,
         help="the guess, step, minimum and maximum value for the redshift during the fitting",
         default=(0.00, 0.00005, -35.14/3e5, 42.54/3e5)
     )
     parser.add_argument(
-        "--sigma", metavar=("input_sigma","delta_sigma","min_sigma","max_sigma"), type=np.float, nargs=4,
+        "--sigma", metavar=("input_sigma","delta_sigma","min_sigma","max_sigma"), type=float, nargs=4,
         help="same as the redshift, but for the line-of-sight velocity dispersion",
         default=(0, 0, 0, 450)
     )
     parser.add_argument(
-        "--AV", metavar=("input_AV","delta_AV","min_AV","max_AV"), type=np.float, nargs=4,
+        "--AV", metavar=("input_AV","delta_AV","min_AV","max_AV"), type=float, nargs=4,
         help="same as the redshift, but for the dust extinction in the V-band",
         default=(0.0, 0.1, 0.0, 3.0)
     )
@@ -80,7 +80,7 @@ def _main(cmd_args=sys.argv[1:]):
         choices=EXT_CHOICES, default=EXT_CURVE
     )
     parser.add_argument(
-        "--RV", type=np.float,
+        "--RV", type=float,
         help=f"total to selective extinction defined as: A_V / E(B-V). Default to {EXT_RV}",
         default=EXT_RV
     )
@@ -90,7 +90,7 @@ def _main(cmd_args=sys.argv[1:]):
         action="store_true"
     )
     parser.add_argument(
-        "--n-mc", type=np.int,
+        "--n-mc", type=int,
         help="number of MC realisations for the spectral fitting",
         default=N_MC
     )
@@ -140,9 +140,9 @@ def _main(cmd_args=sys.argv[1:]):
 
         # remove invalid flux values
         mask = (f__w > 0)&(ef__w > 0)&(sg__w > 0)
-        f__w = np.interp(wl__w, wl__w[mask], f__w[mask], left=f__w[mask][0], right=f__w[mask][-1])
-        ef__w = np.interp(wl__w, wl__w[mask], ef__w[mask], left=ef__w[mask][0], right=ef__w[mask][-1])
-        sg__w = np.interp(wl__w, wl__w[mask], sg__w[mask], left=sg__w[mask][0], right=sg__w[mask][-1])
+        f__w = interp(wl__w, wl__w[mask], f__w[mask], left=f__w[mask][0], right=f__w[mask][-1])
+        ef__w = interp(wl__w, wl__w[mask], ef__w[mask], left=ef__w[mask][0], right=ef__w[mask][-1])
+        sg__w = interp(wl__w, wl__w[mask], sg__w[mask], left=sg__w[mask][0], right=sg__w[mask][-1])
 
         diff_sg = np.sqrt(args.sigma_inst**2 - sg__w**2, where=args.sigma_inst>=sg__w, out=np.zeros_like(sg__w))
         f__w = downgrade_resolution(wl__w, f__w, sigma=diff_sg, verbose=args.verbose)

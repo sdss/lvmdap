@@ -84,7 +84,7 @@ def dap_indices_spec(wave__w, flux_ssp__w, res__w, redshift, n_sim, plot=0, wl_h
         flux_ssp__w = np.ones_like(flux_ssp__w)
         res__w = 100*np.ones_like(flux_ssp__w)
 
-    med_res__w = median_filter(res__w, size=np.int(3*FWHM/cdelt), mode='reflect')
+    med_res__w = median_filter(res__w, size=int(3*FWHM/cdelt), mode='reflect')
 
     _ind_corr = _ind*(1 + redshift)
     _ind_corr.T[_INDICES_POS['OLb']] = (_ind_corr.T[_INDICES_POS['OLb1']] + _ind_corr.T[_INDICES_POS['OLb2']])/2
@@ -127,13 +127,13 @@ def dap_indices_spec(wave__w, flux_ssp__w, res__w, redshift, n_sim, plot=0, wl_h
                 iw2_b = (Lb2 - wave__w[0] - 0.5*cdelt)/cdelt
                 Sb = 0
                 nb = 0
-                for iw in range(np.int(iw1_b + 1), np.int(iw2_b)):
+                for iw in range(int(iw1_b + 1), int(iw2_b)):
                     Sb += _flux__w[iw]*cdelt
                     nb += 1
-                iw = np.int(iw1_b)
+                iw = int(iw1_b)
                 ff = iw + 1 - iw1_b
                 Sb += (_flux__w[iw]*ff*cdelt)
-                iw = np.int(iw2_b)
+                iw = int(iw2_b)
                 ff = iw2_b - iw
                 Sb += (_flux__w[iw]*ff*cdelt)
                 Sb = Sb/(Lb2 - Lb1)
@@ -142,13 +142,13 @@ def dap_indices_spec(wave__w, flux_ssp__w, res__w, redshift, n_sim, plot=0, wl_h
                 iw2_r = (Lr2 - wave__w[0] - 0.5*cdelt)/cdelt
                 Sr = 0
                 nr = 0
-                for iw in range(np.int(iw1_r + 1), np.int(iw2_r)):
+                for iw in range(int(iw1_r + 1), int(iw2_r)):
                     Sr += _flux__w[iw]*cdelt
                     nr += 1
-                iw = np.int(iw1_r)
+                iw = int(iw1_r)
                 ff = iw + 1 - iw1_r
                 Sr += (_flux__w[iw]*ff*cdelt)
-                iw = np.int(iw2_r)
+                iw = int(iw2_r)
                 ff = iw2_r - iw
                 Sr += (_flux__w[iw]*ff*cdelt)
                 Sr = Sr/(Lr2 - Lr1)
@@ -157,16 +157,16 @@ def dap_indices_spec(wave__w, flux_ssp__w, res__w, redshift, n_sim, plot=0, wl_h
                 waveK = []
                 iw1 = (L1 - wave__w[0] - 0.5*cdelt)/cdelt
                 iw2 = (L2 - wave__w[0] - 0.5*cdelt)/cdelt
-                for iw in range(np.int(iw1 + 1), np.int(iw2)):
+                for iw in range(int(iw1 + 1), int(iw2)):
                     C = Sb*((Lr - wave__w[iw])/(Lr - Lb)) + Sr*((wave__w[iw] - Lb)/(Lr - Lb))
                     EW = EW + (1 - _flux__w[iw]/C)*(wave__w[iw] - wave__w[iw - 1])
                     CK.append(C)
                     waveK.append(wave__w[iw])
-                iw = np.int(iw1)
+                iw = int(iw1)
                 ff = iw + 1 - iw1
                 C = Sb*((Lr - wave__w[iw])/(Lr - Lb)) + Sr*((wave__w[iw] - Lb)/(Lr - Lb))
                 EW = EW + (1 - _flux__w[iw]/C)*(wave__w[iw] - wave__w[iw - 1])*ff
-                iw = np.int(iw2)
+                iw = int(iw2)
                 ff = iw2 - iw
                 C = Sb*((Lr - wave__w[iw])/(Lr - Lb)) + Sr*((wave__w[iw] - Lb)/(Lr - Lb))
                 EW = EW + (1 - _flux__w[iw]/C)*(wave__w[iw] - wave__w[iw - 1])*ff
@@ -192,13 +192,13 @@ def dap_indices_spec(wave__w, flux_ssp__w, res__w, redshift, n_sim, plot=0, wl_h
                 nb = 0
                 iw1_b = (Lb1 - wave__w[0] - 0.5*cdelt)/cdelt
                 iw2_b = (Lb2 - wave__w[0] - 0.5*cdelt)/cdelt
-                for iw in range(np.int(iw1_b + 1), np.int(iw2_b)):
+                for iw in range(int(iw1_b + 1), int(iw2_b)):
                     Sb += _flux__w[iw]*cdelt
                     nb += 1
-                iw = np.int(iw1_b)
+                iw = int(iw1_b)
                 ff = iw + 1 - iw1_b
                 Sb += _flux__w[iw]*ff*cdelt
-                iw = np.int(iw2_b)
+                iw = int(iw2_b)
                 ff = iw2_b - iw
                 Sb += _flux__w[iw]*ff*cdelt
                 Sb = Sb/(Lb2 - Lb1)
@@ -207,13 +207,13 @@ def dap_indices_spec(wave__w, flux_ssp__w, res__w, redshift, n_sim, plot=0, wl_h
                 K = 0
                 iw1 = (L1 - wave__w[0] - 0.5*cdelt)/cdelt
                 iw2 = (L2 - wave__w[0] - 0.5*cdelt)/cdelt
-                for iw in range(np.int(iw1 + 1), np.int(iw2)):
+                for iw in range(int(iw1 + 1), int(iw2)):
                     S += _flux__w[iw]*cdelt
                     K += 1
-                iw = np.int(iw1)
+                iw = int(iw1)
                 ff = iw + 1 - iw1
                 S += _flux__w[iw]*ff*cdelt
-                iw = np.int(iw2)
+                iw = int(iw2)
                 ff = iw2 - iw
                 S += _flux__w[iw]*ff*cdelt
                 S = S/(L2 - L1)
@@ -856,8 +856,8 @@ def read_coeffs_RSP(coeffs_file='output_dap/dap-4-00006109.coeffs.txt'):
                 vals=line.split()
                 a_vals.append(vals)
     a_vals=np.array(a_vals, dtype=float)
-    n_models=np.int(np.max(a_vals[:,0]))
-    n_fib=np.int(a_vals.shape[0]/n_models)
+    n_models=int(np.max(a_vals[:,0]))
+    n_fib=int(a_vals.shape[0]/n_models)
     id_fib=[]
     i_fib=0
     for i in a_vals[:,0]:

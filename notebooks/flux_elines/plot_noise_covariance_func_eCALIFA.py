@@ -71,10 +71,10 @@ def get_sn(table, pipe=False, nz_size=None, sn_lims=None, dir_in=None):
     
     n_bins = len(nz_size) - 1
 
-    SN_ratio_median = np.zeros(n_bins, dtype=np.float32)
-    SN_ratio_mean   = np.zeros(n_bins, dtype=np.float32)
-    SN_ratio_std    = np.zeros(n_bins, dtype=np.float32)
-    bins            = np.zeros(n_bins, dtype=np.float32)
+    SN_ratio_median = np.zeros(n_bins, dtype=float32)
+    SN_ratio_mean   = np.zeros(n_bins, dtype=float32)
+    SN_ratio_std    = np.zeros(n_bins, dtype=float32)
+    bins            = np.zeros(n_bins, dtype=float32)
     
     at = 0.
     for i in range(n_bins):

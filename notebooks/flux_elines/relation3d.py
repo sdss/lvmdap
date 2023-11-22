@@ -168,7 +168,7 @@ def my_scatter_3d(ax,x_par,y_par,z_par,c_par,x_min,x_max,y_min,y_max,z_min,z_max
         levels.append(cuts)
         vals.append(counts[mask_now].sum()/sum_total)
     vals_cont=np.array([0.95,0.80,0.40])
-    levels_cont=np.interp(vals_cont,np.array(levels),np.array(vals))
+    levels_cont=interp(vals_cont,np.array(levels),np.array(vals))
     counts_rot=np.rot90(counts,3)
     xbins=xbins+0.5*(x_max-x_min)/nbins
     ybins=ybins+0.5*(y_max-y_min)/nbins
@@ -196,7 +196,7 @@ def my_scatter_3d(ax,x_par,y_par,z_par,c_par,x_min,x_max,y_min,y_max,z_min,z_max
         levels.append(cuts)
         vals.append(counts[mask_now].sum()/sum_total)
     vals_cont=np.array([0.95,0.80,0.40])
-    levels_cont=np.interp(vals_cont,np.array(levels),np.array(vals))
+    levels_cont=interp(vals_cont,np.array(levels),np.array(vals))
     counts_rot=np.rot90(counts,3)
     xbins=xbins+0.5*(x_max-x_min)/nbins
     ybins=ybins+0.5*(z_max-z_min)/nbins
@@ -224,7 +224,7 @@ def my_scatter_3d(ax,x_par,y_par,z_par,c_par,x_min,x_max,y_min,y_max,z_min,z_max
         levels.append(cuts)
         vals.append(counts[mask_now].sum()/sum_total)
     vals_cont=np.array([0.95,0.80,0.40])
-    levels_cont=np.interp(vals_cont,np.array(levels),np.array(vals))
+    levels_cont=interp(vals_cont,np.array(levels),np.array(vals))
     counts_rot=np.rot90(counts,3)
     xbins=xbins+0.5*(y_max-y_min)/nbins
     ybins=ybins+0.5*(z_max-z_min)/nbins
@@ -406,7 +406,7 @@ def get_den_point(x_plt,y_plt, x_min,x_max,y_min,y_max,nbins=30):
                 i_y=np.argmin(np.abs(ybins-y_plt[i]))
                 print (i_x,i_y)
                 if ((i_x>0) and (i_x<nbins) and (i_y>0) and (i_y<nbins)):
-                    den_par[i]=np.interp(counts[i_x,i_y],np.array(levels_new),np.array(vals_new))
+                    den_par[i]=interp(counts[i_x,i_y],np.array(levels_new),np.array(vals_new))
     return den_par
                 
                 

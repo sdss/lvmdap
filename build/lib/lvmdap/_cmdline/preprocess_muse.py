@@ -31,7 +31,7 @@ def _main(cmd_args=sys.argv[1:]):
         description="Run RSS preprocessing of MUSE data"
     )
     parser.add_argument(
-        "--sigma-inst", type=np.float,
+        "--sigma-inst", type=float,
         help=f"the target instrumental dispersion to downgrade the input spectra to. Defaults to {FWHM_NEW}AA",
         default=FWHM_NEW
     )
