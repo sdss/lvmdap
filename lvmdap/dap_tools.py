@@ -21,6 +21,7 @@ from pyFIT3D.common.constants import __c__, __sigma_to_FWHM__
 from pyFIT3D.common.io import output_spectra, array_to_fits, write_img_header, print_verbose
 from pyFIT3D.common.constants import __Hubble_constant__, __Omega_matter__, __Omega_Lambda__
 from pyFIT3D.common.constants import __solar_luminosity__, __solar_metallicity__, _figsize_default
+from pyFIT3D.common.tools import peak_finder
 
 from astropy.table import Table
 from astropy.table import vstack as vstack_table
@@ -244,15 +245,46 @@ def dap_indices_spec(wave__w, flux_ssp__w, res__w, redshift, n_sim, plot=0, wl_h
 
 
 #
+# data = FLUX_RSS ['FLUX'] extension
+# sdata = SKY_RSS ['SKY'] extension
+# hdr = header extension of flux extension
+# Band: wavelengthg of the emission line, and wavelegnth of two non-emission line regimes
+# This could be refined, of course
+#
+def sky_hack_f(data, sdata, hdr, m2a=10e9, band=np.array((7238,7242,7074,7084,7194,7265))):
+    nx=hdr['NAXIS1']
+    ny=hdr['NAXIS2']
+    crval = hdr['crval1']
+    cdelt = hdr['cdelt1']
+    crpix = hdr['crpix1']
+    wave = crval+cdelt*(np.arange(0,nx)-(crpix-1))
+    i_band = ((band-crval)/cdelt).astype(int)
+
+    map_b=np.mean(data[:,i_band[0]:i_band[1]],axis=1)
+    map_0=np.mean(data[:,i_band[2]:i_band[3]],axis=1)
+    map_1=np.mean(data[:,i_band[4]:i_band[5]],axis=1)
+    map_c = map_b-0.5*(map_0+map_1)
+
+    smap_b=np.mean(sdata[:,i_band[0]:i_band[1]],axis=1)
+    smap_0=np.mean(sdata[:,i_band[2]:i_band[3]],axis=1)
+    smap_1=np.mean(sdata[:,i_band[4]:i_band[5]],axis=1)
+    smap_c = smap_b-0.5*(smap_0+smap_1)
+
+    scale=map_c/smap_c
+    data_c=data-np.transpose(np.transpose(sdata)*scale)
+    return data_c
+
+
+#
 # Load an standard LVM RSS file
 #
-
-def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None):
+def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= True):
     """Return the RSS from the given and LVM filename in the parsed command line arguments"""
     hdu = fits.open(lvm_file, memmap=False)
     rss_0_hdr = hdu[0].data
     rss_f_spectra = hdu['FLUX'].data
     rss_f_hdr = hdu['FLUX'].header
+    rss_sky = hdu['SKY'].data
     try:
         rss_e_spectra = hdu['ERROR'].data
     except:
@@ -270,6 +302,12 @@ def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None):
     rss_e_spectra=rss_e_spectra*flux_scale
     rss_f_hdr["CRVAL1"]=rss_f_hdr["CRVAL1"]*m2a
     rss_f_hdr["CDELT1"]=rss_f_hdr["CDELT1"]*m2a
+
+    if (sky_hack == True):
+        rss_f_spectra=sky_hack_f(rss_f_spectra, rss_sky, rss_f_hdr)
+
+
+    
     if (ny_range != None):
         rss_f_spectra=rss_f_spectra[ny_range[0]:ny_range[1],:]
         rss_e_spectra=rss_e_spectra[ny_range[0]:ny_range[1],:]
@@ -1173,3 +1211,37 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
     plt.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
 
+
+def find_redshift(w_peak=np.array((6548.07,6562.84)),f_peak=np.array((1,1,1)),\
+                  w_ref=(6548.05,6562.85,6583.45,6678.15,6716.44,6730.82),\
+                  z_min=0,z_max=0.1,d_z=0.01,ds=0.5):
+    W_z=[]
+    for z in np.arange(z_min,z_max,d_z):
+        W=0
+        for w_p in w_peak:
+            for w_r in w_ref:
+                w_r_z=w_r*(1+z)
+                W=W+np.exp(-0.5*((w_p-w_r_z)/ds)**2)/len(w_ref)
+        W_z.append(W)
+    W_z=np.array(W_z)
+    z_z=np.arange(z_min,z_max,d_z)
+    i_max=np.argmax(W_z)
+    z=z_z[i_max]
+    return z
+
+def find_redshift_spec(wave,spec,w_min=6500,w_max=6800,\
+                       w_min_ne=6350,w_max_ne=6500,\
+                       w_ref=(6548.05,6562.85,6583.45,6678.15,6716.44,6730.82),do_plot=0,\
+                       z_min=0,z_max=0.1,d_z=0.01,ds=0.5):
+
+    mask_w = (wave>w_min) & (wave<w_max)
+    mask_ne = (wave>w_min_ne) & (wave<w_max_ne)
+    peak_threshold=(np.median(spec[mask_ne])+3*np.std(spec[mask_ne]))/np.max(spec[mask_w])
+    i_peak,peaks,w_peaks,f_peaks=peak_finder(wave[mask_w], spec[mask_w], 1,\
+                                        peak_threshold=peak_threshold, dmin=2, plot=do_plot, verbose=0)
+    z=find_redshift(w_peak=w_peaks,f_peak=f_peaks, w_ref=w_ref, z_min=-0.001,z_max=0.01,d_z=0.00001)
+    return z
+
+
+
+    

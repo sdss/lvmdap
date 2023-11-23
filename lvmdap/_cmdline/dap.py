@@ -35,6 +35,7 @@ from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
 from lvmdap.modelling.synthesis import StellarSynthesis
 from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header, plot_spec, read_rsp
 from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, read_tab_EL
+from lvmdap.dap_tools import find_redshift_spec
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW
 
 from scipy.ndimage import gaussian_filter1d,median_filter
@@ -575,7 +576,17 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
         only_integrated=False
 
+    try:
+        sky_hack=args.sky_hack
+    except:
+        sky_hack=False
 
+    try:
+      auto_redshift=args.auto_redshift
+    except:
+      auto_redshift=False
+
+    
 
 
 
@@ -585,8 +596,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        args.rsp_nl_file = args.rsp_file
 #    if args.w_range_nl is None:
 #        args.w_range_nl = copy(args.w_range)
-
-    wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVM_rss(args.lvm_file,ny_range=ny_range)
+   
+    wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVM_rss(args.lvm_file,ny_range=ny_range,sky_hack=sky_hack)
+   
 #   just a check
 #    print(rss_flux.shape)
 
@@ -617,6 +629,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # First we create a mean spectrum
     #
     m_flux = rss_flux.mean(axis=0)
+    #e_flux = rss_eflux.mean(axis=0)/np.sqrt(rss_flux.shape[0])
+    #m_flux = np.median(rss_flux,axis=0)
     e_flux = rss_eflux.mean(axis=0)/np.sqrt(rss_flux.shape[0])
     s_flux = median_filter(m_flux,51)
 
@@ -635,6 +649,16 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       args.flux_scale[1]=3*np.abs(np.median(m_flux_rss))+10*np.std(m_flux_rss)
 
 
+    #
+    # Redefine the redshift
+    #
+    if (auto_redshift == True):
+      auto_z=find_redshift_spec(wl__w,m_flux)
+      args.redshift[0]=auto_z
+      args.redshift[2]=args.redshift[2]*(1+auto_z)+auto_z
+      args.redshift[3]=args.redshift[3]*(1+auto_z)+auto_z
+      print(f'auto_z derivation :{auto_z}')
+      
     #
     #
       
