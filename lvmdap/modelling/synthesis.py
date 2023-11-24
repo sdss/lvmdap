@@ -11,9 +11,19 @@ from pyFIT3D.common.stats import calc_chi_sq, smooth_ratio
 from pyFIT3D.common.io import print_verbose
 from pyFIT3D.common.io import plot_spectra_ax
 from pyFIT3D.modelling.stellar import StPopSynt
+#from lvmdap.modelling.synthesis import StellarSynthesis as StPopSynt
+
 
 from lvmdap.modelling.ingredients import StellarModels
-
+from pyFIT3D.common.gas_tools import fit_elines_main
+from pyFIT3D.common.io import plot_spectra_ax, array_to_fits, write_img_header
+from pyFIT3D.common.io import sel_waves, trim_waves, print_verbose, get_wave_from_header
+from pyFIT3D.common.stats import pdl_stats, _STATS_POS, WLS_invmat, median_box, median_filter
+from pyFIT3D.common.stats import calc_chi_sq, smooth_ratio, shift_convolve, hyperbolic_fit_par
+from pyFIT3D.common.constants import __c__, _MODELS_ELINE_PAR, __mask_elines_window__, __selected_R_V__
+from pyFIT3D.common.constants import __selected_half_range_sysvel_auto_ssp__, _figsize_default, _plot_dpi
+from pyFIT3D.common.constants import __sigma_to_FWHM__, __selected_extlaw__, __selected_half_range_wl_auto_ssp__
+from copy import deepcopy
 
 class StellarSynthesis(StPopSynt):
     def __init__(self, config, wavelength, flux, eflux, ssp_file, out_file,
@@ -108,6 +118,9 @@ class StellarSynthesis(StPopSynt):
         self.extlaw =  __selected_extlaw__ if extlaw is None else extlaw
         self.n_loops_nl_fit = 0
 
+#        self.wavelength = self.get_wavelength()
+#        self.normalization_wavelength = self.get_normalization_wavelength()
+        
         self.sigma_inst = sigma_inst
         self.sigma_mean = None
         self.filename = ssp_file
@@ -124,6 +137,8 @@ class StellarSynthesis(StPopSynt):
         self._create_spectra_dict(wavelength, flux, eflux, min, max, ratio_master)
 
         # load SSP FITS File
+        # Everytime you do a fit, you load the SSP fits files (!)
+        # This is very slow!
         self._load_ssp_fits()
 
         # Not working right now!
@@ -664,3 +679,197 @@ class StellarSynthesis(StPopSynt):
             f_outfile.close()
 
         
+    def non_linear_fit_rsp(self, guide_sigma=False, fit_sigma_rnd=True,
+                       sigma_rnd_medres_merit=False, correct_wl_ranges=False):
+    # def non_linear_fit(self, guided_sigma=None):
+        """
+        Do the non linear fit in order to find the kinematics parameters and the dust
+        extinction. This procedure uses the set of SSP models, `self.models_nl_fit`.
+        At the end will set the first entry to the ssp fit chain with the coefficients
+        for the best model after the non-linear fit.
+        """
+        cf = self.config
+        ssp = self.models_nl_fit
+        s = self.spectra
+           # if guided_sigma is not None: self.best_sigma = guided_sigma
+
+        print_verbose('', verbose=self.verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
+        print_verbose('--[ BEGIN non-linear fit ]---------------------------------------------', verbose=self.verbose)
+        coeffs_now, chi_sq, msk_model_min = self.fit_WLS_invmat(ssp=ssp, sel_wavelengths=s['sel_AV'])
+        # TODO: check mask from med_flux in perl version
+        msk_flux = s['raw_flux'][s['sel_AV']]
+        med_flux = np.median(msk_flux)
+        print_verbose('-[ non-linear fit report ]-----------------------------', verbose=self.verbose)
+        if self.guided_errors is not None:
+            self.best_redshift = cf.redshift
+            self.e_redshift = self.guided_errors[0]
+            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
+            self.best_sigma = cf.sigma
+            self.e_sigma = self.guided_errors[1]
+            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
+            self.best_AV = cf.AV
+            self.e_AV = self.guided_errors[2]
+            print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=True)
+            # self.correct_elines_mask(redshift=self.best_redshift)
+            self.redshift_correct_masks(redshift=self.best_redshift, correct_wl_ranges=correct_wl_ranges)
+            if self.sigma_inst is None:
+                self.sigma_mean = self.best_sigma
+            else:
+                self.sigma_mean = np.sqrt(self.sigma_inst**2 + (5000*self.best_sigma/__c__)**2)
+        else:
+            print(f'Deriving redshift, sigma, AV...')
+            # self.update_redshift_params(coeffs=coeffs_now, chi_sq=chi_sq, redshift=self.best_redshift)
+            # self.best_chi_sq_redshift = self.get_last_chi_sq_redshift()
+            # self.best_coeffs_redshift = self.get_last_coeffs_redshift()
+            msg_cut = f' - cut value: {cf.CUT_MEDIAN_FLUX}'
+            if cf.delta_redshift > 0:
+                self._fit_redshift(correct_wl_ranges=correct_wl_ranges,ssp=ssp)
+                self.best_chi_sq_nl_fit = self.get_last_chi_sq_redshift()
+                self.best_coeffs_nl_fit = self.get_last_coeffs_redshift()
+            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
+            # self.correct_elines_mask(redshift=self.best_redshift)
+            self.redshift_correct_masks(redshift=self.best_redshift, correct_wl_ranges=correct_wl_ranges)
+            coeffs_now, chi_sq, _ = self.fit_WLS_invmat(ssp=ssp, smooth_cont=True, sel_wavelengths=s['sel_nl_wl'])
+            self.best_coeffs_sigma = coeffs_now
+            if cf.delta_sigma > 0:
+                if not fit_sigma_rnd:
+                    self._fit_sigma(guided=guide_sigma)
+                else:
+                    print_verbose(f'- fit_sigma_rnd', verbose=True)
+                    self._fit_sigma_rnd(guided=guide_sigma,
+                                        medres_merit=sigma_rnd_medres_merit)
+                # self._fit_sigma(guided_sigma)
+                self.best_chi_sq_nl_fit = self.get_last_chi_sq_sigma()
+                self.best_coeffs_nl_fit = self.get_last_coeffs_sigma()
+            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
+            if self.sigma_inst is None:
+                self.sigma_mean = self.best_sigma
+            else:
+                self.sigma_mean = np.sqrt(self.sigma_inst**2 + (5000*self.best_sigma/__c__)**2)
+            if cf.delta_AV > 0:
+                self._fit_AV()
+                self.best_chi_sq_nl_fit = self.get_last_chi_sq_AV()
+                self.best_coeffs_nl_fit = self.get_last_coeffs_AV()
+            print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=True)
+            print(f'Deriving redshift, sigma, AV... DONE!')
+        self.best_chi_sq_nl_fit = chi_sq
+        self.best_coeffs_nl_fit = coeffs_now
+        print_verbose('------------------------[ END non-linear fit report]--', verbose=self.verbose)
+
+        print_verbose('', verbose=self.verbose)
+        print_verbose('-----------------------------------------------[ END non-linear fit ]--', verbose=self.verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
+
+
+    def non_linear_fit_kin(self, guide_sigma=False, fit_sigma_rnd=True,
+                       sigma_rnd_medres_merit=False, correct_wl_ranges=False):
+    # def non_linear_fit(self, guided_sigma=None):
+        """
+        Do the non linear fit in order to find the kinematics parameters and the dust
+        extinction. This procedure uses the set of SSP models, `self.models_nl_fit`.
+        At the end will set the first entry to the ssp fit chain with the coefficients
+        for the best model after the non-linear fit.
+        """
+        cf = self.config
+        nl_w_min=self.nl_w_min
+        nl_w_max=self.nl_w_max
+        guess_redshift = cf.redshift_set[0]
+
+        SPS_kin=deepcopy(self)
+        mask_w = (self.wavelength>nl_w_min*(1+guess_redshift)) & (self.wavelength<nl_w_max*(1+guess_redshift))
+        SPS_kin.wavelength=self.wavelength[mask_w]
+        SPS_kin.flux=self.flux[mask_w]
+        SPS_kin.eflux=self.eflux[mask_w]
+        SPS_kin.ratio_master=SPS_kin.ratio_master[mask_w]
+#        print(len(SPS_kin.eflux),len(mask_w),len(SPS_kin.ratio_master))
+
+        SPS_kin._create_spectra_dict(SPS_kin.wavelength, SPS_kin.flux, SPS_kin.eflux, SPS_kin.min, SPS_kin.max, SPS_kin.ratio_master)
+        #SPS_kin._multi_AV()
+        #SPS_kin._fitting_init()
+        #SPS_kin.ssp_init()
+  
+        mask_w_nl = (self.models_nl_fit.wavelength>nl_w_min*0.9) & (self.models_nl_fit.wavelength<nl_w_max*1.1)
+        ssp = deepcopy(self.models_nl_fit)
+        ssp.wavelength=self.models_nl_fit.wavelength[mask_w_nl]
+        ssp.flux_models=np.transpose(np.transpose(self.models_nl_fit.flux_models)[mask_w_nl])
+        ssp.n_wave=len(ssp.wavelength)
+        s = deepcopy(self.spectra)
+ #       print(len(s['sel_AV']),len(s['raw_flux']))
+                  
+        s['sel_AV']=s['sel_AV'][mask_w]
+        s['raw_flux']=s['raw_flux'][mask_w]
+        s['sel_nl_wl']=s['sel_nl_wl'][mask_w]
+#        print(len(s['sel_AV']),len(s['raw_flux']))
+        
+           # if guided_sigma is not None: self.best_sigma = guided_sigma
+
+        print_verbose('', verbose=self.verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
+        print_verbose('--[ BEGIN non-linear fit ]---------------------------------------------', verbose=self.verbose)
+        coeffs_now, chi_sq, msk_model_min = SPS_kin.fit_WLS_invmat(ssp=ssp, sel_wavelengths=s['sel_AV'])
+ #       print(f'Paso {coeffs_now}')
+        # TODO: check mask from med_flux in perl version
+        msk_flux = s['raw_flux'][s['sel_AV']]
+        med_flux = np.median(msk_flux)
+        print_verbose('-[ non-linear fit report ]-----------------------------', verbose=self.verbose)
+        if self.guided_errors is not None:
+            self.best_redshift = cf.redshift
+            self.e_redshift = self.guided_errors[0]
+            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
+            self.best_sigma = cf.sigma
+            self.e_sigma = self.guided_errors[1]
+            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
+            self.best_AV = cf.AV
+            self.e_AV = self.guided_errors[2]
+            print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=True)
+            # self.correct_elines_mask(redshift=self.best_redshift)
+            self.redshift_correct_masks(redshift=self.best_redshift, correct_wl_ranges=correct_wl_ranges)
+            if self.sigma_inst is None:
+                self.sigma_mean = self.best_sigma
+            else:
+                self.sigma_mean = np.sqrt(self.sigma_inst**2 + (5000*self.best_sigma/__c__)**2)
+        else:
+            print(f'Deriving redshift sigma...')
+            # self.update_redshift_params(coeffs=coeffs_now, chi_sq=chi_sq, redshift=self.best_redshift)
+            # self.best_chi_sq_redshift = self.get_last_chi_sq_redshift()
+            # self.best_coeffs_redshift = self.get_last_coeffs_redshift()
+            msg_cut = f' - cut value: {cf.CUT_MEDIAN_FLUX}'
+            if cf.delta_redshift > 0:
+                SPS_kin._fit_redshift(correct_wl_ranges=correct_wl_ranges,ssp=ssp)
+                self.best_redshift=SPS_kin.best_redshift
+                self.e_redshift=SPS_kin.e_redshift
+                self.best_chi_sq_nl_fit = self.get_last_chi_sq_redshift()
+                self.best_coeffs_nl_fit = self.get_last_coeffs_redshift()
+            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
+            # self.correct_elines_mask(redshift=self.best_redshift)
+            SPS_kin.redshift_correct_masks(redshift=SPS_kin.best_redshift, correct_wl_ranges=correct_wl_ranges)
+            coeffs_now, chi_sq, _ = SPS_kin.fit_WLS_invmat(ssp=ssp, smooth_cont=True, sel_wavelengths=s['sel_nl_wl'])
+            self.best_coeffs_sigma = coeffs_now
+            if cf.delta_sigma > 0:
+                if not fit_sigma_rnd:
+                    SPS_kin._fit_sigma(guided=guide_sigma)
+                else:
+                    print_verbose(f'- fit_sigma_rnd', verbose=True)
+                    SPS_kin._fit_sigma_rnd(guided=guide_sigma,
+                                        medres_merit=sigma_rnd_medres_merit)
+                # self._fit_sigma(guided_sigma)
+                self.best_sigma=SPS_kin.best_sigma
+                self.e_sigma=SPS_kin.e_sigma
+                self.best_chi_sq_nl_fit = self.get_last_chi_sq_sigma()
+                self.best_coeffs_nl_fit = self.get_last_coeffs_sigma()
+            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
+            if self.sigma_inst is None:
+                self.sigma_mean = self.best_sigma
+            else:
+                self.sigma_mean = np.sqrt(self.sigma_inst**2 + (5000*self.best_sigma/__c__)**2)
+            print(f'Deriving redshift, sigma... DONE!')
+        self.best_chi_sq_nl_fit = chi_sq
+        self.best_coeffs_nl_fit = coeffs_now
+        print_verbose('------------------------[ END non-linear fit report]--', verbose=self.verbose)
+
+        print_verbose('', verbose=self.verbose)
+        print_verbose('-----------------------------------------------[ END non-linear fit ]--', verbose=self.verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
+        
+        # plt.show(block=True)

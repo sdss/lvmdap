@@ -22,9 +22,7 @@ from pyFIT3D.common.io import clean_preview_results_files, print_time, read_spec
 # 18.11.2023
 # So far we were ysing the auto_ssp_tools from pyFIT3D
 # We will attempt to modify them
-#from pyFIT3D.common.auto_ssp_tools import auto_ssp_elines_single_main
-from lvmdap.modelling.auto_rsp_tools import auto_rsp_elines_single_main
-
+from pyFIT3D.common.auto_ssp_tools import auto_ssp_elines_single_main
 from pyFIT3D.common.auto_ssp_tools import load_rss, dump_rss_output
 from pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
 
@@ -35,10 +33,8 @@ from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
 #from pyFIT3D.common.tools import read_coeffs_CS
 
 from lvmdap.modelling.synthesis import StellarSynthesis
-from lvmdap.modelling.auto_rsp_tools import ConfigAutoSSP
 from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header, plot_spec, read_rsp
 from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, read_tab_EL
-from lvmdap.dap_tools import find_redshift_spec
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW
 
 from scipy.ndimage import gaussian_filter1d,median_filter
@@ -50,12 +46,6 @@ from astropy.io import fits, ascii
 import yaml
 import re
 from collections import Counter
-
-#
-# Just for tests
-#
-# import matplotlib.pyplot as plt
-
 
 CWD = os.path.abspath(".")
 EXT_CHOICES = ["CCM", "CAL"]
@@ -78,7 +68,7 @@ def auto_rsp_elines_rnd(
     input_redshift=None, delta_redshift=None, min_redshift=None, max_redshift=None,
     input_sigma=None, delta_sigma=None, min_sigma=None, max_sigma=None, sigma_gas=None,
     input_AV=None, delta_AV=None, min_AV=None, max_AV=None, ratio=True, y_ratio=None,
-    fit_sigma_rnd=True, out_path=None, SPS_master=None):
+    fit_sigma_rnd=True, out_path=None):
 
   #
   # If there is no RSP for the Non-Linear (nl) fitting, they it is 
@@ -140,7 +130,7 @@ def auto_rsp_elines_rnd(
     #
     print("##############################");
     print(f"# START: fitting the continuum+emission lines, fit_gas:{fit_gas} ...");
-    cf, SPS = auto_rsp_elines_single_main(
+    cf, SPS = auto_ssp_elines_single_main(
         wl__w, f__w, ef__w, ssp_file,
         config_file=config_file,
         ssp_nl_fit_file=ssp_nl_fit_file, sigma_inst=sigma_inst, out_file="NOT_USED",
@@ -151,7 +141,7 @@ def auto_rsp_elines_rnd(
         input_sigma=input_sigma, delta_sigma=delta_sigma, min_sigma=min_sigma, max_sigma=max_sigma,
         input_AV=input_AV, delta_AV=delta_AV, min_AV=min_AV, max_AV=max_AV,
         plot=plot, single_ssp=False, ratio=ratio, y_ratio=y_ratio, fit_sigma_rnd=fit_sigma_rnd,
-        sps_class=StellarSynthesis, SPS_master=SPS_master
+        sps_class=StellarSynthesis
     )
     print(f"# END: fitting the continuum+emission lines, fit_gas:{fit_gas} ...");
     print("##############################");
@@ -196,7 +186,7 @@ def auto_rsp_elines_rnd(
         config_file = os.path.join(out_path, f"{spaxel_id}.autodetect.auto_ssp_several.config")
         elines_mask_file = os.path.join(out_path, f"{spaxel_id}.autodetect.emission_lines.txt")
 
-        cf, SPS = auto_rsp_elines_single_main(
+        cf, SPS = auto_ssp_elines_single_main(
             wl__w, f__w, ef__w, ssp_file,
             config_file=config_file,
             ssp_nl_fit_file=ssp_nl_fit_file, sigma_inst=sigma_inst, out_file="NOT_USED",
@@ -576,12 +566,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         ny_range=None
 
     try:
-        nx_range=args.nx_range
-    except:
-        nx_range=None
-
-        
-    try:
         out_plot_format=args.out_plot_format
     except:
         out_plot_format="pdf"        
@@ -591,17 +575,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
         only_integrated=False
 
-    try:
-        sky_hack=args.sky_hack
-    except:
-        sky_hack=False
 
-    try:
-      auto_redshift=args.auto_redshift
-    except:
-      auto_redshift=False
-
-    
 
 
 
@@ -611,10 +585,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        args.rsp_nl_file = args.rsp_file
 #    if args.w_range_nl is None:
 #        args.w_range_nl = copy(args.w_range)
-   
-    wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVM_rss(args.lvm_file,ny_range=ny_range,\
-                                                                           nx_range=nx_range,sky_hack=sky_hack)
-   
+
+    wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVM_rss(args.lvm_file,ny_range=ny_range)
 #   just a check
 #    print(rss_flux.shape)
 
@@ -644,9 +616,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     # First we create a mean spectrum
     #
-    m_flux = rss_flux.mean(axis=0)
+    #m_flux = rss_flux.mean(axis=0)
     #e_flux = rss_eflux.mean(axis=0)/np.sqrt(rss_flux.shape[0])
-    #m_flux = np.median(rss_flux,axis=0)
+    m_flux = np.median(rss_flux,axis=0)
     e_flux = rss_eflux.mean(axis=0)/np.sqrt(rss_flux.shape[0])
     s_flux = median_filter(m_flux,51)
 
@@ -665,16 +637,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       args.flux_scale[1]=3*np.abs(np.median(m_flux_rss))+10*np.std(m_flux_rss)
 
 
-    #
-    # Redefine the redshift
-    #
-    if (auto_redshift == True):
-      auto_z=find_redshift_spec(wl__w,m_flux)
-      args.redshift[0]=auto_z
-      args.redshift[2]=args.redshift[2]*(1+auto_z)+auto_z
-      args.redshift[3]=args.redshift[3]*(1+auto_z)+auto_z
-      print(f'auto_z derivation :{auto_z}')
-      
     #
     #
       
@@ -733,70 +695,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # Reading the emission line file
     #
     tab_el=read_tab_EL(args.emission_lines_file_long)
-    #    print('EL file:',args.emission_lines_file_long)
-    #    print('tab_EL:',tab_el)
-    #    quit()
-
-
-    #
-    # We fit everything in a single run
-    #
-
-    #
-    # We create the SPS:
-    #
-    #print('Test loading the SPS')
-    #print(f'{args.config_file}')
-    #cf_master = ConfigAutoSSP(args.config_file, redshift_set=args.redshift, sigma_set=args.sigma, AV_set=args.AV) 
-    #SPS_master = StellarSynthesis(config=cf_master,
-    #                              wavelength=wl__w, flux=m_flux, eflux=e_flux,
-    #                             mask_list=args.mask_file, elines_mask_file=args.emission_lines_file,
-    #                              sigma_inst=args.sigma_inst, ssp_file=args.rsp_file,
-    #                              ssp_nl_fit_file=args.rsp_nl_file, out_file=None,
-    #                              w_min=args.w_range[0], w_max=args.w_range[1], nl_w_min=args.w_range_nl[0], nl_w_max=args.w_range_nl[1],                          
-    #                              R_V=None, extlaw=None, spec_id=None, min=args.flux_scale[0], max=args.flux_scale[1],
-    #                             guided_errors=None, ratio_master=None,
-    #                              fit_gas=True, plot=None, verbose=False)
-    #print('SPS_master loaded')
+#    print('EL file:',args.emission_lines_file_long)
+#    print('tab_EL:',tab_el)
+#    quit()
     
-#
-# (1) Lets fit just the velocity and the dispersion!
-#
-#    print('##############################');
-#    print('# *** Start SPS_kin fitting...');
-#    mask_w_nl = (wl__w>args.w_range_nl[0]*(1+args.redshift[0])) & (wl__w<args.w_range_nl[1]*(1+args.redshift[0]))
-#    kin_pars, SPS_kin = auto_rsp_elines_rnd(
-#      wl__w[mask_w_nl], m_flux[mask_w_nl], e_flux[mask_w_nl],\
-#      ssp_file=args.rsp_nl_file, ssp_nl_fit_file=args.rsp_nl_file,
-#      config_file=args.config_file,
-#      w_min=args.w_range_nl[0], w_max=args.w_range_nl[1], nl_w_min=args.w_range_nl[0],
-#      nl_w_max=args.w_range_nl[1], mask_list=args.mask_file,
-#      min=args.flux_scale[0], max=args.flux_scale[1], elines_mask_file=args.emission_lines_file,
-#      fit_gas=False, refine_gas=False, sigma_gas=args.sigma_gas,
-#      input_redshift=args.redshift[0], delta_redshift=args.redshift[1], min_redshift=args.redshift[2], max_redshift=args.redshift[3],
-#            input_sigma=args.sigma[0], delta_sigma=args.sigma[1], min_sigma=args.sigma[2], max_sigma=args.sigma[3],
-#            input_AV=0, delta_AV=0, min_AV=args.AV[2], max_AV=args.AV[3],
-#      sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot) #, SPS_master=SPS_master)
-#    print(f'SPS_kin: {SPS_kin.best_redshift} , {SPS_kin.best_sigma}')
-#    print('##############################')
-
-
-#
-# (2) Now we fit the rest
-#
-#    print('# **** Start SPS_full fitting...');
-#    _, SPS = auto_rsp_elines_rnd(
-#      wl__w, m_flux, e_flux, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
-#      config_file=args.config_file,
-#      w_min=args.w_range[0], w_max=args.w_range[1], nl_w_min=args.w_range_nl[0],
-#      nl_w_max=args.w_range_nl[1], mask_list=args.mask_file,
-#      min=args.flux_scale[0], max=args.flux_scale[1], elines_mask_file=args.emission_lines_file,
-#      fit_gas=not args.ignore_gas, refine_gas=not args.single_gas_fit, sigma_gas=args.sigma_gas,
-#      input_redshift=SPS_kin.best_redshift, delta_redshift=0.0, min_redshift=args.redshift[2], max_redshift=args.redshift[3],
-#            input_sigma=SPS_kin.best_sigma, delta_sigma=0.0, min_sigma=args.sigma[2], max_sigma=args.sigma[3],
-#            input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3],
-#      sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot, SPS_master=SPS_kin)
-
     _, SPS = auto_rsp_elines_rnd(
       wl__w, m_flux, e_flux, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
       config_file=args.config_file,
@@ -809,13 +711,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3],
       sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot
     )
-
-    #print(f'SPS nl ssp models: {SPS.ssp_nl_fit.flux_models.shape}')
-    #print(f'SPS ssp models: {SPS.ssp.flux_models.shape}')
-
-    y_ratio = None #SPS.ratio_master
     print(f'#### END RSP fitting the integrated spectrum...')
-    #quit()
     
     # WRITE OUTPUTS --------------------------------------------------------------------------------
     SPS.output_gas_emission(filename=out_file_elines)
@@ -909,7 +805,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     colnames=np.array(colnames)
     tab_m_fe=Table(np.transpose(fe_m_data),names=colnames)  
 
-    if (only_integrated == True):
+    if (args.only_integrated == True):
       print("# Only mean spectrum analyzed: END ALL")
       quit()
     
@@ -970,9 +866,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                 min_sigma = input_min_sigma
             if max_sigma > input_max_sigma:
                 max_sigma = input_max_sigma
-        #
-        # We fit all in a single fit 
-        #
         _, SPS = auto_rsp_elines_rnd(
             wl__w, f__w, ef__w, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
             config_file=args.config_file,
@@ -983,9 +876,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             input_redshift=args.redshift[0], delta_redshift=args.redshift[1], min_redshift=args.redshift[2], max_redshift=args.redshift[3],
             input_sigma=args.sigma[0], delta_sigma=args.sigma[1], min_sigma=args.sigma[2], max_sigma=args.sigma[3],
             input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3], y_ratio=y_ratio,
-            sigma_inst=args.sigma_inst, spaxel_id=f"{args.label}_{i}", out_path=args.output_path, plot=args.plot, SPS_master=SPS
+            sigma_inst=args.sigma_inst, spaxel_id=f"{args.label}_{i}", out_path=args.output_path, plot=args.plot
         )
-#        y_ratio = SPS.ratio_master
+        y_ratio = SPS.ratio_master
         SPS.output_gas_emission(filename=out_file_elines, spec_id=i)
         SPS.output_coeffs_MC(filename=out_file_coeffs, write_header=i==0)
         try:

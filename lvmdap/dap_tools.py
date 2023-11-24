@@ -278,7 +278,7 @@ def sky_hack_f(data, sdata, hdr, m2a=10e9, band=np.array((7238,7242,7074,7084,71
 #
 # Load an standard LVM RSS file
 #
-def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= True):
+def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= True,nx_range=None):
     """Return the RSS from the given and LVM filename in the parsed command line arguments"""
     hdu = fits.open(lvm_file, memmap=False)
     rss_0_hdr = hdu[0].data
@@ -304,11 +304,19 @@ def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= T
     rss_f_hdr["CDELT1"]=rss_f_hdr["CDELT1"]*m2a
 
     if (sky_hack == True):
+        print(f'# sky re-evaluated')
         rss_f_spectra=sky_hack_f(rss_f_spectra, rss_sky, rss_f_hdr)
 
-
+    if (nx_range != None):
+        print(f'# X-axis trimmed: {nx_range}')
+        rss_f_spectra=rss_f_spectra[:,nx_range[0]:nx_range[1]]
+        rss_e_spectra=rss_e_spectra[:,nx_range[0]:nx_range[1]]
+        wl__w=wl__w[nx_range[0]:nx_range[1]]
+        rss_f_hdr['NAXIS1']=nx_range[1]-nx_range[0]+1
+        rss_f_hdr["CRVAL1"]=rss_f_hdr["CRVAL1"]+nx_range[0]*rss_f_hdr["CDELT1"]
     
     if (ny_range != None):
+        print(f'# Y-axis trimmed: {ny_range}')
         rss_f_spectra=rss_f_spectra[ny_range[0]:ny_range[1],:]
         rss_e_spectra=rss_e_spectra[ny_range[0]:ny_range[1],:]
         rss_f_hdr['NAXIS2']=ny_range[1]-ny_range[0]+1
@@ -1243,5 +1251,16 @@ def find_redshift_spec(wave,spec,w_min=6500,w_max=6800,\
     return z
 
 
+def binArray(data, axis, binstep, binsize, func=np.nanmean):
+    data = np.array(data)
+    dims = np.array(data.shape)
+    argdims = np.arange(data.ndim)
+    argdims[0], argdims[axis]= argdims[axis], argdims[0]
+    data = data.transpose(argdims)
+    data = [func(np.take(data,np.arange(int(i*binstep),int(i*binstep+binsize)),0),0) for i in np.arange(dims[axis]//binstep)]
+    data = np.array(data).transpose(argdims)
+    return data
 
-    
+def bin1D(data,width):
+   bindata = data[:(data.size // width) * width].reshape(-1, width).mean(axis=1)
+   return bindata
