@@ -11,6 +11,9 @@ from scipy.interpolate import interp1d
 from scipy.ndimage import median_filter
 from astropy.io.fits.verify import VerifyWarning
 
+from matplotlib import use as mpl_use
+mpl_use('Agg')
+
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 
@@ -62,6 +65,8 @@ __indices_sky_ = {
 def dap_indices_spec(wave__w, flux_ssp__w, res__w, redshift, n_sim, plot=0, wl_half_range=200, verbose=False,\
                       __indices__=__indices__, _INDICES_POS=_INDICES_POS_):
     if plot:
+        from matplotlib import use as mpl_use
+        mpl_use('Agg')
         import matplotlib.patches as patches
         import matplotlib.pyplot as plt
 
