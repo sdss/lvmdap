@@ -1107,8 +1107,10 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
     file=dir+'/'+file
     hdu=fits.open(file)
     data=hdu[0].data
-    data=data[n_sp,:,:]
+    print(f'SHAPE output ={data.shape}')
+    data=data[:,n_sp,:]
     (ny,nx)=data.shape
+    print(f'SHAPE output  ={data.shape} {n_sp}')
 #    data=np.mean(data,axis=1)
     i0 = int(nx*0.45)
     i1 = int(nx*0.55)
