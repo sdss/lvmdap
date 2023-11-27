@@ -1093,12 +1093,30 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                                               sigma__yx,eflux__wyx=rss_eflux,\
                                               flux_ssp__wyx=model_spectra[1,:,:],w_range=15)
     colnames=[]
+    colnames_B=[]
+    colnames_R=[]
+    colnames_I=[]
+    wr_fe=np.array((3500,5755,7545,1000))
     for i in range(fe_data.shape[0]):
       colname=str(fe_hdr[f'NAME{i}'])+'_'+str(fe_hdr[f'WAVE{i}'])
       colname=colname.replace(' ','_')
       colnames.append(colname)
+      wave_now=float(fe_hdr[f'WAVE{i}'])
+      if (wave_now<5755):
+        colnames_B.append(colname)
+      if ((wave_now>=5755) & (wave_now<7545)):
+        colnames_R.append(colname)
+      if (wave_now>=7545):
+        colnames_I.append(colname)  
     colnames=np.array(colnames)
-    tab_fe=Table(np.transpose(fe_data),names=colnames)  
+    #colnames_B=np.array(colnames_B)
+    #colnames_R=np.array(colnames_R)
+    #colnames_I=np.array(colnames_I)
+    tab_fe=Table(np.transpose(fe_data),names=colnames)
+    tab_fe_B=tab_fe[colnames_B]
+    tab_fe_R=tab_fe[colnames_R]
+    tab_fe_I=tab_fe[colnames_I]
+    
     print("##################################################")
     print("# END Flux_elines analysis on full RSS spectra ###")
     print("##################################################")
@@ -1111,7 +1129,14 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     tab_rsp.add_column(tab_PT['id'].value,name='id',index=0)
     tab_fe.add_column(tab_PT['id'].value,name='id',index=0)
+    tab_fe_B.add_column(tab_PT['id'].value,name='id',index=0)
+    tab_fe_R.add_column(tab_PT['id'].value,name='id',index=0)
+    tab_fe_I.add_column(tab_PT['id'].value,name='id',index=0)
+#    print('FE_tab: ',tab_fe)
+#    print('FE_tab_rows: ',len(tab_fe))
+#    print('FE_tab.colnames: ', t.colnames)     
 
+      
     id_elines=[]    
     for id_fib in tab_elines['id_fib']:
         id_elines.append(tab_PT['id'].value[id_fib])
@@ -1127,12 +1152,15 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     hdu_hdr_0 = fits.PrimaryHDU(header=hdr_0) 
     hdu_PT = fits.BinTableHDU(tab_PT,name='PT')
-    hdu_ELINES = fits.BinTableHDU(tab_elines,name='ELINES')
-    hdu_FE = fits.BinTableHDU(tab_fe,name='FE')
+    hdu_ELINES = fits.BinTableHDU(tab_elines,name='PM_ELINES')
+    #hdu_FE = fits.BinTableHDU(tab_fe,name='FE')
+    hdu_FE_B = fits.BinTableHDU(tab_fe_B,name='NP_ELINES_B')
+    hdu_FE_R = fits.BinTableHDU(tab_fe_R,name='NP_ELINES_R')
+    hdu_FE_I = fits.BinTableHDU(tab_fe_I,name='NP_ELINES_I')
     hdu_RSP = fits.BinTableHDU(tab_rsp,name='RSP')
     hdu_COEFFS = fits.BinTableHDU(tab_coeffs,name='COEFFS')
 
-    hdu_dap =fits.HDUList([hdu_hdr_0,hdu_PT,hdu_RSP,hdu_COEFFS,hdu_ELINES,hdu_FE])
+    hdu_dap =fits.HDUList([hdu_hdr_0,hdu_PT,hdu_RSP,hdu_COEFFS,hdu_ELINES,hdu_FE_B,hdu_FE_R,hdu_FE_I])
     hdu_dap.writeto(out_file_dap,overwrite=True)
     print(f'# dap_file: {out_file_dap} written')
     print("##################################################")
