@@ -51,6 +51,8 @@ import yaml
 import re
 from collections import Counter
 
+from lvmdap.dap_tools import list_columns,read_DAP_file,map_plot_DAP
+
 #
 # Just for tests
 #
@@ -546,12 +548,15 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     # We add the full list of arguments
     #
+    dict_param={}
     for k, v in dap_config_args.items():
       if(isinstance(v, str)):
         v=v.replace("..",dap_config_args['lvmdap_dir'])
+        dict_param[k]=v
       parser.add_argument(
         '--' + k, default=v
       )
+
     #
     # We transform it to a set of arguments
     #
@@ -570,6 +575,28 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     
     args = parser.parse_args(cmd_args)
 
+
+
+
+
+#    tab_info=Table(dict_param)
+#    for key in dict_param.keys():
+#      val=dict_param[key]
+#      tab_info[key]=val
+   # hdu_info = fits.BinTableHDU(tab_info,name='INFO')
+ #   print(tab_info)
+ #   quit()
+   # print(dict_param)
+   # quit()
+    print('**** adopted arguments****')
+    a_name=[]
+    a_value=[]
+    for arg_name, arg_value in vars(args).items():
+      a_name.append(arg_name)
+      a_value.append(str(arg_value))
+    tab_info=Table((a_name,a_value),names=('param','value'))
+    hdu_info = fits.BinTableHDU(tab_info,name='INFO')
+                   
     try:
         ny_range=args.ny_range
     except:
@@ -729,6 +756,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
  #   print(f'single_gas_fit = {args.single_gas_fit}')
     print(f'### START RSP fitting the integrated spectrum...')
 
+       
     #
     # Reading the emission line file
     #
@@ -1148,8 +1176,23 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         id_coeffs.append(tab_PT['id'].value[id_fib])
     id_coeffs=np.array(id_coeffs)
     tab_coeffs.add_column(id_coeffs,name='id',index=0)
-    
 
+    #
+    # We add new entries to the header
+    #
+    #print('##############################')
+    #print('# Updating the header ###############')
+    hdr_0['dap_ver']=0.231128
+    #for key in dict_param.keys():
+    #  val=dict_param[key]
+    #  hdr_0[key]=val
+    #   # print(dict_param)
+    # quit()
+    #print('# Header updated    #################')
+    #print('##############################')
+
+
+    
     hdu_hdr_0 = fits.PrimaryHDU(header=hdr_0) 
     hdu_PT = fits.BinTableHDU(tab_PT,name='PT')
     hdu_ELINES = fits.BinTableHDU(tab_elines,name='PM_ELINES')
@@ -1160,14 +1203,44 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     hdu_RSP = fits.BinTableHDU(tab_rsp,name='RSP')
     hdu_COEFFS = fits.BinTableHDU(tab_coeffs,name='COEFFS')
 
-    hdu_dap =fits.HDUList([hdu_hdr_0,hdu_PT,hdu_RSP,hdu_COEFFS,hdu_ELINES,hdu_FE_B,hdu_FE_R,hdu_FE_I])
+    hdu_dap =fits.HDUList([hdu_hdr_0,hdu_PT,hdu_RSP,hdu_COEFFS,hdu_ELINES,hdu_FE_B,hdu_FE_R,hdu_FE_I,hdu_info])
     hdu_dap.writeto(out_file_dap,overwrite=True)
     print(f'# dap_file: {out_file_dap} written')
     print("##################################################")
     print("# END: Storing the results in a single file    ###")
     print("##################################################")
 
+    
+    if (args.do_plots==1):
+      print("##################################################")
+      print("# STAR: Plotting Ha and continous flux maps                                                   ###")
+      print("##################################################")
+      tab_DAP=read_DAP_file(out_file_dap,verbose=True)
+      param='flux_Halpha_6562.85'
+      try:
+        map_plot_DAP(tab_DAP,line=param, \
+                     vmin=0, vmax=0, title=None, filename=f'{args.label}_{param}',\
+                     cmap='Spectral', fsize=8, figs_dir=args.output_path,fig_type=out_plot_format,gamma=0.3)    
+      except:
+        print(f'{param} does not exits')
+        
+      param='med_flux_st'
+      try:
+        map_plot_DAP(tab_DAP,line=param, \
+                     vmin=0, vmax=0, title=None, filename=f'{args.label}_{param}',\
+                     cmap='Spectral', fsize=8, figs_dir=args.output_path,fig_type=out_plot_format,gamma=0.3)
+      except:
+        print(f'{param} does not exits')
 
+    #args.output_path, f"elines_{args.label}")     
+      
+      print("##################################################")
+      print("# End:  Plotting Ha and continous flux maps                                                    ###")
+      print("##################################################")
+
+      
+
+    
     print("#******   ALL DONE ******#")
 
 

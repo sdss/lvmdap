@@ -35,6 +35,7 @@ from collections import Counter
 
 import math
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import matplotlib.colors as mpl_colors
 
 from matplotlib import rcParams as rc
 rc.update({'font.size': 21,\
@@ -122,7 +123,8 @@ class scatter():
 
 def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
                  vmin=0, vmax=0, title=None, filename='junk',\
-                 cmap='Spectral', fsize=5, figs_dir='.',fig_type='png'):
+                 cmap='Spectral', fsize=5, figs_dir='.',fig_type='png',\
+                 gamma=1.0):
     X=tab_DAP['ra']
     Y=tab_DAP['dec']
     C=tab_DAP[line]    
@@ -134,14 +136,16 @@ def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
         vmax=np.nanmax(C)
     print(line,vmin,vmax)
     fig,ax = plt.subplots(1,1,figsize=(fsize,fsize))
-    scat=scatter(X, Y, ax, size=35.6/3600, c=C,vmin = vmin, vmax = vmax, cmap=cmap)
-    ax.set_xlabel('Ra [deg]')
-    ax.set_ylabel('Dec [deg]')
+    norm=mpl_colors.PowerNorm(vmin=vmin,vmax=vmax,gamma=gamma)
+    scat=scatter(X, Y, ax, size=35.6/3600, c=C, cmap=cmap, norm=norm)
+#    scat=scatter(X, Y, ax, size=35.6/3600, c=C,vmin = vmin, vmax = vmax, cmap=cmap, norm=colors.PowerNorm(gamma=gamma))
+    ax.set_xlabel('Ra [deg]')#,fontsize=21)
+    ax.set_ylabel('Dec [deg]')#,fontsize=21)
     xx = ax.get_xlim()
     ax.set_xlim(xx[1],xx[0])
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05)
-    plt.colorbar(scat.sc, cax=cax,label=fr'{title}')
+    plt.colorbar(scat.sc, cax=cax,label=fr'{title}')#,fontsize=21)
     ax.set_aspect('equal', adjustable='box')
     plt.show()
     fig.savefig(f'{figs_dir}/{filename}.{fig_type}')
@@ -405,7 +409,7 @@ def sky_hack_f(data, sdata, hdr, m2a=10e9, band=np.array((7238,7242,7074,7084,71
 def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= True,nx_range=None):
     """Return the RSS from the given and LVM filename in the parsed command line arguments"""
     hdu = fits.open(lvm_file, memmap=False)
-    rss_0_hdr = hdu[0].data
+    rss_0_hdr = hdu[0].header
     rss_f_spectra = hdu['FLUX'].data
     rss_f_hdr = hdu['FLUX'].header
     rss_sky = hdu['SKY'].data
@@ -1226,10 +1230,10 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
     file=dir+'/'+file
     hdu=fits.open(file)
     data=hdu[0].data
-    print(f'SHAPE output ={data.shape}')
+#    print(f'SHAPE output ={data.shape}')
     data=data[:,n_sp,:]
     (ny,nx)=data.shape
-    print(f'SHAPE output  ={data.shape} {n_sp}')
+#    print(f'SHAPE output  ={data.shape} {n_sp}')
 #    data=np.mean(data,axis=1)
     i0 = int(nx*0.45)
     i1 = int(nx*0.55)
