@@ -252,8 +252,19 @@ def auto_rsp_elines_single_main(
     if (SPS.valid_flux > 0) and (SPS.median_flux > cf.CUT_MEDIAN_FLUX):  # and (median_flux > cf.ABS_MIN):
 
         SPS_AV = deepcopy(SPS)
-        SPS.non_linear_fit_kin(is_guided_sigma, fit_sigma_rnd=fit_sigma_rnd,
-                           sigma_rnd_medres_merit=losvd_rnd_medres_merit)
+        try:
+            print('-> NL kin fitting')
+            SPS.non_linear_fit_kin(is_guided_sigma, fit_sigma_rnd=fit_sigma_rnd,
+                                   sigma_rnd_medres_merit=losvd_rnd_medres_merit)
+        except:
+            print('-> NL kin not fitted')
+            SPS.best_redshift = cf.redshift
+            SPS.e_redshift = 0.0
+            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
+            SPS.best_sigma = cf.sigma
+            SPS.e_sigma = 0.0
+            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
+            
         # SPS.non_linear_fit(guided_sigma)
 
 

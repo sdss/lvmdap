@@ -718,7 +718,7 @@ class StellarSynthesis(StPopSynt):
             else:
                 self.sigma_mean = np.sqrt(self.sigma_inst**2 + (5000*self.best_sigma/__c__)**2)
         else:
-            print(f'Deriving redshift, sigma, AV...')
+#            print(f'Deriving redshift, sigma, AV...')
             # self.update_redshift_params(coeffs=coeffs_now, chi_sq=chi_sq, redshift=self.best_redshift)
             # self.best_chi_sq_redshift = self.get_last_chi_sq_redshift()
             # self.best_coeffs_redshift = self.get_last_coeffs_redshift()
@@ -752,7 +752,7 @@ class StellarSynthesis(StPopSynt):
                 self.best_chi_sq_nl_fit = self.get_last_chi_sq_AV()
                 self.best_coeffs_nl_fit = self.get_last_coeffs_AV()
             print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=True)
-            print(f'Deriving redshift, sigma, AV... DONE!')
+#            print(f'Deriving redshift, sigma, AV... DONE!')
         self.best_chi_sq_nl_fit = chi_sq
         self.best_coeffs_nl_fit = coeffs_now
         print_verbose('------------------------[ END non-linear fit report]--', verbose=self.verbose)
@@ -782,9 +782,8 @@ class StellarSynthesis(StPopSynt):
         SPS_kin.flux=self.flux[mask_w]
         SPS_kin.eflux=self.eflux[mask_w]
         SPS_kin.ratio_master=SPS_kin.ratio_master[mask_w]
-#        print(len(SPS_kin.eflux),len(mask_w),len(SPS_kin.ratio_master))
-
         SPS_kin._create_spectra_dict(SPS_kin.wavelength, SPS_kin.flux, SPS_kin.eflux, SPS_kin.min, SPS_kin.max, SPS_kin.ratio_master)
+
         #SPS_kin._multi_AV()
         #SPS_kin._fitting_init()
         #SPS_kin.ssp_init()
@@ -795,7 +794,7 @@ class StellarSynthesis(StPopSynt):
         ssp.flux_models=np.transpose(np.transpose(self.models_nl_fit.flux_models)[mask_w_nl])
         ssp.n_wave=len(ssp.wavelength)
         s = deepcopy(self.spectra)
- #       print(len(s['sel_AV']),len(s['raw_flux']))
+
                   
         s['sel_AV']=s['sel_AV'][mask_w]
         s['raw_flux']=s['raw_flux'][mask_w]
@@ -830,7 +829,7 @@ class StellarSynthesis(StPopSynt):
             else:
                 self.sigma_mean = np.sqrt(self.sigma_inst**2 + (5000*self.best_sigma/__c__)**2)
         else:
-            print(f'Deriving redshift sigma...')
+#            print(f'Deriving redshift sigma...')
             # self.update_redshift_params(coeffs=coeffs_now, chi_sq=chi_sq, redshift=self.best_redshift)
             # self.best_chi_sq_redshift = self.get_last_chi_sq_redshift()
             # self.best_coeffs_redshift = self.get_last_coeffs_redshift()
@@ -863,7 +862,7 @@ class StellarSynthesis(StPopSynt):
                 self.sigma_mean = self.best_sigma
             else:
                 self.sigma_mean = np.sqrt(self.sigma_inst**2 + (5000*self.best_sigma/__c__)**2)
-            print(f'Deriving redshift, sigma... DONE!')
+#            print(f'Deriving redshift, sigma... DONE!')
         self.best_chi_sq_nl_fit = chi_sq
         self.best_coeffs_nl_fit = coeffs_now
         print_verbose('------------------------[ END non-linear fit report]--', verbose=self.verbose)
