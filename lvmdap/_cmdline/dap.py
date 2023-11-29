@@ -80,7 +80,7 @@ def auto_rsp_elines_rnd(
     input_redshift=None, delta_redshift=None, min_redshift=None, max_redshift=None,
     input_sigma=None, delta_sigma=None, min_sigma=None, max_sigma=None, sigma_gas=None,
     input_AV=None, delta_AV=None, min_AV=None, max_AV=None, ratio=True, y_ratio=None,
-    fit_sigma_rnd=True, out_path=None, SPS_master=None):
+    fit_sigma_rnd=True, out_path=None, SPS_master=None, SN_CUT=2):
 
   #
   # If there is no RSP for the Non-Linear (nl) fitting, they it is 
@@ -153,7 +153,7 @@ def auto_rsp_elines_rnd(
         input_sigma=input_sigma, delta_sigma=delta_sigma, min_sigma=min_sigma, max_sigma=max_sigma,
         input_AV=input_AV, delta_AV=delta_AV, min_AV=min_AV, max_AV=max_AV,
         plot=plot, single_ssp=False, ratio=ratio, y_ratio=y_ratio, fit_sigma_rnd=fit_sigma_rnd,
-        sps_class=StellarSynthesis, SPS_master=SPS_master
+        sps_class=StellarSynthesis, SPS_master=SPS_master , SN_CUT=  SN_CUT 
     )
     print(f"# END: fitting the continuum+emission lines, fit_gas:{fit_gas} ...");
     print("##############################");
@@ -628,6 +628,12 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
       auto_redshift=False
 
+
+    try:
+      SN_CUT=args.SN_CUT
+    except:
+      SN_CUT=3
+
     
 
 
@@ -835,7 +841,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       input_redshift=args.redshift[0], delta_redshift=args.redshift[1], min_redshift=args.redshift[2], max_redshift=args.redshift[3],
             input_sigma=args.sigma[0], delta_sigma=args.sigma[1], min_sigma=args.sigma[2], max_sigma=args.sigma[3],
             input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3],
-      sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot
+      sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot,SN_CUT=SN_CUT
     )
 
     #print(f'SPS nl ssp models: {SPS.ssp_nl_fit.flux_models.shape}')
@@ -1011,11 +1017,13 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             input_redshift=args.redshift[0], delta_redshift=args.redshift[1], min_redshift=args.redshift[2], max_redshift=args.redshift[3],
             input_sigma=args.sigma[0], delta_sigma=args.sigma[1], min_sigma=args.sigma[2], max_sigma=args.sigma[3],
             input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3], y_ratio=y_ratio,
-            sigma_inst=args.sigma_inst, spaxel_id=f"{args.label}_{i}", out_path=args.output_path, plot=args.plot, SPS_master=SPS
+            sigma_inst=args.sigma_inst, spaxel_id=f"{args.label}_{i}", out_path=args.output_path, plot=args.plot,
+            SPS_master=SPS,SN_CUT=SN_CUT
         )
 #        y_ratio = SPS.ratio_master
         SPS.output_gas_emission(filename=out_file_elines, spec_id=i)
         SPS.output_coeffs_MC(filename=out_file_coeffs, write_header=i==0)
+        print(f'Teff test = {SPS.teff_min}')
         try:
             SPS.output(filename=out_file_ps, write_header=i==0, block_plot=False)
         except:

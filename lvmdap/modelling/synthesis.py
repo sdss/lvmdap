@@ -162,7 +162,7 @@ class StellarSynthesis(StPopSynt):
             # in order to keep working the code at first instance:
             self.ssp_nl_fit = self.models_nl_fit
 
-    def ssp_single_fit(self):
+    def rsp_single_fit(self):
         cf = self.config
         models = self.models
 
@@ -197,12 +197,14 @@ class StellarSynthesis(StPopSynt):
 
         chi_sq_mean = []
         chi_sq_median = []
+        coeffs_single=[]
         for M__w in flux_models_obsframe_dust:
             _chi_sq, _ = calc_chi_sq(f_obs=self.spectra['raw_flux_no_gas_norm_mean'], f_mod=M__w, ef_obs=self.spectra['raw_eflux_norm_mean'])
             chi_sq_mean.append(_chi_sq)
             _chi_sq, _ = calc_chi_sq(f_obs=self.spectra['raw_flux_no_gas_norm_median'], f_mod=M__w, ef_obs=self.spectra['raw_eflux_norm_median'])
             chi_sq_median.append(_chi_sq)
-
+            coeffs_single.append(0.0)
+        coeffs_single=np.array(coeffs_single)
         chi_sq_mean = np.array(chi_sq_mean)
         chi_sq_median = np.array(chi_sq_median)
         print(f'len_chi_sq_mean={len(chi_sq_mean)}')
@@ -229,6 +231,33 @@ class StellarSynthesis(StPopSynt):
 
         i_C_mean_min = chi_sq_mean_norm.argmin()
         i_C_median_min = chi_sq_mean_norm.argmin()
+
+        model_min=flux_models_obsframe_dust[i_C_median_min]*norm_median_flux
+        coeffs_single[i_C_median_min]=1.0
+        self.coeffs_ssp_MC=coeffs_single
+        
+        self.spectra['model_ssp_min']=model_min
+        self.spectra['model_min']=model_min
+
+
+        
+        #res_ssp = s['raw_flux_no_gas'] - model_ssp_min
+        # smooth model_ssp_min (not tested)
+        #ratio = np.divide(s['raw_flux_no_gas'], model_ssp_min, where=model_ssp_min!=0)
+        #ratio = np.where(np.isfinite(ratio), ratio, 0)
+        #ratio = np.where(model_ssp_min == 0, 0, ratio)
+        #sm_rat = smooth_ratio(ratio, int(self.sigma_mean))
+       # model_ssp_min *= sm_rat
+       # model_joint = model_ssp_min + s['raw_model_elines']
+        # _rat = (s['orig_flux_ratio']/self.ratio_master)
+        # _rat = np.where(self.ratio_master > 0, _rat, s['orig_flux_ratio'])
+        #res_joint = (res_ssp - s['raw_model_elines'])
+
+        #s['model_joint'] = model_joint
+        #s['res_joint'] = res_joint
+        #s['res_ssp'] = res_ssp
+        #s['res_ssp_no_corr'] = s['orig_flux'] - s['model_ssp_min_uncorr']
+     
         tbl_row = []
         tbl_row.append(i_C_mean_min)
         tbl_row.append(self.ssp.teff_models[i_C_mean_min])
@@ -266,7 +295,7 @@ class StellarSynthesis(StPopSynt):
 
         return chi_sq_median_norm[i_C_median_min]
 
-    def ssp_fit(self, n_MC=5):
+    def rsp_fit(self, n_MC=5):
         """
         Generates minimal ssp model through a Monte-Carlo search of the coefficients.
         I.e. go through fit_WLS_invmat() `n_MC` times (using fit.WLS_invmat_MC).
@@ -871,4 +900,92 @@ class StellarSynthesis(StPopSynt):
         print_verbose('-----------------------------------------------[ END non-linear fit ]--', verbose=self.verbose)
         print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
         
+
+    
+    def gas_fit_no_rsp(self, ratio=True):
+        """
+        Prepares the observed spectra in order to fit systems of emission lines
+        to the residual spectra.
+
+        Attributes
+        ----------
+        spectra['raw_flux_no_gas'] : array like
+            The raw observed spectrum without the model of the emission lines.
+        """
+        #print('*** PASO****')
+        s = self.spectra
+        ssp = self.models
+        sigma_mean = self.sigma_mean
+
+
+        print_verbose('', verbose=self.verbose)
+        #print('*** P here ***')
+
+        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
+        print_verbose('--[ BEGIN EL fit ]-----------------------------------------------------', verbose=self.verbose)
+
+#        coeffs=self.get_last_coeffs_ssp()
+#        print('coeffs=',coeffs)
+        model_min = s['model_min']
+        #self.get_best_model_from_coeffs(ssp=ssp, coeffs=self.get_last_coeffs_ssp())
+#        print('model_min=',model_min)
+        res_min = s['raw_flux']- model_min
+        #if self.SN_norm_window > 10:
+        #    self._subtract_continuum(model_min)
+
+        # fit Emission Lines
+        self._EL_fit(model_min=model_min)
+
+#        print('EL done')
+        #   s[raw_flux] is not used anymore. Idk why this is made.
+        #   Inside perl code SFS rewrites raw_flux when creates the
+        #   spectra[raw_flux_no_gas], but here I create a spectra[raw_flux_no_gas]
+        # TODO: THIS SHOULD BE FIXED!
+        #   2019.12.19: EADL@laptop-XPS13-9333
+        #       The need to save the raw_flux in the spectra dictionary is because
+        #       self.fit_WLS_invmat uses the spectra['raw_flux']. We have to create
+        #       a _fit_WLS_invmat() that receives the SSP base and the spectrum to
+        #       fit.
+        #   2020.01.14: EADL@laptop-XPS13-9333
+        #       The need to create _fit_WLS_invmat() proposed before helps also to
+        #       create the Monte-Carlo loop!
+        # FIXED: now raw_flux back to be raw_flux and raw_model_elines should be used.
+        #   2020.01.15: EADL@laptop-XPS13-9333
+        #       _fit_WLS_invmat() Done!
+        # s['orig_raw_flux'] = s['raw_flux'].copy()
+
+        # Removes the gas from the raw_flux.
+        s['raw_flux_no_gas'] = s['orig_flux'] - s['raw_model_elines']
+        #s['raw_flux'] -= s['raw_model_elines']
+
+        # plt.cla()
+        # wave_list = [s['raw_wave']]*5
+        # res = s['orig_raw_flux'] - ssp_model_joint
+        # spectra_list = [s['orig_raw_flux'], model_min, s['orig_raw_flux'],
+        #                 s['raw_model_elines'], ssp_model_joint, res]
+        # plot_spectra_ax(plt.gca(), wave_list, spectra_list)
+        # # plt.ylim(-0.2, 1.5)
+        
+        # plt.pause(0.001)
         # plt.show(block=True)
+
+        # re-scale
+#        print('Ratio master')
+#        try:
+ #           y_ratio = self.ratio_master if not ratio else self._rescale(model_min)
+ #       except:
+  
+ #       print('Ratio master')
+#        ratio = 
+        #ratio = np.divide(s['orig_flux'], y_ratio, where=y_ratio!=0)
+        s['orig_flux_ratio'] = s['orig_flux']
+#        ratio = np.divide(s['raw_flux_no_gas'], y_ratio)#, where=y_ratio!=0)
+        #s['raw_flux_no_gas'] = self._rescale(model_min)
+       #np.where(y_ratio > 0, ratio, s['raw_flux_no_gas'])
+        # s['msk_flux_no_gas'] = s['raw_flux_no_gas'][s['sel_wl']]
+        #return model_min,s['raw_flux_no_gas'],s['raw_model_elines'],s['orig_flux_ratio'] 
+
+
+        # plt.show(block=True)
+
+        

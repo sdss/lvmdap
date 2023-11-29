@@ -154,7 +154,7 @@ def auto_rsp_elines_single_main(
         # guided_sigma=None,
         ratio=True, spec_id=None, y_ratio=None, guided_errors=None, fit_sigma_rnd=True,
         fit_gas=True, losvd_rnd_medres_merit=False, verbose=None, sps_class=StPopSynt,
-        SPS_master=None,bin_AV=51):
+        SPS_master=None,bin_AV=51,SN_CUT=  2 ):
 
     verbose = __verbose__ if verbose is None else verbose
     redshift_set = [input_redshift, delta_redshift, min_redshift, max_redshift]
@@ -249,6 +249,23 @@ def auto_rsp_elines_single_main(
     # valid_flux = 2 - everything OK
     # valid_flux = 1 - missing valid flux (flux > 0) inside nl-fit wavelength window.
     # valid_flux = 0 - missing valid flux (flux > 0) inside linear fit wavelength window
+
+    mask_w = (SPS.wavelength>SPS.nl_w_min) & (SPS.wavelength<SPS.nl_w_max)
+    nl_wavelength=SPS.wavelength[mask_w]
+    nl_flux=SPS.flux[mask_w]
+    SPS.med_flux = np.median(nl_flux)
+    SPS.rms = np.std(nl_flux)
+    SPS.calc_SN_norm_window()
+    print(f'-> MED_FLUX: {SPS.med_flux} +- {SPS.rms} SN:{SPS.SN_norm_window}')
+ #   SN_CUT=3
+ #   print(f'# SN_CUT = {SN_CUT}')
+   
+
+
+    if ((SPS.med_flux<=0) or (SPS.med_flux<0.5*SPS.rms) or (SPS.SN_norm_window<SN_CUT)):
+        SPS.valid_flux=0
+#        print('-> **** not fitting the continuum ****')
+    
     if (SPS.valid_flux > 0) and (SPS.median_flux > cf.CUT_MEDIAN_FLUX):  # and (median_flux > cf.ABS_MIN):
 
         SPS_AV = deepcopy(SPS)
@@ -260,10 +277,10 @@ def auto_rsp_elines_single_main(
             print('-> NL kin not fitted')
             SPS.best_redshift = cf.redshift
             SPS.e_redshift = 0.0
-            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
+            print_verbose(f'- Redshift: {SPS.best_redshift:.8f} +- {SPS.e_redshift:.8f}', verbose=True)
             SPS.best_sigma = cf.sigma
             SPS.e_sigma = 0.0
-            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
+            print_verbose(f'- Sigma:    {SPS.best_sigma:.8f} +- {SPS.e_sigma:.8f}', verbose=True)
             
         # SPS.non_linear_fit(guided_sigma)
 
@@ -284,9 +301,9 @@ def auto_rsp_elines_single_main(
             SPS_AV.eflux=bin1D(SPS.eflux,bin_AV)
             SPS_AV.ratio_master=bin1D(SPS.ratio_master,bin_AV)
 
-            #SPS_kin.wavelength=self.wavelength[mask_w]
-            #SPS_kin.flux=self.flux[mask_w]
-            #SPS_kin.eflux=self.eflux[mask_w]
+            #SPS_kin.wavelength=SPS.wavelength[mask_w]
+            #SPS_kin.flux=SPS.flux[mask_w]
+            #SPS_kin.eflux=SPS.eflux[mask_w]
             #SPS_kin.ratio_master=SPS_kin.ratio_master[mask_w]
 
 
@@ -307,7 +324,6 @@ def auto_rsp_elines_single_main(
         n_iter = 0
         while ((min_chi_sq > cf.MIN_DELTA_CHI_SQ) & (n_iter < cf.MAX_N_ITER)):
             print(f'# Deriving SFH... attempt {n_iter + 1} of {cf.MAX_N_ITER}')
-
             # This part is repeated in auto_ssp perl script
             # if cf.CUT_MEDIAN_FLUX == 0:
             #     msg_cut = ' - Warning: no cut (CUT_MEDIAN_FLUX = 0)'
@@ -320,24 +336,134 @@ def auto_rsp_elines_single_main(
             # stellar population synthesis based solely on chi_sq determination
             # if median_flux > cf.CUT_MEDIAN_FLUX:
             if single_ssp:
-                min_chi_sq_now = SPS.ssp_single_fit()
+                min_chi_sq_now = SPS.rsp_single_fit()
             else:
-                min_chi_sq_now = SPS.ssp_fit(n_MC=__n_Monte_Carlo__)
+                min_chi_sq_now = SPS.rsp_fit(n_MC=__n_Monte_Carlo__)
             SPS.resume_results()
             print(f'# Deriving SFH... attempt {n_iter + 1} DONE!')
             if not single_ssp:
                 SPS.output_coeffs_MC_to_screen()
-                SPS.output_to_screen(block_plot=False)
+                #SPS.output_to_screen(block_plot=False)
             if min_chi_sq_now < min_chi_sq:
                 min_chi_sq = min_chi_sq_now
             n_iter += 1
     else:
-        SPS.cut = True
+#        SPS.cut = True
+        print(f'-> Single SSP fit ')
+        SPS.best_redshift = cf.redshift
+        SPS.e_redshift = 0.0
+        print_verbose(f'- Redshift: {SPS.best_redshift:.8f} +- {SPS.e_redshift:.8f}', verbose=True)
+        SPS.best_sigma = cf.sigma
+        SPS.e_sigma = 0.0
+        print_verbose(f'- Sigma:    {SPS.best_sigma:.8f} +- {SPS.e_sigma:.8f}', verbose=True)
+        SPS.best_Av = cf.AV
+        SPS.e_Av = 0.0
+        print_verbose(f'- Av:    {SPS.best_Av:.8f} +- {SPS.e_Av:.8f}', verbose=True)
+        SPS.spectra['raw_flux_no_gas']=SPS.spectra['orig_flux']
+        min_chi_sq_now = SPS.rsp_single_fit()
+        model_ssp_min = SPS.spectra['model_ssp_min']
+        print(f'model_ssp_min: {model_ssp_min}')
+        
+
+        #SPS.spectra['model_ssp_min'],SPS.spectra['raw_flux_no_gas'],SPS.spectra['raw_model_elines'],SPS.spectra['orig_flux_ratio']=
+        SPS.gas_fit_no_rsp(ratio=ratio)
+        res_ssp = SPS.spectra['raw_flux_no_gas'] - model_ssp_min     
+        model_joint = model_ssp_min + SPS.spectra['raw_model_elines']
+        res_joint = (res_ssp - SPS.spectra['raw_model_elines'])     
+        SPS.spectra['model_joint'] = model_joint
+        SPS.spectra['res_joint'] = res_joint
+        SPS.spectra['res_ssp'] = res_ssp
+        SPS.spectra['res_ssp_no_corr'] = SPS.spectra['orig_flux'] - SPS.spectra['model_ssp_min_uncorr']
+
+        SPS._MC_averages()
+        SPS.resume_results()
+        SPS.output_coeffs_MC_to_screen()
+
+        
+        #print('PASO')
+        #SPS.output_to_screen(block_plot=False)
         # TODO: What to do when cut ?
         # SPS.output_gas_emission will fail because
         # SPS.config.systems[:]['EL'] it will not be defined.
         print('-> median flux below cut: unable to perform analysis.')
     return cf, SPS
+
+def test_gas_fit_no_rsp(self, ratio=True):
+        """
+        Prepares the observed spectra in order to fit systems of emission lines
+        to the residual spectra.
+
+        Attributes
+        ----------
+        spectra['raw_flux_no_gas'] : array like
+            The raw observed spectrum without the model of the emission lines.
+        """
+        #print('*** PASO****')
+        s = self.spectra
+        ssp = self.models
+        sigma_mean = self.sigma_mean
+
+
+        print_verbose('', verbose=self.verbose)
+        #print('*** P here ***')
+
+        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
+        print_verbose('--[ BEGIN EL fit ]-----------------------------------------------------', verbose=self.verbose)
+
+        coeffs=self.get_last_coeffs_ssp()
+        print('coeffs=',coeffs)
+        model_min = self.get_best_model_from_coeffs(ssp=ssp, coeffs=self.get_last_coeffs_ssp())
+        print('model_min=',model_min)
+        res_min = s['raw_flux']- model_min
+        #if self.SN_norm_window > 10:
+        #    self._subtract_continuum(model_min)
+
+        # fit Emission Lines
+        self._EL_fit(model_min=model_min)
+
+#        print('EL done')
+        #   s[raw_flux] is not used anymore. Idk why this is made.
+        #   Inside perl code SFS rewrites raw_flux when creates the
+        #   spectra[raw_flux_no_gas], but here I create a spectra[raw_flux_no_gas]
+        # TODO: THIS SHOULD BE FIXED!
+        #   2019.12.19: EADL@laptop-XPS13-9333
+        #       The need to save the raw_flux in the spectra dictionary is because
+        #       self.fit_WLS_invmat uses the spectra['raw_flux']. We have to create
+        #       a _fit_WLS_invmat() that receives the SSP base and the spectrum to
+        #       fit.
+        #   2020.01.14: EADL@laptop-XPS13-9333
+        #       The need to create _fit_WLS_invmat() proposed before helps also to
+        #       create the Monte-Carlo loop!
+        # FIXED: now raw_flux back to be raw_flux and raw_model_elines should be used.
+        #   2020.01.15: EADL@laptop-XPS13-9333
+        #       _fit_WLS_invmat() Done!
+        # s['orig_raw_flux'] = s['raw_flux'].copy()
+
+        # Removes the gas from the raw_flux.
+        s['raw_flux_no_gas'] = s['orig_flux'] - s['raw_model_elines']
+        #s['raw_flux'] -= s['raw_model_elines']
+
+        # plt.cla()
+        # wave_list = [s['raw_wave']]*5
+        # res = s['orig_raw_flux'] - ssp_model_joint
+        # spectra_list = [s['orig_raw_flux'], model_min, s['orig_raw_flux'],
+        #                 s['raw_model_elines'], ssp_model_joint, res]
+        # plot_spectra_ax(plt.gca(), wave_list, spectra_list)
+        # # plt.ylim(-0.2, 1.5)
+        # plt.pause(0.001)
+        # plt.show(block=True)
+
+        # re-scale
+        #y_ratio = self.ratio_master if not ratio else self._rescale(model_min)
+
+#        ratio = 
+        #ratio = np.divide(s['orig_flux'], y_ratio, where=y_ratio!=0)
+        s['orig_flux_ratio'] = s['orig_flux']
+        #ratio = np.divide(s['raw_flux_no_gas'], y_ratio, where=y_ratio!=0)
+        #s['raw_flux_no_gas'] = np.where(y_ratio > 0, ratio, s['raw_flux_no_gas'])
+        # s['msk_flux_no_gas'] = s['raw_flux_no_gas'][s['sel_wl']]
+        return model_min,s['raw_flux_no_gas'],s['raw_model_elines'],s['orig_flux_ratio'] 
+
 
 # TODO: ADD SINGLE SSP FIT TO AUTO_SSP_SPEC
 def auto_ssp_spec(
