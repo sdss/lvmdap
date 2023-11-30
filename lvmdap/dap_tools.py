@@ -146,7 +146,7 @@ def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05)
     plt.colorbar(scat.sc, cax=cax,label=fr'{title}')#,fontsize=21)
-    ax.set_aspect('equal', adjustable='box')
+#    ax.set_aspect('equal', adjustable='box')
     plt.show()
     fig.savefig(f'{figs_dir}/{filename}.{fig_type}')
     plt.close()
