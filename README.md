@@ -90,7 +90,7 @@ Both two scripts, `lvm-dap` and 'lvm-dap-conf', implement the Resolved Stellar P
 
 # Usage
 
-```
+```bash
 usage: lvm-dap-conf [-h] [-d] lvm_file label config_yaml
 
 lvm_file:  Fitsfile in the LVM format, comprising the following extensions:
@@ -191,9 +191,9 @@ single_rsp: False
   - 100
   - 3000
 
-...
- 	   
 ```
+ 	   
+```bash
 usage: lvm-dap [-h] [--input-fmt INPUT_FMT] [--error-file ERROR_FILE] [--config-file CONFIG_FILE]
                [--emission-lines-file EMISSION_LINES_FILE] [--mask-file MASK_FILE] [--sigma-gas SIGMA_GAS] [--ignore-gas]
                [--rsp-nl-file RSP_NL_FILE] [--plot PLOT] [--flux-scale min max] [--w-range wmin wmax] [--w-range-nl wmin2 wmax2]
