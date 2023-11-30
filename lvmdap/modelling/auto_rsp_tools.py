@@ -17,6 +17,9 @@ from  pyFIT3D.common.constants import __selected_extlaw__, __selected_R_V__, __n
 from pyFIT3D.common.constants import __c__, _MODELS_ELINE_PAR, __mask_elines_window__
 from pyFIT3D.common.constants import __selected_half_range_sysvel_auto_ssp__, _figsize_default, _plot_dpi
 from pyFIT3D.common.constants import __sigma_to_FWHM__, __selected_half_range_wl_auto_ssp__
+
+from pyFIT3D.common.stats import pdl_stats, _STATS_POS, WLS_invmat, median_box, median_filter
+
 from copy import deepcopy
 
 __verbose__ = True
@@ -362,11 +365,14 @@ def auto_rsp_elines_single_main(
         SPS.spectra['raw_flux_no_gas']=SPS.spectra['orig_flux']
         min_chi_sq_now = SPS.rsp_single_fit()
         model_ssp_min = SPS.spectra['model_ssp_min']
-        print(f'model_ssp_min: {model_ssp_min}')
-        
+        #print(f'model_ssp_min: {model_ssp_min}')
+
+        ratio_now = np.divide(SPS.spectra['orig_flux'] - model_ssp_min,  model_ssp_min, where= model_ssp_min !=0) + 1
+        median_ratio = median_filter(15, ratio_now)
+
 
         #SPS.spectra['model_ssp_min'],SPS.spectra['raw_flux_no_gas'],SPS.spectra['raw_model_elines'],SPS.spectra['orig_flux_ratio']=
-        SPS.gas_fit_no_rsp(ratio=ratio)
+        SPS.gas_fit_no_rsp(ratio=median_ratio)
         res_ssp = SPS.spectra['raw_flux_no_gas'] - model_ssp_min     
         model_joint = model_ssp_min + SPS.spectra['raw_model_elines']
         res_joint = (res_ssp - SPS.spectra['raw_model_elines'])     

@@ -926,7 +926,7 @@ class StellarSynthesis(StPopSynt):
 
 #        coeffs=self.get_last_coeffs_ssp()
 #        print('coeffs=',coeffs)
-        model_min = s['model_min']
+        model_min = s['model_min'] / ratio
         #self.get_best_model_from_coeffs(ssp=ssp, coeffs=self.get_last_coeffs_ssp())
 #        print('model_min=',model_min)
         res_min = s['raw_flux']- model_min
@@ -978,7 +978,7 @@ class StellarSynthesis(StPopSynt):
  #       print('Ratio master')
 #        ratio = 
         #ratio = np.divide(s['orig_flux'], y_ratio, where=y_ratio!=0)
-        s['orig_flux_ratio'] = s['orig_flux']
+        s['orig_flux_ratio'] = s['orig_flux'] / ratio
 #        ratio = np.divide(s['raw_flux_no_gas'], y_ratio)#, where=y_ratio!=0)
         #s['raw_flux_no_gas'] = self._rescale(model_min)
        #np.where(y_ratio > 0, ratio, s['raw_flux_no_gas'])
