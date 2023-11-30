@@ -1228,7 +1228,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       try:
         map_plot_DAP(tab_DAP,line=param, \
                      vmin=0, vmax=0, title=None, filename=f'{args.label}_{param}',\
-                     cmap='Spectral', fsize=8, figs_dir=args.output_path,fig_type=out_plot_format,gamma=0.3)    
+                     cmap='Spectral', fsize=8, figs_dir=args.output_path,fig_type=out_plot_format,\
+                     gamma=0.3)    
       except:
         print(f'{param} does not exits')
         
@@ -1236,7 +1237,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       try:
         map_plot_DAP(tab_DAP,line=param, \
                      vmin=0, vmax=0, title=None, filename=f'{args.label}_{param}',\
-                     cmap='Spectral', fsize=8, figs_dir=args.output_path,fig_type=out_plot_format,gamma=0.3)
+                     cmap='Spectral', fsize=8, figs_dir=args.output_path,fig_type=out_plot_format,\
+                     gamma=0.3)
       except:
         print(f'{param} does not exits')
 

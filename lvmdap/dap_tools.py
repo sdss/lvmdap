@@ -38,12 +38,12 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib.colors as mpl_colors
 
 from matplotlib import rcParams as rc
-rc.update({'font.size': 21,\
+rc.update({'font.size': 19,\
            'font.weight': 900,\
            'text.usetex': True,\
            'path.simplify'           :   True,\
-           'xtick.labelsize' : 21,\
-           'ytick.labelsize' : 21,\
+           'xtick.labelsize' : 19,\
+           'ytick.labelsize' : 19,\
            'axes.linewidth'  : 2.0,\
            'xtick.major.size'        :   6,\
            'ytick.major.size'        :   6,\
@@ -124,7 +124,32 @@ class scatter():
 def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
                  vmin=0, vmax=0, title=None, filename='junk',\
                  cmap='Spectral', fsize=5, figs_dir='.',fig_type='png',\
-                 gamma=1.0):
+                 gamma=1.0, sf=1.0):
+
+    rc.update({'font.size': 19,\
+               'font.weight': 900,\
+               'text.usetex': True,\
+               'path.simplify'           :   True,\
+               'xtick.labelsize' : 19,\
+               'ytick.labelsize' : 19,\
+               'axes.linewidth'  : 2.0,\
+               'xtick.major.size'        :   6,\
+               'ytick.major.size'        :   6,\
+               'xtick.minor.size'        :   3,\
+               'ytick.minor.size'        :   3,\
+               'xtick.major.width'       :   1,\
+               'ytick.major.width'       :   1,\
+               'lines.markeredgewidth'   :   1,\
+               'legend.numpoints'        :   1,\
+               'xtick.minor.width'       :   1,\
+               'ytick.minor.width'       :   1,\
+               'legend.frameon'          :   False,\
+               'legend.handletextpad'    :   0.3,\
+               'font.family'    :   'serif',\
+               'mathtext.fontset'        :   'stix',\
+               'axes.facecolor' : "w",\
+               })
+    
     X=tab_DAP['ra']
     Y=tab_DAP['dec']
     C=tab_DAP[line]    
@@ -137,7 +162,7 @@ def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
     print(line,vmin,vmax)
     fig,ax = plt.subplots(1,1,figsize=(fsize,fsize))
     norm=mpl_colors.PowerNorm(vmin=vmin,vmax=vmax,gamma=gamma)
-    scat=scatter(X, Y, ax, size=35.6/3600, c=C, cmap=cmap, norm=norm)
+    scat=scatter(X, Y, ax, size=sf*35.6/3600, c=C, cmap=cmap, norm=norm)
 #    scat=scatter(X, Y, ax, size=35.6/3600, c=C,vmin = vmin, vmax = vmax, cmap=cmap, norm=colors.PowerNorm(gamma=gamma))
     ax.set_xlabel('Ra [deg]')#,fontsize=21)
     ax.set_ylabel('Dec [deg]')#,fontsize=21)
@@ -148,6 +173,7 @@ def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
     plt.colorbar(scat.sc, cax=cax,label=fr'{title}')#,fontsize=21)
 #    ax.set_aspect('equal', adjustable='box')
     plt.show()
+    fig.tight_layout()
     fig.savefig(f'{figs_dir}/{filename}.{fig_type}')
     plt.close()
 
@@ -1455,16 +1481,19 @@ def read_DAP_file(dap_file,verbose=False):
     # order parametric emission line table
     #
     a_wl = np.unique(tab_PE['wl'])
-    for I,wl_now in enumerate(a_wl):
-        tab_PE_now=tab_PE[tab_PE['wl']==wl_now]
-        tab_PE_tmp=tab_PE_now['id','flux_pe','e_flux_pe','disp_pe','e_disp_pe','vel_pe','e_vel_pe']
-        for cols in tab_PE_tmp.colnames:        
-            if (cols != 'id'):
-                tab_PE_tmp.rename_column(cols,f'{cols}_{wl_now}')
-        if (I==0):
-            tab_PE_ord=tab_PE_tmp
-        else:
-            tab_PE_ord=join(tab_PE_ord,tab_PE_tmp,keys=['id'],join_type='left')
+    I=0
+    for wl_now in a_wl:
+        if (wl_now>0.0):
+            tab_PE_now=tab_PE[tab_PE['wl']==wl_now]
+            tab_PE_tmp=tab_PE_now['id','flux_pe','e_flux_pe','disp_pe','e_disp_pe','vel_pe','e_vel_pe']
+            for cols in tab_PE_tmp.colnames:        
+                if (cols != 'id'):
+                    tab_PE_tmp.rename_column(cols,f'{cols}_{wl_now}')
+            if (I==0):
+                tab_PE_ord=tab_PE_tmp
+            else:
+                tab_PE_ord=join(tab_PE_ord,tab_PE_tmp,keys=['id'],join_type='left')
+            I=I+1
     tab_DAP=join(tab_DAP,tab_PE_ord,keys=['id'],join_type='left')
 
     #
