@@ -38,31 +38,6 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib.colors as mpl_colors
 
 from matplotlib import rcParams as rc
-rc.update({'font.size': 19,\
-           'font.weight': 900,\
-           'text.usetex': True,\
-           'path.simplify'           :   True,\
-           'xtick.labelsize' : 19,\
-           'ytick.labelsize' : 19,\
-           'axes.linewidth'  : 2.0,\
-           'xtick.major.size'        :   6,\
-           'ytick.major.size'        :   6,\
-           'xtick.minor.size'        :   3,\
-           'ytick.minor.size'        :   3,\
-           'xtick.major.width'       :   1,\
-           'ytick.major.width'       :   1,\
-           'lines.markeredgewidth'   :   1,\
-           'legend.numpoints'        :   1,\
-           'xtick.minor.width'       :   1,\
-           'ytick.minor.width'       :   1,\
-           'legend.frameon'          :   False,\
-           'legend.handletextpad'    :   0.3,\
-           'font.family'    :   'serif',\
-           'mathtext.fontset'        :   'stix',\
-           'axes.facecolor' : "w",\
-           
-          })
-
 
 warnings.simplefilter('ignore', category=VerifyWarning)
 
@@ -172,7 +147,10 @@ def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
     cax = divider.append_axes("right", size="5%", pad=0.05)
     plt.colorbar(scat.sc, cax=cax,label=fr'{title}')#,fontsize=21)
 #    ax.set_aspect('equal', adjustable='box')
-    plt.show()
+    try:
+        plt.show()
+    except:
+        plt_show=False
     fig.tight_layout()
     fig.savefig(f'{figs_dir}/{filename}.{fig_type}')
     plt.close()

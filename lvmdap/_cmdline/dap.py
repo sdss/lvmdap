@@ -373,7 +373,7 @@ def _main(cmd_args=sys.argv[1:]):
     out_file_elines = os.path.join(args.output_path, f"elines_{args.label}")
     out_file_single = os.path.join(args.output_path, f"single_{args.label}")
     out_file_coeffs = os.path.join(args.output_path, f"coeffs_{args.label}")
-    out_file_fit = os.path.join(args.output_path, f"output.{args.label}.fits.gz")
+    out_file_fit = os.path.join(args.output_path, f"output.{args.label}.fits")
     out_file_ps = os.path.join(args.output_path, args.label)
     # remove previous outputs with the same label
     if args.clear_outputs:
@@ -629,6 +629,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
       auto_redshift=False
 
+    try:
+      dump_model=args.dump_model
+    except:
+      dump_model=False
+
 
     try:
       SN_CUT=args.SN_CUT
@@ -741,7 +746,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     out_file_elines = os.path.join(args.output_path, f"m_{args.label}.elines.txt")
     out_file_single = os.path.join(args.output_path, f"m_{args.label}.single.txt")
     out_file_coeffs = os.path.join(args.output_path, f"m_{args.label}.coeffs.txt")
-    out_file_fit = os.path.join(args.output_path, f"m_{args.label}.output.fits.gz")
+    out_file_fit = os.path.join(args.output_path, f"m_{args.label}.output.fits")
     out_file_ps = os.path.join(args.output_path, f"m_{args.label}.rsp.txt")
 
 
@@ -1054,7 +1059,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         model_spectra.append(SPS.output_spectra_list)
 
     model_spectra = np.array(model_spectra).transpose(1, 0, 2)
-    dump_rss_output(out_file_fit=out_file_fit, wavelength=wl__w, model_spectra=model_spectra)
+
 
     tab_rsp=read_rsp(file_ssp=out_file_ps)
     tab_coeffs=read_coeffs_RSP(coeffs_file=out_file_coeffs)
@@ -1066,57 +1071,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     id_elines=np.array(id_elines)
     tab_elines.add_column(id_elines,name='id',index=0)
     
-    #
-    # Do a plot of the 1st and the last spectra
-    #
-    if (args.do_plots==1):
-      plot_spectra(dir='',n_sp=0, file=out_file_fit,\
-                   file_ssp = out_file_ps,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_first.{args.label}.{out_plot_format}',\
-                   insets=((0.25, 0.5, 0.22, 0.47,4840,5020,-0.5,16,''),\
-                           (0.01, 0.5, 0.22, 0.47,3851,3999,-0.5,3,''),\
-                           (0.52, 0.5, 0.22, 0.47,6303,6322,0.5,2,'[SIII]6312'),\
-                           (0.76, 0.5, 0.22, 0.47,9055,9083,-0.5,10,'[SIII]9069')),\
-                   y_min=-3,y_max=66,y0_d=0.3,y1_d=2.9,\
-                   x_min=3600,x_max=9600,plot_el=True, tab_el=tab_el)
-      plot_spectra(dir='',n_sp=0,file=out_file_fit,\
-                   file_ssp = out_file_ps,\
-                   x_min=6500,x_max=6600,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_first_6500.{args.label}.{out_plot_format}')
-      plot_spectra(dir='',n_sp=0,file=out_file_fit,\
-                   file_ssp = out_file_ps,\
-                   x_min=6700,x_max=6750,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_first_6700.{args.label}.{out_plot_format}')
-      plot_spectra(dir='',n_sp=0,file=out_file_fit,\
-                   file_ssp = out_file_ps,\
-                   x_min=4800,x_max=5030,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_first_5000.{args.label}.{out_plot_format}')        
-
-
-      plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1, file=out_file_fit,\
-                   file_ssp = out_file_ps,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_last.{args.label}.{out_plot_format}',\
-                   insets=((0.25, 0.5, 0.22, 0.47,4840,5020,-0.5,16,''),\
-                           (0.01, 0.5, 0.22, 0.47,3851,3999,-0.5,3,''),\
-                           (0.52, 0.5, 0.22, 0.47,6303,6322,0.5,2,'[SIII]6312'),\
-                           (0.76, 0.5, 0.22, 0.47,9055,9083,-0.5,10,'[SIII]9069')),\
-                   y_min=-3,y_max=66,y0_d=0.3,y1_d=2.9,\
-                   x_min=3600,x_max=9600,plot_el=True, tab_el=tab_el)
-      plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
-                   file_ssp = out_file_ps,\
-                   x_min=6500,x_max=6600,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_last_6500.{args.label}.{out_plot_format}')
-      plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
-                   file_ssp = out_file_ps,\
-                   x_min=6700,x_max=6750,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_last_6700.{args.label}.{out_plot_format}')
-      plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
-                   file_ssp = out_file_ps,\
-                   x_min=4800,x_max=5030,y_min=-0.2,y_max=15.5,\
-                   name=args.label,text=args.label,output=f'{args.output_path}/output_last_5000.{args.label}.{out_plot_format}')        
-
-
-
     print("##############################################")
     print("# End fitting full RSS spectra with RSPs #####")
     print("##############################################")
@@ -1136,7 +1090,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         tab_PE_now=tab_elines[tab_elines['wl']==wl_now]
         tab_PE_tmp=tab_PE_now['id','flux','e_flux',\
                               'disp','e_disp','vel','e_vel']
-        for cols in tab_PE_tmp.colnames:        
+        for cols in tab_PE_tmp.colnames:
+#          print(f'cols: {cols}')
           if (cols != 'id'):
             tab_PE_tmp.rename_column(cols,f'{cols}_{wl_now}')
         if (I==0):
@@ -1242,7 +1197,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print("# END: Storing the results in a single file    ###")
     print("##################################################")
 
-    
     if (args.do_plots==1):
       print("##################################################")
       print("# STAR: Plotting Ha and continous flux maps                                                   ###")
@@ -1272,7 +1226,60 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       print("# End:  Plotting Ha and continous flux maps                                                    ###")
       print("##################################################")
 
-      
+    if (dump_model==True):
+      print("###################################################");
+      print(f"# Start: Dumping the final model: {out_file_fit}                                                      #");
+      dump_rss_output(out_file_fit=out_file_fit, wavelength=wl__w, model_spectra=model_spectra)
+      print("# End: Dumping the final model                                                                               #");
+      if (args.do_plots==1):
+        plot_spectra(dir='',n_sp=0, file=out_file_fit,\
+                     file_ssp = out_file_ps,\
+                     name=args.label,text=args.label,output=f'{args.output_path}/output_first.{args.label}.{out_plot_format}',\
+                     insets=((0.25, 0.5, 0.22, 0.47,4840,5020,-0.5,16,''),\
+                             (0.01, 0.5, 0.22, 0.47,3851,3999,-0.5,3,''),\
+                             (0.52, 0.5, 0.22, 0.47,6303,6322,0.5,2,'[SIII]6312'),\
+                             (0.76, 0.5, 0.22, 0.47,9055,9083,-0.5,10,'[SIII]9069')),\
+                     y_min=-3,y_max=66,y0_d=0.3,y1_d=2.9,\
+                     x_min=3600,x_max=9600,plot_el=True, tab_el=tab_el)
+        plot_spectra(dir='',n_sp=0,file=out_file_fit,\
+                     file_ssp = out_file_ps,\
+                     x_min=6500,x_max=6600,y_min=-0.2,y_max=15.5,\
+                     name=args.label,text=args.label,output=f'{args.output_path}/output_first_6500.{args.label}.{out_plot_format}')
+        plot_spectra(dir='',n_sp=0,file=out_file_fit,\
+                     file_ssp = out_file_ps,\
+                     x_min=6700,x_max=6750,y_min=-0.2,y_max=15.5,\
+                     name=args.label,text=args.label,output=f'{args.output_path}/output_first_6700.{args.label}.{out_plot_format}')
+        plot_spectra(dir='',n_sp=0,file=out_file_fit,\
+                     file_ssp = out_file_ps,\
+                     x_min=4800,x_max=5030,y_min=-0.2,y_max=15.5,\
+                     name=args.label,text=args.label,output=f'{args.output_path}/output_first_5000.{args.label}.{out_plot_format}')        
+        
+        
+        plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1, file=out_file_fit,\
+                     file_ssp = out_file_ps,\
+                     name=args.label,text=args.label,output=f'{args.output_path}/output_last.{args.label}.{out_plot_format}',\
+                     insets=((0.25, 0.5, 0.22, 0.47,4840,5020,-0.5,16,''),\
+                             (0.01, 0.5, 0.22, 0.47,3851,3999,-0.5,3,''),\
+                             (0.52, 0.5, 0.22, 0.47,6303,6322,0.5,2,'[SIII]6312'),\
+                             (0.76, 0.5, 0.22, 0.47,9055,9083,-0.5,10,'[SIII]9069')),\
+                     y_min=-3,y_max=66,y0_d=0.3,y1_d=2.9,\
+                     x_min=3600,x_max=9600,plot_el=True, tab_el=tab_el)
+        plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
+                     file_ssp = out_file_ps,\
+                     x_min=6500,x_max=6600,y_min=-0.2,y_max=15.5,\
+                     name=args.label,text=args.label,output=f'{args.output_path}/output_last_6500.{args.label}.{out_plot_format}')
+        plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
+                     file_ssp = out_file_ps,\
+                     x_min=6700,x_max=6750,y_min=-0.2,y_max=15.5,\
+                     name=args.label,text=args.label,output=f'{args.output_path}/output_last_6700.{args.label}.{out_plot_format}')
+        plot_spectra(dir='',n_sp=hdr_flux['NAXIS2']-1,file=out_file_fit,\
+                     file_ssp = out_file_ps,\
+                     x_min=4800,x_max=5030,y_min=-0.2,y_max=15.5,\
+                     name=args.label,text=args.label,output=f'{args.output_path}/output_last_5000.{args.label}.{out_plot_format}')        
+        
+        
+
+
 
     
     print("#******   ALL DONE ******#")
