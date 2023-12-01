@@ -373,8 +373,10 @@ def auto_rsp_elines_single_main(
 
         #SPS.spectra['model_ssp_min'],SPS.spectra['raw_flux_no_gas'],SPS.spectra['raw_model_elines'],SPS.spectra['orig_flux_ratio']=
         SPS.gas_fit_no_rsp(ratio=median_ratio)
-        res_ssp = SPS.spectra['raw_flux_no_gas'] - model_ssp_min     
-        model_joint = model_ssp_min + SPS.spectra['raw_model_elines']
+        SPS.spectra['model_ssp_min']=SPS.spectra['model_ssp_min']/median_ratio
+        SPS.spectra['model_min']=SPS.spectra['model_min']/median_ratio
+        res_ssp = SPS.spectra['raw_flux_no_gas'] -  SPS.spectra['model_ssp_min']     
+        model_joint =  SPS.spectra['model_ssp_min'] + SPS.spectra['raw_model_elines']
         res_joint = (res_ssp - SPS.spectra['raw_model_elines'])     
         SPS.spectra['model_joint'] = model_joint
         SPS.spectra['res_joint'] = res_joint
