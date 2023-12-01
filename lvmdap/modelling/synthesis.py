@@ -25,6 +25,8 @@ from pyFIT3D.common.constants import __selected_half_range_sysvel_auto_ssp__, _f
 from pyFIT3D.common.constants import __sigma_to_FWHM__, __selected_extlaw__, __selected_half_range_wl_auto_ssp__
 from copy import deepcopy
 
+from scipy.interpolate import interp1d
+
 class StellarSynthesis(StPopSynt):
     def __init__(self, config, wavelength, flux, eflux, ssp_file, out_file,
                  ssp_nl_fit_file=None, sigma_inst=None, min=None, max=None,
@@ -912,73 +914,45 @@ class StellarSynthesis(StPopSynt):
         spectra['raw_flux_no_gas'] : array like
             The raw observed spectrum without the model of the emission lines.
         """
-        #print('*** PASO****')
         s = self.spectra
         ssp = self.models
         sigma_mean = self.sigma_mean
 
 
         print_verbose('', verbose=self.verbose)
-        #print('*** P here ***')
-
         print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
         print_verbose('--[ BEGIN EL fit ]-----------------------------------------------------', verbose=self.verbose)
 
-#        coeffs=self.get_last_coeffs_ssp()
-#        print('coeffs=',coeffs)
-        model_min = s['model_min'] / ratio
-        #self.get_best_model_from_coeffs(ssp=ssp, coeffs=self.get_last_coeffs_ssp())
-#        print('model_min=',model_min)
+        model_min = s['model_min'] #/ ratio
         res_min = s['raw_flux']- model_min
-        #if self.SN_norm_window > 10:
-        #    self._subtract_continuum(model_min)
-
+        if self.SN_norm_window > 10:
+            y_ratio=self.SPS_subtract_continuum(model_min)
+        else:
+            y_ratio=np.ones(len(model_min))
         # fit Emission Lines
         self._EL_fit(model_min=model_min)
 
-#        print('EL done')
-        #   s[raw_flux] is not used anymore. Idk why this is made.
-        #   Inside perl code SFS rewrites raw_flux when creates the
-        #   spectra[raw_flux_no_gas], but here I create a spectra[raw_flux_no_gas]
-        # TODO: THIS SHOULD BE FIXED!
-        #   2019.12.19: EADL@laptop-XPS13-9333
-        #       The need to save the raw_flux in the spectra dictionary is because
-        #       self.fit_WLS_invmat uses the spectra['raw_flux']. We have to create
-        #       a _fit_WLS_invmat() that receives the SSP base and the spectrum to
-        #       fit.
-        #   2020.01.14: EADL@laptop-XPS13-9333
-        #       The need to create _fit_WLS_invmat() proposed before helps also to
-        #       create the Monte-Carlo loop!
-        # FIXED: now raw_flux back to be raw_flux and raw_model_elines should be used.
-        #   2020.01.15: EADL@laptop-XPS13-9333
-        #       _fit_WLS_invmat() Done!
-        # s['orig_raw_flux'] = s['raw_flux'].copy()
-
         # Removes the gas from the raw_flux.
         s['raw_flux_no_gas'] = s['orig_flux'] - s['raw_model_elines']
-        #s['raw_flux'] -= s['raw_model_elines']
 
-        # plt.cla()
-        # wave_list = [s['raw_wave']]*5
-        # res = s['orig_raw_flux'] - ssp_model_joint
-        # spectra_list = [s['orig_raw_flux'], model_min, s['orig_raw_flux'],
-        #                 s['raw_model_elines'], ssp_model_joint, res]
-        # plot_spectra_ax(plt.gca(), wave_list, spectra_list)
-        # # plt.ylim(-0.2, 1.5)
+#        print('PASO 1')
+        #y_ratio = self.ratio_master if not ratio else self._rescale(model_min)
+#        y_ratio = ratio #self._rescale(model_min)
+#        print('PASO 2')
         
-        # plt.pause(0.001)
-        # plt.show(block=True)
-
-        # re-scale
-#        print('Ratio master')
+        # 
+        ratio = np.divide(s['orig_flux'], y_ratio, where=y_ratio!=0)
+        s['orig_flux_ratio'] = np.where(y_ratio > 0, ratio, s['orig_flux'])
+        ratio = np.divide(s['raw_flux_no_gas'], y_ratio, where=y_ratio!=0)
+        s['raw_flux_no_gas'] = np.where(y_ratio > 0, ratio, s['raw_flux_no_gas'])
+        
 #        try:
  #           y_ratio = self.ratio_master if not ratio else self._rescale(model_min)
  #       except:
-  
- #       print('Ratio master')
-#        ratio = 
+        #y_ratio = self.ratio_master if not ratio else self._rescale(model_min)
+
         #ratio = np.divide(s['orig_flux'], y_ratio, where=y_ratio!=0)
-        s['orig_flux_ratio'] = s['orig_flux'] / ratio
+        #s['orig_flux_ratio'] = s['orig_flux'] / ratio
 #        ratio = np.divide(s['raw_flux_no_gas'], y_ratio)#, where=y_ratio!=0)
         #s['raw_flux_no_gas'] = self._rescale(model_min)
        #np.where(y_ratio > 0, ratio, s['raw_flux_no_gas'])
@@ -989,3 +963,125 @@ class StellarSynthesis(StPopSynt):
         # plt.show(block=True)
 
         
+    def SPS_subtract_continuum(self, model, ratio_range=None, ratio_std=None):
+        """
+        Subtract the continuum of `self.spectra['raw_flux']` in order to perform the
+        emission-lines fit.
+        
+        Parameters
+        ----------
+        model : array like
+            Fit of the observed spectrum.
+        """
+        ratio_range = 0.2 if ratio_range is None else ratio_range
+        ratio_std = 0.02 if ratio_std is None else ratio_std
+        s = self.spectra
+        sigma_mean = self.sigma_mean
+        res_min = s['raw_flux'] - model
+        # smooth process (not tested)
+        # TODO: test smooth process (NaNs, zeros, inf)
+
+
+        ratio = np.divide(res_min, model, where=model>0) + 1
+
+
+        
+        # from pyFIT3D.common.stats import median_filter
+        # print(sigma_mean)
+        # print(int(7*sigma_mean*__sigma_to_FWHM__))
+        # median_ratio = median_filter(7*sigma_mean*__sigma_to_FWHM__, copy(ratio))
+        # np.savetxt('array_python.txt', [ratio, median_ratio])
+        # sys.exit(1)
+        #print("PASO substract1")
+        if (sigma_mean == None):
+            sigma_mean=1.5
+        #print(f'sigma_mean: {sigma_mean}')
+        #print(f'ratio: {ratio}')
+        median_ratio = median_filter(int(7*__sigma_to_FWHM__*sigma_mean), ratio)
+        #print("PASO substract2")
+        # median_ratio = smooth_ratio(ratio, sigma_mean, kernel_size_factor=8*sigma_mean)
+        median_sigma = int(1.5*sigma_mean)
+        if median_sigma < 3:
+            median_sigma = 3
+        median_ratio_box = median_box(median_sigma, median_ratio)
+        median_wave_box = median_box(median_sigma, s['raw_wave'])
+        med_wave_box_size = median_wave_box.size
+        med_ratio_box_size = median_ratio_box.size
+        if med_wave_box_size > med_ratio_box_size:
+            median_wave_box = median_wave_box[0:med_ratio_box_size]
+        elif med_wave_box_size < med_ratio_box_size:
+            median_ratio_box = median_ratio_box[0:med_wave_box_size]
+        f = interp1d(median_wave_box, median_ratio_box, bounds_error=False, fill_value='extrapolate')
+        y_ratio = f(s['raw_wave'])
+        # plot smooth process
+        if self.plot:
+            if 'matplotlib.pyplot' not in sys.modules:
+                from matplotlib import pyplot as plt
+            else:
+                plt = sys.modules['matplotlib.pyplot']
+
+            # spectra_list = [s['raw_flux'], model, res_min, ratio, y_ratio]
+            # spectra_list = [res_min, ratio, y_ratio]
+            spectra_list = [res_min, ratio, y_ratio]
+            wave_list = [s['raw_wave']]*len(spectra_list)
+            colors = ["0.4", "r", "b"]
+            ylim = (-0.2, 1.5)
+            if self.plot == 1:
+                plt.cla()
+                plot_spectra_ax(plt.gca(), wave_list, spectra_list, ylim=ylim, color=colors)
+                plt.pause(0.001)
+            elif self.plot == 2:
+                f, ax = plt.subplots(figsize=(_figsize_default))
+                plot_spectra_ax(ax, wave_list, spectra_list, ylim=ylim, color=colors)
+                f.savefig('yratio.png', dpi=_plot_dpi)
+                plt.close(f)
+            # plt.show(block=False)
+        # XXX: EADL:
+        st_y_ratio_nw = pdl_stats(y_ratio[s['sel_norm_window'] & (model > 0)])
+
+        if (((st_y_ratio_nw[_STATS_POS['mean']] > (1 - ratio_range))
+            & (st_y_ratio_nw[_STATS_POS['mean']] < (1 + ratio_range)))
+            & (st_y_ratio_nw[_STATS_POS['pRMS']] > ratio_std)):
+            _where = y_ratio > (st_y_ratio_nw[_STATS_POS['min']] - st_y_ratio_nw[_STATS_POS['pRMS']])
+            _where &= y_ratio < (st_y_ratio_nw[_STATS_POS['min']] + st_y_ratio_nw[_STATS_POS['pRMS']])
+            _where &= y_ratio != 0
+            # s['raw_flux'] = np.where(y_ratio > 0, s['raw_flux']/y_ratio, s['raw_flux'])
+            s['raw_flux'] = np.divide(s['raw_flux'], y_ratio, s['raw_flux'], where=_where)
+            s['orig_flux'] = np.divide(s['orig_flux'], y_ratio, s['orig_flux'], where=_where)    
+        return y_ratio
+
+
+
+    def get_ratio(self, model, ratio_range=None, ratio_std=None):
+        """
+        Subtract the continuum of `self.spectra['raw_flux']` in order to perform the
+        emission-lines fit.
+        
+        Parameters
+        ----------
+        model : array like
+            Fit of the observed spectrum.
+        """
+        ratio_range = 0.2 if ratio_range is None else ratio_range
+        ratio_std = 0.02 if ratio_std is None else ratio_std
+        s = self.spectra
+        sigma_mean = self.sigma_mean
+        res_min = s['raw_flux'] - model
+        ratio = np.divide(res_min, model, where=model>0) + 1
+        if (sigma_mean == None):
+            sigma_mean=1.5
+        median_ratio = median_filter(int(7*__sigma_to_FWHM__*sigma_mean), ratio)
+        median_sigma = int(1.5*sigma_mean)
+        if median_sigma < 3:
+            median_sigma = 3
+        median_ratio_box = median_box(median_sigma, median_ratio)
+        median_wave_box = median_box(median_sigma, s['raw_wave'])
+        med_wave_box_size = median_wave_box.size
+        med_ratio_box_size = median_ratio_box.size
+        if med_wave_box_size > med_ratio_box_size:
+            median_wave_box = median_wave_box[0:med_ratio_box_size]
+        elif med_wave_box_size < med_ratio_box_size:
+            median_ratio_box = median_ratio_box[0:med_wave_box_size]
+        f = interp1d(median_wave_box, median_ratio_box, bounds_error=False, fill_value='extrapolate')
+        y_ratio = f(s['raw_wave'])
+        return y_ratio

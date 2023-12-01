@@ -44,6 +44,7 @@ from lvmdap.flux_elines_tools import flux_elines_RSS_EW
 from scipy.ndimage import gaussian_filter1d,median_filter
 
 from astropy.table import Table
+from astropy.table import join as tab_join
 from astropy.table import vstack as vstack_table
 from astropy.io import fits, ascii
 
@@ -1058,6 +1059,13 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     tab_rsp=read_rsp(file_ssp=out_file_ps)
     tab_coeffs=read_coeffs_RSP(coeffs_file=out_file_coeffs)
     tab_elines=read_elines_RSP(elines_file=out_file_elines)
+
+    id_elines=[]    
+    for id_fib in tab_elines['id_fib']:
+        id_elines.append(tab_PT['id'].value[id_fib])
+    id_elines=np.array(id_elines)
+    tab_elines.add_column(id_elines,name='id',index=0)
+    
     #
     # Do a plot of the 1st and the last spectra
     #
@@ -1120,10 +1128,30 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     ############################################################################
     # Run flux_elines full SSP spectrum spectrum
     #
-    print(f'model_spectra_shape {model_spectra.shape}')
-    vel__yx=np.zeros(hdr_flux['NAXIS2'])
-    sigma__yx=1.5
+    
+    a_wl = np.unique(tab_elines['wl'])
+    I=0
+    for wl_now in a_wl:
+      if (wl_now>0.0):
+        tab_PE_now=tab_elines[tab_elines['wl']==wl_now]
+        tab_PE_tmp=tab_PE_now['id','flux','e_flux',\
+                              'disp','e_disp','vel','e_vel']
+        for cols in tab_PE_tmp.colnames:        
+          if (cols != 'id'):
+            tab_PE_tmp.rename_column(cols,f'{cols}_{wl_now}')
+        if (I==0):
+          tab_PE_ord=tab_PE_tmp
+        else:
+          tab_PE_ord=tab_join(tab_PE_ord,tab_PE_tmp,keys=['id'],join_type='left')
+        I=I+1
 
+    
+    print(f'model_spectra_shape {model_spectra.shape}')
+    #vel__yx=np.zeros(hdr_flux['NAXIS2'])
+    vel__yx=tab_PE_ord['vel_6562.68'].value
+    #sigma__yx=1.5
+    sigma__yx=2.354*tab_PE_ord['disp_6562.68'].value
+    
 
     fe_data, fe_hdr =flux_elines_RSS_EW(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5, args.emission_lines_file_long, vel__yx,\
                                               sigma__yx,eflux__wyx=rss_eflux,\
@@ -1173,11 +1201,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #    print('FE_tab.colnames: ', t.colnames)     
 
       
-    id_elines=[]    
-    for id_fib in tab_elines['id_fib']:
-        id_elines.append(tab_PT['id'].value[id_fib])
-    id_elines=np.array(id_elines)
-    tab_elines.add_column(id_elines,name='id',index=0)
+
     
     id_coeffs=[]    
     for id_fib in tab_coeffs['id_fib']:

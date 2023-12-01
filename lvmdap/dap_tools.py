@@ -1248,8 +1248,8 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
                      file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
                      id_lines=None,output='junk.pdf',\
                      c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None):
-    tab_SSP_RSS=read_rsp(file_ssp)
-    tab_SSP=tab_SSP_RSS[n_sp]
+#    tab_SSP_RSS=read_rsp(file_ssp)
+#    tab_SSP=tab_SSP_RSS[n_sp]
     if (cmap==None):
         color_cm_now = vel_map_CLC()
         cmap=color_cm_now

@@ -260,15 +260,13 @@ def auto_rsp_elines_single_main(
     SPS.rms = np.std(nl_flux)
     SPS.calc_SN_norm_window()
     print(f'-> MED_FLUX: {SPS.med_flux} +- {SPS.rms} SN:{SPS.SN_norm_window}')
- #   SN_CUT=3
- #   print(f'# SN_CUT = {SN_CUT}')
+ 
    
 
 
     if ((SPS.med_flux<=0) or (SPS.med_flux<0.5*SPS.rms) or (SPS.SN_norm_window<SN_CUT)):
         SPS.valid_flux=0
-#        print('-> **** not fitting the continuum ****')
-    
+
     if (SPS.valid_flux > 0) and (SPS.median_flux > cf.CUT_MEDIAN_FLUX):  # and (median_flux > cf.ABS_MIN):
 
         SPS_AV = deepcopy(SPS)
@@ -351,7 +349,6 @@ def auto_rsp_elines_single_main(
                 min_chi_sq = min_chi_sq_now
             n_iter += 1
     else:
-#        SPS.cut = True
         print(f'-> Single SSP fit ')
         SPS.best_redshift = cf.redshift
         SPS.e_redshift = 0.0
@@ -365,18 +362,13 @@ def auto_rsp_elines_single_main(
         SPS.spectra['raw_flux_no_gas']=SPS.spectra['orig_flux']
         min_chi_sq_now = SPS.rsp_single_fit()
         model_ssp_min = SPS.spectra['model_ssp_min']
-        #print(f'model_ssp_min: {model_ssp_min}')
-
-        ratio_now = np.divide(SPS.spectra['orig_flux'] - model_ssp_min,  model_ssp_min, where= model_ssp_min !=0) + 1
-        median_ratio = median_filter(15, ratio_now)
-
-
-        #SPS.spectra['model_ssp_min'],SPS.spectra['raw_flux_no_gas'],SPS.spectra['raw_model_elines'],SPS.spectra['orig_flux_ratio']=
+        median_ratio=SPS.get_ratio(model_ssp_min)
         SPS.gas_fit_no_rsp(ratio=median_ratio)
-        SPS.spectra['model_ssp_min']=SPS.spectra['model_ssp_min']/median_ratio
-        SPS.spectra['model_min']=SPS.spectra['model_min']/median_ratio
-        res_ssp = SPS.spectra['raw_flux_no_gas'] -  SPS.spectra['model_ssp_min']     
         model_joint =  SPS.spectra['model_ssp_min'] + SPS.spectra['raw_model_elines']
+        median_ratio=SPS.get_ratio(model_joint)
+        SPS.spectra['model_ssp_min']=SPS.spectra['model_ssp_min']#*median_ratio
+        SPS.spectra['model_min']=SPS.spectra['model_min']#*median_ratio
+        res_ssp = SPS.spectra['raw_flux_no_gas'] -  SPS.spectra['model_ssp_min']     
         res_joint = (res_ssp - SPS.spectra['raw_model_elines'])     
         SPS.spectra['model_joint'] = model_joint
         SPS.spectra['res_joint'] = res_joint
