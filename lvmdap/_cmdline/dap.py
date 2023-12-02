@@ -1084,22 +1084,24 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     
     a_wl = np.unique(tab_elines['wl'])
+    print(f'a_wl: {a_wl}')
     I=0
+    tab_PE_ord=Table()
+    tab_PE_ord['id']=tab_PT['id']
     for wl_now in a_wl:
       if (wl_now>0.0):
         tab_PE_now=tab_elines[tab_elines['wl']==wl_now]
-        tab_PE_tmp=tab_PE_now['id','flux','e_flux',\
-                              'disp','e_disp','vel','e_vel']
+        tab_PE_tmp=tab_PE_now['id','flux','e_flux','disp','e_disp','vel','e_vel']
         for cols in tab_PE_tmp.colnames:
-#          print(f'cols: {cols}')
           if (cols != 'id'):
             tab_PE_tmp.rename_column(cols,f'{cols}_{wl_now}')
-        if (I==0):
-          tab_PE_ord=tab_PE_tmp
-        else:
+#        if (I==0):
+#          tab_PE_ord=tab_PE_tmp
+#        else:
           tab_PE_ord=tab_join(tab_PE_ord,tab_PE_tmp,keys=['id'],join_type='left')
         I=I+1
-
+    print(f'I = {I}')
+    print(f'tab_PE_ord = ',len(tab_PE_ord))
     
     print(f'model_spectra_shape {model_spectra.shape}')
     #vel__yx=np.zeros(hdr_flux['NAXIS2'])
@@ -1146,14 +1148,26 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print("# START: Storing the results in a single file  ###")
     print("##################################################")
 
+
+    #print('tab_PT: ',tab_PT)
+    print('tab_PT.row: ',len(tab_PT))
+  #  print('tab_PT.colnames: ', len(tab_PT.colnames))
+    #print('tab_PT: ',tab_PT)
+    print('tab_FE.row: ',len(tab_FE))
+ #   print('tab_FE.colnames: ', len(tab_FE.colnames))     
+    print('tab_FE_B.row: ',len(tab_FE_B))
+    print('tab_FE_R.row: ',len(tab_FE_R))
+    print('tab_FE_I.row: ',len(tab_FE_I))
+#    print('tab_FE_B.colnames: ', len(tab_FE_B.colnames))     
+    
     tab_rsp.add_column(tab_PT['id'].value,name='id',index=0)
     tab_fe.add_column(tab_PT['id'].value,name='id',index=0)
     tab_fe_B.add_column(tab_PT['id'].value,name='id',index=0)
     tab_fe_R.add_column(tab_PT['id'].value,name='id',index=0)
     tab_fe_I.add_column(tab_PT['id'].value,name='id',index=0)
-#    print('FE_tab: ',tab_fe)
-#    print('FE_tab_rows: ',len(tab_fe))
-#    print('FE_tab.colnames: ', t.colnames)     
+    print('FE_tab: ',tab_fe)
+    print('FE_tab_rows: ',len(tab_fe))
+    print('FE_tab.colnames: ', len(tab_fe.colnames))     
 
       
 
