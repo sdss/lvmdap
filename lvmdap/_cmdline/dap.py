@@ -1105,14 +1105,22 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     
     print(f'model_spectra_shape {model_spectra.shape}')
     #vel__yx=np.zeros(hdr_flux['NAXIS2'])
-    mean_vel=np.nanmean(tab_PE_ord['vel_6562.68'].value)
-    mean_sigma=np.nanmean(tab_PE_ord['disp_6562.68'].value)
-    vel__yx=tab_PE_ord['vel_6562.68'].filled(mean_vel)
-    #sigma__yx=1.5
-    sigma__yx=2.354*tab_PE_ord['disp_6562.68'].filled(mean_sigma)
-    print(vel__yx,sigma__yx)
+#    mean_vel=np.nanmean(tab_PE_ord['vel_6562.68'].value)
+#    mean_sigma=np.nanmean(tab_PE_ord['disp_6562.68'].value)
+#    tab_PE_ord=tab_PE_ord.filled(0)
+
+    for col in tab_PE.colnames:
+      if tab_PE[col].dtype.kind in 'iufc':
+        mean_value = np.mean(tab_PE[columna][~tab_PE[columna].mask])
+        tab_PE[columna] = tab_PE[columna].filled(mean_value)
+    vel__yx=tab_PE_ord['vel_6562.68'].value
+    sigma__yx=2.354*tab_PE_ord['disp_6562.68'].value
+#    print(vel__yx,sigma__yx)
 #    vel__yx[vel__yx.mask]=mean_vel
 #    sigma__yx[vel__yx.mask]=sigma_vel
+
+#    vel__yx=np.zeros(hdr_flux['NAXIS2'])+mean_vel
+#    sigma__yx=2.354*sigma_vel
 
     fe_data, fe_hdr =flux_elines_RSS_EW(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5, args.emission_lines_file_long, vel__yx,\
                                               sigma__yx,eflux__wyx=rss_eflux,\
