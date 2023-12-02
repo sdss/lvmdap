@@ -1084,7 +1084,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     
     a_wl = np.unique(tab_elines['wl'])
-    print(f'a_wl: {a_wl}')
+#    print(f'a_wl: {a_wl}')
     I=0
     tab_PE_ord=Table()
     tab_PE_ord['id']=tab_PT['id']
@@ -1100,31 +1100,44 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        else:
         tab_PE_ord=tab_join(tab_PE_ord,tab_PE_tmp,keys=['id'],join_type='left')
         I=I+1
-    print(f'I = {I}')
-    print(f'tab_PE_ord = ',len(tab_PE_ord))
+#    print(f'I = {I}')
+#    print(f'tab_PE_ord = ',len(tab_PE_ord))
     
-    print(f'model_spectra_shape {model_spectra.shape}')
+#    print(f'model_spectra_shape {model_spectra.shape}')
     #vel__yx=np.zeros(hdr_flux['NAXIS2'])
 #    mean_vel=np.nanmean(tab_PE_ord['vel_6562.68'].value)
 #    mean_sigma=np.nanmean(tab_PE_ord['disp_6562.68'].value)
 #    tab_PE_ord=tab_PE_ord.filled(0)
 
-    for col in tab_PE.colnames:
-      if tab_PE[col].dtype.kind in 'iufc':
-        mean_value = np.mean(tab_PE[columna][~tab_PE[columna].mask])
-        tab_PE[columna] = tab_PE[columna].filled(mean_value)
+#    print('PASO 1')
+#    for col in tab_PE_ord.colnames:
+#      if tab_PE_ord[col].dtype.kind in 'iufc':
+#        tab_PE_now=Table()
+#        tab_PE_now[col]=tab_PE_ord[col].value
+#        mean_value = np.mean(tab_PE_now[~tab_PE_now.mask])
+#        mean_value = np.nanmean(tab_PE_ord[col])
+#        tab_PE_ord[col] = np.where(tab_PE_ord[col].mask, mean_value,
+#        tab_PE_ord[col] = tab_PE_now.filled(mean_value)
+
+    vel_mean=np.nanmean(tab_PE_ord['vel_6562.68'])
+    for I,val in enumerate(tab_PE_ord['vel_6562.68'].value):
+      if (np.isfinite(val)==False):
+        tab_PE_ord['vel_6562.68'][I]=vel_mean
+#    print(tab_PE_ord['vel_6562.68'])
+
+    disp_mean=np.nanmean(tab_PE_ord['disp_6562.68'])
+    for I,val in enumerate(tab_PE_ord['disp_6562.68'].value):
+      if (np.isfinite(val)==False):
+        tab_PE_ord['disp_6562.68'][I]=disp_mean
+
     vel__yx=tab_PE_ord['vel_6562.68'].value
     sigma__yx=2.354*tab_PE_ord['disp_6562.68'].value
-#    print(vel__yx,sigma__yx)
-#    vel__yx[vel__yx.mask]=mean_vel
-#    sigma__yx[vel__yx.mask]=sigma_vel
-
-#    vel__yx=np.zeros(hdr_flux['NAXIS2'])+mean_vel
-#    sigma__yx=2.354*sigma_vel
 
     fe_data, fe_hdr =flux_elines_RSS_EW(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5, args.emission_lines_file_long, vel__yx,\
                                               sigma__yx,eflux__wyx=rss_eflux,\
                                               flux_ssp__wyx=model_spectra[1,:,:],w_range=15)
+
+    
     colnames=[]
     colnames_B=[]
     colnames_R=[]
@@ -1162,14 +1175,14 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
 
     #print('tab_PT: ',tab_PT)
-    print('tab_PT.row: ',len(tab_PT))
+ #   print('tab_PT.row: ',len(tab_PT))
   #  print('tab_PT.colnames: ', len(tab_PT.colnames))
     #print('tab_PT: ',tab_PT)
-    print('tab_fe.row: ',len(tab_fe))
+ #   print('tab_fe.row: ',len(tab_fe))
  #   print('tab_fe.colnames: ', len(tab_fe.colnames))     
-    print('tab_fe_B.row: ',len(tab_fe_B))
-    print('tab_fe_R.row: ',len(tab_fe_R))
-    print('tab_fe_I.row: ',len(tab_fe_I))
+ #   print('tab_fe_B.row: ',len(tab_fe_B))
+ #   print('tab_fe_R.row: ',len(tab_fe_R))
+ #   print('tab_fe_I.row: ',len(tab_fe_I))
 #    print('tab_fe_B.colnames: ', len(tab_fe_B.colnames))     
     
     tab_rsp.add_column(tab_PT['id'].value,name='id',index=0)
@@ -1177,9 +1190,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     tab_fe_B.add_column(tab_PT['id'].value,name='id',index=0)
     tab_fe_R.add_column(tab_PT['id'].value,name='id',index=0)
     tab_fe_I.add_column(tab_PT['id'].value,name='id',index=0)
-    print('FE_tab: ',tab_fe)
-    print('FE_tab_rows: ',len(tab_fe))
-    print('FE_tab.colnames: ', len(tab_fe.colnames))     
+#    print('FE_tab: ',tab_fe)
+#    print('FE_tab_rows: ',len(tab_fe))
+#    print('FE_tab.colnames: ', len(tab_fe.colnames))     
 
       
 
