@@ -1098,7 +1098,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        if (I==0):
 #          tab_PE_ord=tab_PE_tmp
 #        else:
-          tab_PE_ord=tab_join(tab_PE_ord,tab_PE_tmp,keys=['id'],join_type='left')
+        tab_PE_ord=tab_join(tab_PE_ord,tab_PE_tmp,keys=['id'],join_type='left')
         I=I+1
     print(f'I = {I}')
     print(f'tab_PE_ord = ',len(tab_PE_ord))
