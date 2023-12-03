@@ -1118,20 +1118,26 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        mean_value = np.nanmean(tab_PE_ord[col])
 #        tab_PE_ord[col] = np.where(tab_PE_ord[col].mask, mean_value,
 #        tab_PE_ord[col] = tab_PE_now.filled(mean_value)
-
     vel_mean=np.nanmean(tab_PE_ord['vel_6562.68'])
-    for I,val in enumerate(tab_PE_ord['vel_6562.68'].value):
-      if (np.isfinite(val)==False):
-        tab_PE_ord['vel_6562.68'][I]=vel_mean
-#    print(tab_PE_ord['vel_6562.68'])
-
     disp_mean=np.nanmean(tab_PE_ord['disp_6562.68'])
-    for I,val in enumerate(tab_PE_ord['disp_6562.68'].value):
-      if (np.isfinite(val)==False):
-        tab_PE_ord['disp_6562.68'][I]=disp_mean
+    vel__yx=np.zeros(hdr_flux['NAXIS2'])+vel_mean
+    sigma__yx=disp_mean
 
-    vel__yx=tab_PE_ord['vel_6562.68'].value
-    sigma__yx=2.354*tab_PE_ord['disp_6562.68'].value
+
+    for I,val in enumerate(tab_PE_ord['vel_6562.68'].value):
+      if (np.isfinite(val)==True):
+        try:
+          vel__yx[I]=val
+        except:
+          try_vel__yx=False
+          
+#    print(tab_PE_ord['vel_6562.68'])
+#    for I,val in enumerate(tab_PE_ord['disp_6562.68'].value):
+#      if (np.isfinite(val)==False):
+#        tab_PE_ord['disp_6562.68'][I]=disp_mean
+
+#    vel__yx=tab_PE_ord['vel_6562.68'].value
+#    sigma__yx=2.354*tab_PE_ord['disp_6562.68'].value
 
     fe_data, fe_hdr =flux_elines_RSS_EW(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5, args.emission_lines_file_long, vel__yx,\
                                               sigma__yx,eflux__wyx=rss_eflux,\
