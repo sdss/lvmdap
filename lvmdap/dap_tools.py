@@ -696,7 +696,13 @@ def read_PT(fitsfile, agcam_coadd, nobad=False, ny_range=None):
     else:
         racen = hdr['POSCIRA']
         deccen = hdr['POSCIDE']
-        pa = hdr['POSCIPA']
+        try:
+            pa = hdr['POSCIPA']
+        except:
+            pa = 0.0
+            hdr['POSCIPA'] = 0.0
+
+        #pa = hdr['POSCIPA']
 
     ra_fib, dec_fib = make_radec(tab['xpmm'][sci], tab['ypmm'][sci], racen, deccen, pa)
     fiberid=tab['fiberid'][sci]
