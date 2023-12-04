@@ -626,7 +626,12 @@ def read_file(file_ID, mjd, whichone = 'ha', wl_shift_vel = 0., nobad=False):
     else:
         racen = hdr['POSCIRA']
         deccen = hdr['POSCIDE']
-        pa = hdr['POSCIPA']
+        try:
+            pa = hdr['POSCIPA']
+        except:
+            pa = 0.0
+            hdr['POSCIPA'] = 0.0
+        #pa = hdr['POSCIPA']
 
 
 #    print(hdr['OBJECT'],hdr['POSCIPA'])
