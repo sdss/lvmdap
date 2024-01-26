@@ -99,7 +99,7 @@ class scatter():
 def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
                  vmin=0, vmax=0, title=None, filename='junk',\
                  cmap='Spectral', fsize=5, figs_dir='.',fig_type='png',\
-                 gamma=1.0, sf=1.0):
+                 gamma=1.0, sf=1.0, tab_pt=None):
 
     rc.update({'font.size': 19,\
                'font.weight': 900,\
@@ -146,6 +146,9 @@ def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05)
     plt.colorbar(scat.sc, cax=cax,label=fr'{title}')#,fontsize=21)
+    if (tab_pt != None):
+        for tap_pt_now in tab_pt:
+            ax.text(tab_pt['ra'],tab_pt['dec'],tab_pt['id'])
 #    ax.set_aspect('equal', adjustable='box')
     try:
         plt.show()
@@ -626,12 +629,7 @@ def read_file(file_ID, mjd, whichone = 'ha', wl_shift_vel = 0., nobad=False):
     else:
         racen = hdr['POSCIRA']
         deccen = hdr['POSCIDE']
-        try:
-            pa = hdr['POSCIPA']
-        except:
-            pa = 0.0
-            hdr['POSCIPA'] = 0.0
-        #pa = hdr['POSCIPA']
+        pa = hdr['POSCIPA']
 
 
 #    print(hdr['OBJECT'],hdr['POSCIPA'])
@@ -696,13 +694,7 @@ def read_PT(fitsfile, agcam_coadd, nobad=False, ny_range=None):
     else:
         racen = hdr['POSCIRA']
         deccen = hdr['POSCIDE']
-        try:
-            pa = hdr['POSCIPA']
-        except:
-            pa = 0.0
-            hdr['POSCIPA'] = 0.0
-
-        #pa = hdr['POSCIPA']
+        pa = hdr['POSCIPA']
 
     ra_fib, dec_fib = make_radec(tab['xpmm'][sci], tab['ypmm'][sci], racen, deccen, pa)
     fiberid=tab['fiberid'][sci]
