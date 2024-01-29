@@ -1,0 +1,227 @@
+/*
+ * CSS file for SDSS data model.
+ *
+ * Add any necessary style information here rather than in individual
+ * datamodel files.  This makes style information easy to find, share &
+ * maintain.
+ */
+html {
+    /* This forces all pages to have a scroll bar, even if they are short. */
+    overflow-y: scroll;
+}
+
+body {
+    margin: 0 auto 0 auto;
+    width: 980px;
+    /* margin: 0; */
+    /* padding: 0; */
+    /* border: 0; */
+    /* width: 100%; */
+    color: white;
+    background-color: #202020;
+    font-family: Arial, Helvetica, sans-serif;
+    font-weight: normal;
+    font-size: medium;
+}
+/*
+ * Links
+ */
+a {
+    color: #0099FF;
+    text-decoration: none;
+}
+
+a:visited {
+    color: #CC66FF;
+    text-decoration: none;
+}
+
+a:hover, a:active {
+    color: #0099FF;
+    text-decoration: underline;
+}
+
+/*
+ * Headers
+ */
+h1, h2, h3, h4, h5 {
+    margin: 10px 0px 10px 0px;
+    padding: 0;
+    font-family: Georgia, "Times New Roman", Times, serif;
+    font-weight: normal;
+    color: #96D709;
+    text-align: left;
+}
+
+h1 {
+    font-size: 1.6em;
+}
+
+h2 {
+    font-size: 1.4em;
+}
+
+h3 {
+    font-size: 1.2em;
+}
+
+h4 {
+    font-size: 0.95em;
+    font-weight: bold;
+}
+
+h5 {
+    font-size: 1.1em;
+    font-style: italic;
+}
+
+/*
+ * Paragraphs
+ */
+p {
+    margin: 10px 0px 10px 0px;
+    padding: 0;
+    line-height: 1.3em;
+    text-align: justify;
+}
+/*
+ * For centering text.
+ */
+p.c {
+    text-align: center;
+}
+/*
+ * Scroll preformatted text.
+ */
+pre {
+    overflow: auto;
+}
+/*
+ * Lists
+ */
+ul {
+    list-style: circle;
+}
+
+li {
+    line-height: 1.3em;
+    margin: 0;
+    padding: 0;
+}
+/*
+ * Definition lists
+ */
+dt {
+    font-weight: bold;
+}
+
+dd {
+    margin-bottom: 10px;
+}
+/*
+ * Image borders can be ugly sometimes.
+ */
+img {
+    border: 0;
+}
+
+/*
+ * Not currently used, but kind of handy
+ */
+span.fixme {
+    font-weight: bold;
+    color: red;
+}
+
+/*
+ * Tables
+ */
+table {
+    border: 0;
+    border-collapse: collapse;
+    padding: 0;
+    margin: 10px auto 10px auto;
+}
+
+th {
+    text-align: left;
+    font-weight: bold;
+    color: yellow;
+    padding: 5px;
+}
+
+table thead td {
+    text-align: left;
+    font-weight: bold;
+    color: yellow;
+    padding: 5px;
+}
+
+td {
+    text-align: left;
+    padding: 5px;
+}
+
+table caption {
+    color: yellow;
+}
+
+table.index {
+    margin: 10px;
+}
+
+table.header {
+    margin: 10px 0px 10px 0px;
+}
+
+table.columns {
+    margin: 10px 0px 10px 0px;
+}
+
+/*
+ * Divs
+ */
+div.left_navigation {
+    width: 140px;
+    margin: 0;
+    padding: 0;
+    position: relative;
+    float: left;
+}
+
+div.left_navigation ul {
+    list-style: none;
+    margin: 20px 0px 0px 0px;
+    padding: 0;
+}
+
+div.left_navigation li {
+    line-height: 1.6em;
+}
+
+div.left_navigation li:before {
+    content: ":: ";
+}
+
+div.left_navigation a {
+    color: white;
+    text-decoration: none;
+}
+
+div.left_navigation a.highlight {
+    color: orange;
+}
+
+div.left_navigation a:hover {
+    color: #0099ff;
+    text-decoration: none;
+}
+
+div.right_content {
+    float: left;
+    width: 780px;
+    position: relative;
+    padding: 0px 30px 0px 30px;
+    margin: 0;
+}
+
