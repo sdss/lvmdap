@@ -388,6 +388,160 @@ def auto_rsp_elines_single_main(
         print('-> median flux below cut: unable to perform analysis.')
     return cf, SPS
 
+
+#
+# Just create a model. Do no fit!
+#
+def model_rsp_elines_single_main(
+        wavelength, flux, eflux, ssp_file, config_file, out_file,
+        ssp_nl_fit_file=None, sigma_inst=None, mask_list=None, elines_mask_file=None,
+        min=None, max=None, w_min=None, w_max=None, nl_w_min=None, nl_w_max=None,
+        input_redshift=None, delta_redshift=None, min_redshift=None, max_redshift=None,
+    input_sigma=None, delta_sigma=None, min_sigma=None, max_sigma=None,
+        input_AV=None, delta_AV=None, min_AV=None, max_AV=None,
+        R_V=None, extlaw=None, plot=None, single_ssp=False,
+        is_guided_sigma=False,
+        # guided_sigma=None,
+        ratio=True, spec_id=None, y_ratio=None, guided_errors=None, fit_sigma_rnd=True,
+        fit_gas=True, losvd_rnd_medres_merit=False, verbose=None, sps_class=StPopSynt,
+        SPS_master=None,bin_AV=51,SN_CUT=  2, coeffs_input=None ):
+
+    verbose = __verbose__ if verbose is None else verbose
+    redshift_set = [input_redshift, delta_redshift, min_redshift, max_redshift]
+    sigma_set = [input_sigma, delta_sigma, min_sigma, max_sigma]
+    AV_set = [input_AV, delta_AV, min_AV, max_AV]
+    if plot:
+        import matplotlib.pyplot
+        import seaborn as sns
+        sns.set(context="paper", style="ticks", palette="colorblind", color_codes=True)
+    
+    
+
+    if (SPS_master==None):
+        cf = ConfigAutoSSP(config_file, redshift_set=redshift_set, sigma_set=sigma_set, AV_set=AV_set)
+        if guided_errors is not None:
+            fit_gas = False
+        SPS = sps_class(config=cf,
+                        wavelength=wavelength, flux=flux, eflux=eflux,
+                        mask_list=mask_list, elines_mask_file=elines_mask_file,
+                        sigma_inst=sigma_inst, ssp_file=ssp_file,
+                        ssp_nl_fit_file=ssp_nl_fit_file, out_file=out_file,
+                        w_min=w_min, w_max=w_max, nl_w_min=nl_w_min, nl_w_max=nl_w_max,
+                        R_V=R_V, extlaw=extlaw, spec_id=spec_id, min=min, max=max,
+                        guided_errors=guided_errors, ratio_master=y_ratio,
+                        fit_gas=fit_gas, plot=plot, verbose=verbose)
+        SPS.wavelength=wavelength
+        SPS.flux=flux
+        SPS.eflux=eflux
+        SPS.mask_list=mask_list
+        SPS.elines_mask_file=elines_mask_file
+        SPS.sigma_inst=sigma_inst
+        SPS.out_file=out_file
+        SPS.w_min=w_min
+        SPS.w_max=w_max
+        SPS.nl_w_min=nl_w_min
+        SPS.nl_w_max=nl_w_max
+        SPS.R_V=R_V
+        SPS.extlaw=extlaw
+        SPS.min=min
+        SPS.max=max
+        SPS.fit_gas=fit_gas
+        SPS.spec_id=spec_id
+        SPS.guided_errors=guided_errors
+        SPS.ratio_master=y_ratio
+        SPS.plot=plot
+        SPS.verbose=verbose
+        SPS._create_spectra_dict(wavelength, flux, eflux, min, max, y_ratio)
+        SPS._multi_AV()
+        SPS._fitting_init()
+        SPS.ssp_init()
+
+    else:
+        cf = SPS_master.config
+        cf.redshift_set=redshift_set
+        cf.sigma_set=sigma_set
+        cf.AV_set=AV_set
+        if guided_errors is not None:
+            fit_gas = False
+        SPS = SPS_master
+        SPS.wavelength=wavelength
+        SPS.flux=flux
+        SPS.eflux=eflux
+        SPS.mask_list=mask_list
+        SPS.elines_mask_file=elines_mask_file
+        SPS.sigma_inst=sigma_inst
+        SPS.out_file=out_file
+        SPS.w_min=w_min
+        SPS.w_max=w_max
+        SPS.nl_w_min=nl_w_min
+        SPS.nl_w_max=nl_w_max
+        SPS.R_V=R_V
+        SPS.extlaw=extlaw
+        SPS.min=min
+        SPS.max=max
+        SPS.fit_gas=fit_gas
+        SPS.spec_id=spec_id
+        SPS.guided_errors=guided_errors
+        SPS.ratio_master=y_ratio
+        SPS.plot=plot
+        SPS.verbose=verbose
+        SPS._create_spectra_dict(wavelength, flux, eflux, min, max, y_ratio)
+        SPS._multi_AV()
+        SPS._fitting_init()
+        SPS.ssp_init()
+        
+        
+    msg_cut = f' - cut value: {cf.CUT_MEDIAN_FLUX:6.4f}'
+    if cf.CUT_MEDIAN_FLUX == 0:
+        msg_cut = ' - Warning: no cut (CUT_MEDIAN_FLUX = 0)'
+    print(f'-> median raw flux = {SPS.median_flux:6.4f}{msg_cut}')
+    SPS.cut = False
+    # valid_flux = 2 - everything OK
+    # valid_flux = 1 - missing valid flux (flux > 0) inside nl-fit wavelength window.
+    # valid_flux = 0 - missing valid flux (flux > 0) inside linear fit wavelength window
+
+    mask_w = (SPS.wavelength>-1000)
+    nl_wavelength=SPS.wavelength[mask_w]
+    nl_flux=SPS.flux[mask_w]
+    SPS.med_flux = np.median(nl_flux)
+    SPS.rms = np.std(nl_flux)
+    SPS.calc_SN_norm_window()
+    print(f'-> MED_FLUX: {SPS.med_flux} +- {SPS.rms} SN:{SPS.SN_norm_window}')
+    SPS.valid_flux=1
+    SPS.best_redshift = cf.redshift
+    SPS.e_redshift = 0.0
+    print_verbose(f'- Redshift: {SPS.best_redshift:.8f} +- {SPS.e_redshift:.8f}', verbose=True)
+    SPS.best_sigma = cf.sigma
+    SPS.e_sigma = 0.0
+    print_verbose(f'- Sigma:    {SPS.best_sigma:.8f} +- {SPS.e_sigma:.8f}', verbose=True)
+    SPS.best_Av = cf.AV
+    SPS.e_Av = 0.0
+    print_verbose(f'- Av:    {SPS.best_Av:.8f} +- {SPS.e_Av:.8f}', verbose=True)
+    SPS.spectra['raw_flux_no_gas']=SPS.spectra['orig_flux']
+    min_chi_sq_now = SPS.rsp_model(coeffs_input)
+    model_ssp_min = SPS.spectra['model_ssp_min']
+    median_ratio=SPS.get_ratio(model_ssp_min)
+    # 
+    # We do not fit the emission lines
+    # 
+    #SPS.gas_fit_no_rsp(ratio=median_ratio)
+    SPS.spectra['raw_model_elines'] = 0.0*SPS.spectra['model_ssp_min']
+    model_joint =  SPS.spectra['model_ssp_min'] + SPS.spectra['raw_model_elines'] 
+    median_ratio=SPS.get_ratio(model_joint)
+    SPS.spectra['model_ssp_min']=SPS.spectra['model_ssp_min']#*median_ratio
+    SPS.spectra['model_min']=SPS.spectra['model_min']#*median_ratio
+    res_ssp = SPS.spectra['raw_flux_no_gas'] -  SPS.spectra['model_ssp_min']     
+    res_joint = (res_ssp - SPS.spectra['raw_model_elines'])     
+    SPS.spectra['model_joint'] = model_joint
+    SPS.spectra['res_joint'] = res_joint
+    SPS.spectra['res_ssp'] = res_ssp
+    SPS.spectra['res_ssp_no_corr'] = SPS.spectra['orig_flux'] - SPS.spectra['model_ssp_min_uncorr']
+
+    SPS._MC_averages()
+    SPS.resume_results()
+    #SPS.output_coeffs_MC_to_screen()
+    return cf, SPS
+
 def test_gas_fit_no_rsp(self, ratio=True):
         """
         Prepares the observed spectra in order to fit systems of emission lines

@@ -164,6 +164,80 @@ class StellarSynthesis(StPopSynt):
             # in order to keep working the code at first instance:
             self.ssp_nl_fit = self.models_nl_fit
 
+
+
+
+    #
+    # Does not fit, just create a model
+    #
+    def rsp_model(self,coeffs_input):
+        cf = self.config
+        models = self.models
+
+        print_verbose('', verbose=self.verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
+        print_verbose('--[ BEGIN non-linear parameters taken ]--------------------------------', verbose=self.verbose)
+
+        sigma_inst = self.sigma_inst
+        sigma = self.best_sigma
+        redshift = self.best_redshift
+        AV = self.best_AV
+        R_V = self.R_V
+        extlaw = self.extlaw
+        wavelength = self.spectra['raw_wave']
+
+        models.to_observed(wavelength, sigma_inst=sigma_inst, sigma=sigma, redshift=redshift)
+        models.apply_dust_to_flux_models_obsframe(wavelength/(1 + redshift), AV, R_V=R_V, extlaw=extlaw)
+        flux_models_obsframe_dust = models.flux_models_obsframe_dust
+
+        half_norm_range = 45  # Angstrom
+        l_wave = models.wavenorm - half_norm_range
+        r_wave = models.wavenorm + half_norm_range
+        self.spectra['sel_norm_window'] = (self.spectra['raw_wave'] > l_wave) & (self.spectra['raw_wave'] < r_wave)
+
+        sel_norm = self.spectra['sel_norm_window'] & self.spectra['sel_wl']
+        norm_mean_flux = self.spectra['raw_flux_no_gas'][sel_norm].mean()
+        norm_median_flux = np.median(self.spectra['raw_flux_no_gas'][sel_norm])
+        self.spectra['raw_flux_no_gas_norm_mean'] = np.divide(self.spectra['raw_flux_no_gas'], norm_mean_flux, where=norm_mean_flux!=0)
+        self.spectra['raw_eflux_norm_mean'] = np.divide(self.spectra['raw_eflux'], norm_mean_flux, where=norm_mean_flux!=0)
+        self.spectra['raw_flux_no_gas_norm_median'] = np.divide(self.spectra['raw_flux_no_gas'], norm_median_flux, where=norm_median_flux!=0)
+        self.spectra['raw_eflux_norm_median'] = np.divide(self.spectra['raw_eflux'], norm_median_flux, where=norm_median_flux!=0)
+
+        chi_sq_mean = []
+        chi_sq_median = []
+        coeffs_single=[]
+        model_min=0.0*flux_models_obsframe_dust[0,:]
+        for i_mod,coeffs_now in enumerate(coeffs_input):
+            model_min=model_min+coeffs_now*flux_models_obsframe_dust[i_mod,:]
+        print('model_min_shape: ',model_min.shape)
+        coeffs_single=coeffs_input
+        chi_sq_mean_norm = 1
+        chi_sq_median_norm = 1
+
+        # f_out_coeffs = open(filename, 'a')
+        cols = 'ID,TEFF,LOGG,MET,ALPHAM,MEAN(CHISQ),MEDIAN(CHISQ)'
+
+        fmt_cols = '| {0:^4} | {1:^7} | {2:^7} | {3:^6} | {3:^6} | {4:^11} | {5:^13} |'
+        fmt_numbers = '| {:=04d} | {:=7.4f} | {:=7.4f} | {:=6.4f} | {:=6.4f} | {:=11.4f} | {:=13.4f} |'
+        fmt_numbers_out_coeffs = '{:=04d}\t{:=7.4f}\t{:=7.4f}\t{:=6.4f}\t{:=6.4f}\t{:=6.4f}\t{:=6.4f}'
+
+        cols_split = cols.split(',')
+        tbl_title = fmt_cols.format(*cols_split)
+        ntbl = len(tbl_title)
+        tbl_border = ntbl*'-'
+        # output coeffs table
+
+#        self._MC_averages()
+        self.coeffs_ssp_MC=coeffs_single        
+        self.spectra['model_ssp_min']=model_min*norm_median_flux
+        self.spectra['model_min']=model_min*norm_median_flux
+#        self.resume_results()
+#        self.output_coeffs_MC_to_screen()
+        return 1
+            
+    #
+    # Looking for the best single RSP that reproduce the spectra
+    #
     def rsp_single_fit(self):
         cf = self.config
         models = self.models
@@ -297,6 +371,10 @@ class StellarSynthesis(StPopSynt):
 
         return chi_sq_median_norm[i_C_median_min]
 
+
+    #
+    # Fitting several RSPs
+    #
     def rsp_fit(self, n_MC=5):
         """
         Generates minimal ssp model through a Monte-Carlo search of the coefficients.
