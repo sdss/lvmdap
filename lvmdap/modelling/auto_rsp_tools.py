@@ -259,7 +259,9 @@ def auto_rsp_elines_single_main(
     SPS.med_flux = np.median(nl_flux)
     SPS.rms = np.std(nl_flux)
     SPS.calc_SN_norm_window()
-    print(f'-> MED_FLUX: {SPS.med_flux} +- {SPS.rms} SN:{SPS.SN_norm_window}')
+    if ((SPS.SN_norm_window==0) and (SPS.med_flux>0) and (SPS.rms>0)):
+        SPS.SN_norm_window=SPS.med_flux/SPS.rms    
+    print(f'-> MED_FLUX : {SPS.med_flux} +- {SPS.rms} SN:{SPS.SN_norm_window}')
  
    
 
