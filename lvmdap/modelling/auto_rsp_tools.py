@@ -463,9 +463,16 @@ def model_rsp_elines_single_main(
         cf.redshift_set=redshift_set
         cf.sigma_set=sigma_set
         cf.AV_set=AV_set
+        cf.redshift = input_redshift
+        cf.sigma = input_sigma
+        cf.AV = input_AV
+
+        
         if guided_errors is not None:
             fit_gas = False
         SPS = SPS_master
+        
+
         SPS.wavelength=wavelength
         SPS.flux=flux
         SPS.eflux=eflux

@@ -1,12 +1,12 @@
 [tool.poetry]
-name = "lvm-dap"
-version = "0.1.0"
+name = "lvmdap"
+version = "1.0.0"
 description = "LVM Data Analisys Pipeline"
 license = "MIT"
-authors = ["Alfredo Mejia-Narvaez <amejia@astro.unam.mx>"]
+authors = ["Sebastian F. Sanchez <sfsanchez@astro.unam.mx>","Alfredo Mejia-Narvaez <amejia@astro.unam.mx>"]
 readme = "README.md"
-homepage = "https://gitlab.com/chemical-evolution/lvm-dap"
-repository = "https://gitlab.com/chemical-evolution/lvm-dap.git"
+homepage = "https://github.com/sdss/lvmdap"
+repository = "https://github.com/sdss/lvmdap.git"
 keywords = ["galaxies", "stellar contents", "statistics"]
 classifiers = [
      "Development Status :: 3 - Alpha",
@@ -50,6 +50,7 @@ preprocess-manga="lvmdap._cmdline.preprocess_manga:_main"
 gas-cube-extractor="lvmdap._cmdline.gas_cube_extractor:_main"
 mwm-dap="lvmdap._cmdline.mwm_dap:_main"
 lvm-dap-conf="lvmdap._cmdline.dap:_dap_yaml"
+lvm-dap-sim="lvmdap._cmdline.sim_spec_rsp:_main"
 
 [tool.dephell.main]
 from = {format = "poetry", path = "pyproject.toml"}

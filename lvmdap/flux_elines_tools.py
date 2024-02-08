@@ -129,7 +129,11 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
 
             out[k, i] = I0
             out[ne + k, i] = vel_I1
-            out[2*ne + k, i] = I2
+            #
+            # Hack based on simulations
+            # 08.02.2024
+            #out[2*ne + k, i] = I2
+            out[2*ne + k, i] = 1.217*(I2/2.354)**2
             out[3*ne + k, i] = EW
             out[4*ne + k, i] = s_I0
             out[5*ne + k, i] = s_vel_I1
