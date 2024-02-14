@@ -37,6 +37,7 @@ from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
 from lvmdap.modelling.synthesis import StellarSynthesis
 from lvmdap.modelling.auto_rsp_tools import ConfigAutoSSP
 from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header, plot_spec, read_rsp
+from lvmdap.dap_tools import load_LVMSIM_rss, read_LVMSIM_PT
 from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, read_tab_EL
 from lvmdap.dap_tools import find_redshift_spec
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW
@@ -528,6 +529,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         action="store_true"
     )
 
+    parser.add_argument(
+        "--lvmsim",
+        help="The format of the input file corresponds to the one created by the LVM Simulator. It can be True or False (default)",
+        default=False
+    )
 
     
     args = parser.parse_args(cmd_args)
@@ -650,16 +656,18 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        args.rsp_nl_file = args.rsp_file
 #    if args.w_range_nl is None:
 #        args.w_range_nl = copy(args.w_range)
-   
-    wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVM_rss(args.lvm_file,ny_range=ny_range,\
-                                                                           nx_range=nx_range,sky_hack=sky_hack)
-   
-#   just a check
-#    print(rss_flux.shape)
 
-    # Include here the AG-cam meadiand file!
-    #
-    tab_PT_org = read_PT(args.lvm_file,'none',ny_range=ny_range)
+
+    if (args.lvmsim == False):
+      print('# Reading data in the LVMCFrame format...')
+      wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVM_rss(args.lvm_file,ny_range=ny_range,\
+                                                                           nx_range=nx_range,sky_hack=sky_hack)
+      tab_PT_org = read_PT(args.lvm_file,'none',ny_range=ny_range)
+    else:
+      print('# Reading data in the LVM Simulator format...')
+      wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVMSIM_rss(args.lvm_file,ny_range=ny_range,\
+                                                                           nx_range=nx_range)
+      tab_PT_org = read_LVMSIM_PT(args.lvm_file,'none',ny_range=ny_range)
 
 
     

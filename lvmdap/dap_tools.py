@@ -458,6 +458,50 @@ def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= T
     return wl__w, rss_f_spectra, rss_e_spectra, rss_f_hdr, rss_0_hdr
 
 
+#
+# Load an standard LVM RSS file
+#
+def load_LVMSIM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, nx_range=None):
+    """Return the RSS from the given and LVM filename in the parsed command line arguments"""
+    hdu = fits.open(lvm_file, memmap=False)
+    rss_0_hdr = hdu[0].header
+    rss_f_spectra = hdu['TARGET'].data
+    rss_f_hdr = hdu['TARGET'].header
+    rss_sky = hdu['SKY'].data
+    try:
+        rss_e_spectra = hdu['ERR'].data+np.abs(rss_f_spectra)
+    except:
+        rss_e_spectra = np.abs(rss_f_spectra-median_filter(rss_f_spectra,size=(1,51)))  
+    # We force an arbitrary (?) error      
+    #rss_e_spectra = np.abs(0.07*rss_f_spectra)+0.07*np.nanmean(np.abs(rss_f_spectra[rss_f_spectra>0]))
+    #rss_e_spectra = np.abs(0.07*rss_f_spectra)+0.07*np.nanmean(np.abs(rss_f_spectra[rss_f_spectra>0]))
+#    rss_e_spectra = 2*median_filter(np.abs(rss_f_spectra-median_filter(rss_f_spectra,size=(1,51))),size=(1,51))        
+    wl__w = np.array([rss_f_hdr["CRVAL1"] + i*rss_f_hdr["CDELT1"] for i in range(rss_f_hdr["NAXIS1"])])
+    wl__w = wl__w*m2a
+    rss_f_spectra=rss_f_spectra*flux_scale
+    #
+    # We need to revise the errors!
+    #
+    rss_e_spectra=rss_e_spectra*flux_scale
+    rss_f_hdr["CRVAL1"]=rss_f_hdr["CRVAL1"]*m2a
+    rss_f_hdr["CDELT1"]=rss_f_hdr["CDELT1"]*m2a
+
+    if (nx_range != None):
+        print(f'# X-axis trimmed: {nx_range}')
+        rss_f_spectra=rss_f_spectra[:,nx_range[0]:nx_range[1]]
+        rss_e_spectra=rss_e_spectra[:,nx_range[0]:nx_range[1]]
+        wl__w=wl__w[nx_range[0]:nx_range[1]]
+        rss_f_hdr['NAXIS1']=nx_range[1]-nx_range[0]+1
+        rss_f_hdr["CRVAL1"]=rss_f_hdr["CRVAL1"]+nx_range[0]*rss_f_hdr["CDELT1"]
+    
+    if (ny_range != None):
+        print(f'# Y-axis trimmed: {ny_range}')
+        rss_f_spectra=rss_f_spectra[ny_range[0]:ny_range[1],:]
+        rss_e_spectra=rss_e_spectra[ny_range[0]:ny_range[1],:]
+        rss_f_hdr['NAXIS2']=ny_range[1]-ny_range[0]+1
+    return wl__w, rss_f_spectra, rss_e_spectra, rss_f_hdr, rss_0_hdr
+
+
 
 PLATESCALE = 112.36748321030637
 
@@ -667,6 +711,36 @@ def plotty(line_dict, vmin, vmax, title, filename, size=30):
 
     plt.close()
 
+
+def read_LVMSIM_PT(fitsfile, agcam_coadd, nobad=False, ny_range=None, exposure=666):
+    rsshdu = fits.open(fitsfile)
+
+    hdr = rsshdu[0].header
+    hdr['exposure']=exposure
+    tab = Table(rsshdu['FIBERID'].data)
+    sci = np.full(len(tab), True)
+    racen = hdr['RA']
+    deccen = hdr['DEC']
+    pa = 0
+
+    ra_fib = racen+tab['x']/3600./np.cos(deccen*np.pi/180.) 
+    dec_fib = deccen- tab['y']/3600. 
+
+    fiberid=tab['id']
+    exp_fib=[]
+    for fibID in fiberid:
+        exp_fib.append(str(hdr['exposure'])+'.'+str(fibID))
+    tab=Table()
+    tab['id']=np.array(exp_fib)
+    tab['ra']=ra_fib.data
+    tab['dec']=dec_fib.data
+    tab['mask']=sci
+    tab['fiberid']=fiberid
+    tab['exposure']=hdr['exposure']*np.ones(len(tab),dtype=int)
+    if (ny_range != None):
+        tab=tab[ny_range[0]:ny_range[1]]
+    return tab
+    
 
 def read_PT(fitsfile, agcam_coadd, nobad=False, ny_range=None):
     rsshdu = fits.open(fitsfile)
