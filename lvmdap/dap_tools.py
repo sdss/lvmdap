@@ -469,7 +469,7 @@ def load_LVMSIM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, nx_range=No
     rss_f_hdr = hdu['TARGET'].header
     rss_sky = hdu['SKY'].data
     try:
-        rss_e_spectra = hdu['ERR'].data+np.abs(rss_f_spectra)
+        rss_e_spectra = hdu['ERR'].data#+np.abs(rss_f_spectra)
     except:
         rss_e_spectra = np.abs(rss_f_spectra-median_filter(rss_f_spectra,size=(1,51)))  
     # We force an arbitrary (?) error      
