@@ -879,21 +879,21 @@ def plot_spec_simple(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
             ax0.plot(wave,data[1,:],color=colors[0],alpha=1.0,label=r'Model (M$_\lambda$)')
     res = data[0,:]-data[1,:]
     gas_model = data[2,:]-data[1,:]
-    ax0.plot(wave,res,color=colors[4],alpha=0.7,\
+    ax0.plot(wave,res,color=colors[4],alpha=1.0,\
              label=r'Residual (O$_\lambda$-M$_\lambda$)',linewidth=3)
     if (no_model==False):
-        ax0.plot(wave,gas_model,color=colors[9],alpha=0.7,\
+        ax0.plot(wave,gas_model,color=colors[9],alpha=1.0,\
                  label=r'EL model')
     
     std_res = np.std(res[2000:2500])
     flux = np.median(data[1,2000:2500])
-    ax0.axvspan(5600, 5850, alpha=0.7, color='grey',zorder=10)
-    ax0.axvspan(7400, 7800, alpha=0.7, color='grey',zorder=10)
+    ax0.axvspan(5600, 5850, alpha=1.0, color='grey',zorder=10)
+    ax0.axvspan(7400, 7800, alpha=1.0, color='grey',zorder=10)
     
     
 #    print(len(res),std_res,flux,flux/std_res)
     
-#    ax0.plot(wave,data[1,:],color=colors[9],alpha=0.7)
+#    ax0.plot(wave,data[1,:],color=colors[9],alpha=1.0)
     #ticks = np.arange(crval,crval+nx*cdelt, 500*cdelt)
     #print(ticks)
     #ax0.set_xticks(ticks)
@@ -908,9 +908,12 @@ def plot_spec_simple(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
 
     ax1.fill_between(x, y0, y1,color=colors[4],alpha=1.0)
 #    ax1.plot(wave,100*res,color=colors[4],alpha=1.0,label=r'Residual (O$_\lambda$-M$_\lambda$)')    
-    ax1.plot(wave,100*res,color='white',alpha=0.3,label=r'Residual (O$_\lambda$-M$_\lambda$)')   
+    ax1.plot(wave,100*res,color='white',alpha=1.0,label=r'Residual (O$_\lambda$-M$_\lambda$)')   
     if (id_lines != None):
-        colors=['darkred','firebrick','indianred']
+        # #fb6f92
+        # #fb6f92
+        colors=['black','#ffc09f','#79addc','#fb6f92','#adf7b6','#ffee93']
+        #colors=['darkred','firebrick','indianred']
         mask_lines = (id_lines['wl'].value>=x_min) & (id_lines['wl'].value<x_max)
         tab_elines = id_lines[mask_lines]
         even=0
@@ -992,21 +995,21 @@ def plot_spectra_simple(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz
             ax0.plot(wave,data[1,:],color=colors[0],alpha=1.0,label=r'Model (M$_\lambda$)')
     res = data[0,:]-data[1,:]
     gas_model = data[2,:]-data[1,:]
-    ax0.plot(wave,res,color=colors[4],alpha=0.7,\
+    ax0.plot(wave,res,color=colors[4],alpha=1.0,\
              label=r'Residual (O$_\lambda$-M$_\lambda$)',linewidth=3)
     if (no_model==False):
-        ax0.plot(wave,gas_model,color=colors[9],alpha=0.7,\
+        ax0.plot(wave,gas_model,color=colors[9],alpha=1.0,\
                  label=r'EL model')
     
     std_res = np.std(res[2000:2500])
     flux = np.median(data[1,2000:2500])
-    ax0.axvspan(5600, 5850, alpha=0.7, color='grey',zorder=10)
-    ax0.axvspan(7400, 7800, alpha=0.7, color='grey',zorder=10)
+    ax0.axvspan(5600, 5850, alpha=1.0, color='grey',zorder=10)
+    ax0.axvspan(7400, 7800, alpha=1.0, color='grey',zorder=10)
     
     
 #    print(len(res),std_res,flux,flux/std_res)
     
-#    ax0.plot(wave,data[1,:],color=colors[9],alpha=0.7)
+#    ax0.plot(wave,data[1,:],color=colors[9],alpha=1.0)
     #ticks = np.arange(crval,crval+nx*cdelt, 500*cdelt)
     #print(ticks)
     #ax0.set_xticks(ticks)
@@ -1021,9 +1024,10 @@ def plot_spectra_simple(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz
 
     ax1.fill_between(x, y0, y1,color=colors[4],alpha=1.0)
 #    ax1.plot(wave,100*res,color=colors[4],alpha=1.0,label=r'Residual (O$_\lambda$-M$_\lambda$)')    
-    ax1.plot(wave,100*res,color='white',alpha=0.3,label=r'Residual (O$_\lambda$-M$_\lambda$)')   
+    ax1.plot(wave,100*res,color='white',alpha=1.0,label=r'Residual (O$_\lambda$-M$_\lambda$)')   
     if (id_lines != None):
-        colors=['darkred','firebrick','indianred']
+        colors=['black','#ffc09f','#79addc','#fb6f92','#adf7b6','#ffee93']
+        #colors=['darkred','firebrick','indianred']
         mask_lines = (id_lines['wl'].value>=x_min) & (id_lines['wl'].value<x_max)
         tab_elines = id_lines[mask_lines]
         even=0
@@ -1172,7 +1176,9 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
               name='none',cmap=None,\
               x_min=3600,x_max=9600,y_min=-0.2,y_max=2,text='',\
               file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
-             id_lines=None,output='junk.pdf',c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None):
+              id_lines=None,output='junk.pdf',c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None,
+              colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False):
+
     tab_SSP=read_rsp(file_ssp)
     
     if (cmap==None):
@@ -1203,48 +1209,46 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     ax1.set_xlim(x_min,x_max)
     ax0.set_ylim(y_min,y_max)        
 
-    #ax0 = fig.add_subplot()
-    if (c_map=='carlos'):
-        colors=color_cm_now(np.linspace(0,1,10))
-    else:
-        c_colors = mpl.colormaps[c_map].resampled(256)
-        colors=c_colors(np.linspace(0,1,10))
         
  #   colors=['black','maroon','steelblue','darkorange','olive','grey']
 #    colors=['black','palegreen','steelblue','darkorange','olive','grey']
-    colors=['black','lightsalmon','steelblue','darkorange','olive','grey']
+#    colors=['black','lightsalmon','steelblue','darkorange','olive','grey']
+    colors=colors_in
     if (no_st==False):
-        ax0.plot(wave,data[0,:],color=colors[0],alpha=0.8,linewidth=3.0,label=r'Observed Spectrum (O$_\lambda$)')
+        ax0.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3.0,label=r'Obs. Spectrum (O$_\lambda$)')
         ax1.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=2.0)#,label=r'Observed (O$_\lambda$)')
         if (no_model==False):
-            ax0.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,label=r'Stellar Model (M$_\lambda$)')
-            ax1.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5)#,label=r'Model (M$_\lambda$)')
+            ax0.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,label=r'St. Model (M$_\lambda$)',linestyle="solid")
+            ax1.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,linestyle="solid")#,label=r'Model (M$_\lambda$)')
     res = data[0,:]-data[1,:]
     gas_model = data[2,:]-data[1,:]
-    ax0.plot(wave,res,color=colors[2],alpha=0.7,\
-             label=r'Residual (O$_\lambda$-M$_\lambda$)',linewidth=3)
+    ax0.plot(wave,res,color=colors[2],alpha=1.0,\
+             label=r'St. Residual (O$_\lambda$-M$_\lambda$)',linewidth=3)
     if (no_model==False):
-        ax0.plot(wave,gas_model,color=colors[3],alpha=0.7,linewidth=1.5,\
-                 label=r'Emission lines model (E$_\lambda$)')
+        ax0.plot(wave,gas_model,color=colors[3],alpha=1.0,linewidth=1.5,\
+                 label=r'Em. Lines model (E$_\lambda$)',linestyle="solid")
+    if (plot_res==True):
+        ax0.plot(wave,data[4,:],color=colors[4],alpha=1.0,linewidth=1.5,\
+                 label=r'Final residual (R$_\lambda$)',linestyle="solid")
     
     std_res = np.std(res[2000:2500])
     flux = np.median(data[1,2000:2500])
-    ax1.axvspan(5650, 5850, alpha=0.7, color='grey',zorder=10)
-    ax1.axvspan(7500, 7700, alpha=0.7, color='grey',zorder=10)
+    ax1.axvspan(5650, 5850, alpha=0.3, color='grey',zorder=10)
+    ax1.axvspan(7500, 7700, alpha=0.3, color='grey',zorder=10)
     
 
     ax0.xaxis.set_minor_locator(MultipleLocator(100))
     #ax0.axes.get_xaxis().set_visible(False)
     handles, labels = ax0.get_legend_handles_labels()
     if (do_legend):
-        ax0.legend(handles, labels,loc=(0.05,1.01),frameon=True,handlelength=1.5,\
-                   ncol=4,columnspacing=0.15, prop={'size': 22})
+        ax0.legend(handles, labels,loc=(0.03,1.01),frameon=True,handlelength=1.5,\
+                   ncol=5,columnspacing=0.15, prop={'size': 22})
     x = np.arange(x_min,1.1*x_max,100)
     y1 = 5+0*x
     y0 = -5+0*x
 
     if (id_lines != None):
-        colors=['black','lightsalmon','steelblue','darkorange','olive','grey']
+        #colors=['black','lightsalmon','steelblue','darkorange','olive','grey']
         #        colors=['black','palegreen','steelblue','darkorange','olive','grey']
         #colors=['darkred','firebrick','indianred']
         mask_lines = (id_lines['wl'].value>=x_min) & (id_lines['wl'].value<x_max)
@@ -1268,12 +1272,16 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
             if (no_st==False):
                 axins.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3,label=r'Observed (O$_\lambda$)')
             if (no_model==False):
-                axins.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,label=r'Model (M$_\lambda$)')
-            axins.plot(wave,res,color=colors[2],alpha=0.7,linewidth=3,\
+                axins.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,label=r'Model (M$_\lambda$)',linestyle="solid")
+            axins.plot(wave,res,color=colors[2],alpha=1.0,linewidth=3,\
                        label=r'Residual (O$_\lambda$-M$_\lambda$)')
             if (no_model==False):
-                axins.plot(wave,gas_model,color=colors[3],alpha=0.7,linewidth=1.5,\
-                           label=r'E. lines model')
+                axins.plot(wave,gas_model,color=colors[3],alpha=1.0,linewidth=1.5,\
+                           label=r'E. lines model',linestyle="solid")
+            if (plot_res==True):
+                axins.plot(wave,data[4,:],color=colors[4],alpha=1.0,linewidth=1.5,\
+                           label=r'Em. lines model (E$_\lambda$)',linestyle="solid")
+                
             if (plot_el == True):
                 tab_el_now=tab_el[(tab_el['wl']>inst[4]) & (tab_el['wl']<inst[5])]
                 for vals in tab_el_now:
@@ -1282,8 +1290,8 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
                               inst[7]-0.15*abs(inst[7]-inst[6])],\
                              color='darkorange',linewidth=2)
                 axins.text(inst[4]+0.65*np.abs(inst[5]-inst[4]),\
-                           inst[7]-0.15*abs(inst[7]-inst[6]),f'{inst[8]}',\
-                           color='darkorange')
+                           inst[7]-0.15*abs(inst[7]-inst[6]),f'{inst[8]}')#,\
+                           #color='darkorange')
             ax0.indicate_inset_zoom(axins, edgecolor="black")
 
         
@@ -1302,11 +1310,13 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
 
 def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=0,\
-                     name='none',cmap=None,\
-                     x_min=3600,x_max=9400,y_min=-0.2,y_max=2,text='',\
-                     file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
-                     id_lines=None,output='junk.pdf',\
-                     c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None):
+                 name='none',cmap=None,\
+                 x_min=3600,x_max=9400,y_min=-0.2,y_max=2,text='',\
+                 file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
+                 id_lines=None,output='junk.pdf',\
+                 c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None,\
+                 colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False):
+                 #colors_in=['black','#ffc09f','#79addc','#fb6f92','#adf7b6','#ffee93']):
 #    tab_SSP_RSS=read_rsp(file_ssp)
 #    tab_SSP=tab_SSP_RSS[n_sp]
     if (cmap==None):
@@ -1340,46 +1350,48 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
     ax1.set_xlim(x_min,x_max)
     ax0.set_ylim(y_min,y_max)        
 
-    #ax0 = fig.add_subplot()
-    if (c_map=='carlos'):
-        colors=color_cm_now(np.linspace(0,1,10))
-    else:
-        c_colors = mpl.colormaps[c_map].resampled(256)
-        colors=c_colors(np.linspace(0,1,10))
+
         
-    colors=['black','maroon','steelblue','darkorange','olive','grey']
+    colors=colors_in
+    #['black','maroon','steelblue','darkorange','olive','grey']
     if (no_st==False):
-        ax0.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=1.5,label=r'Observed Spectrum (O$_\lambda$)')
-        ax1.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=1.5)#,label=r'Observed (O$_\lambda$)')
+        ax0.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3,label=r'Obs. Spectrum (O$_\lambda$)')
+        ax1.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3)#,label=r'Observed (O$_\lambda$)')
         if (no_model==False):
-            ax0.plot(wave,data[1,:],color=colors[1],alpha=1.0,label=r'Stellar Model (M$_\lambda$)')
-            ax1.plot(wave,data[1,:],color=colors[1],alpha=1.0)#,label=r'Model (M$_\lambda$)')
+            ax0.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,label=r'St. Model (M$_\lambda$)')
+            ax1.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5)#,label=r'Model (M$_\lambda$)')
     res = data[0,:]-data[1,:]
     gas_model = data[2,:]-data[1,:]
-    ax0.plot(wave,res,color=colors[2],alpha=0.7,\
-             label=r'Residual (O$_\lambda$-M$_\lambda$)',linewidth=3)
+    ax0.plot(wave,res,color=colors[2],alpha=1.0,\
+             label=r'St. Residual (O$_\lambda$-M$_\lambda$)',linewidth=3)
     if (no_model==False):
-        ax0.plot(wave,gas_model,color=colors[3],alpha=0.7,\
-                 label=r'Emission lines model (E$_\lambda$)')
-    
+        ax0.plot(wave,gas_model,color=colors[3],alpha=1.0,linewidth=1.5,\
+                 label=r'Em. Lines model (E$_\lambda$)')
+    if (plot_res==True):
+        ax0.plot(wave,data[4,:],color=colors[4],alpha=1.0,linewidth=1.5,\
+                 label=r'Final residual (R$_\lambda$)',linestyle="solid")
+
+
+        
     std_res = np.std(res[2000:2500])
     flux = np.median(data[1,2000:2500])
-    ax1.axvspan(5650, 5850, alpha=0.7, color='grey',zorder=10)
-    ax1.axvspan(7500, 7700, alpha=0.7, color='grey',zorder=10)
+    ax1.axvspan(5650, 5850, alpha=0.3, color='grey',zorder=10)
+    ax1.axvspan(7500, 7700, alpha=0.3, color='grey',zorder=10)
     
 
     ax0.xaxis.set_minor_locator(MultipleLocator(100))
     #ax0.axes.get_xaxis().set_visible(False)
     handles, labels = ax0.get_legend_handles_labels()
     if (do_legend):
-        ax0.legend(handles, labels,loc=(0.05,1.01),frameon=True,handlelength=1.5,\
-                   ncol=4,columnspacing=0.15, prop={'size': 22})
+        ax0.legend(handles, labels,loc=(0.03,1.01),frameon=True,handlelength=1.5,\
+                   ncol=5,columnspacing=0.15, prop={'size': 22})
     x = np.arange(x_min,1.1*x_max,100)
     y1 = 5+0*x
     y0 = -5+0*x
 
     if (id_lines != None):
-        colors=['darkred','firebrick','indianred']
+        colors=colors_in
+        #['darkred','firebrick','indianred']
         mask_lines = (id_lines['wl'].value>=x_min) & (id_lines['wl'].value<x_max)
         tab_elines = id_lines[mask_lines]
         even=0
@@ -1399,14 +1411,17 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
                 [inst[0], inst[1], inst[2], inst[3]],
                 xlim=(inst[4], inst[5]), ylim=(inst[6], inst[7]),yticklabels=[])#, xticklabels=[], yticklabels=[])
             if (no_st==False):
-                axins.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=1.5,label=r'Observed (O$_\lambda$)')
+                axins.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3,label=r'Observed (O$_\lambda$)')
             if (no_model==False):
-                axins.plot(wave,data[1,:],color=colors[1],alpha=1.0,label=r'Model (M$_\lambda$)')
-            axins.plot(wave,res,color=colors[2],alpha=0.7,\
+                axins.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,label=r'Model (M$_\lambda$)')
+            axins.plot(wave,res,color=colors[2],alpha=1.0,\
                        label=r'Residual (O$_\lambda$-M$_\lambda$)',linewidth=3)
             if (no_model==False):
-                axins.plot(wave,gas_model,color=colors[3],alpha=0.7,\
+                axins.plot(wave,gas_model,color=colors[3],alpha=1.0,linewidth=1.5,\
                            label=r'E. lines model')
+            if (plot_res==True):
+                axins.plot(wave,data[4,:],color=colors[4],alpha=1.0,linewidth=1.5,\
+                           label=r'Em. Lines residual (R$_\lambda$)',linestyle="solid")
             if (plot_el == True):
                 tab_el_now=tab_el[(tab_el['wl']>inst[4]) & (tab_el['wl']<inst[5])]
                 for vals in tab_el_now:
