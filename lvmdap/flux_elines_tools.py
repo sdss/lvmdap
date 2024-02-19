@@ -79,7 +79,7 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
     out = np.zeros([NZ_out, nx])
     print('{} emission lines'.format(ne))
     labels = ['flux', 'vel', 'disp', 'EW','e_flux', 'e_vel', 'e_disp', 'e_EW']
-    print('PASO fe')
+#    print('PASO fe')
     for i, name in enumerate(name_elines):
         print(i,name)
         _tmp = [i, i + ne, i + 2*ne, i + 3*ne, i + 4*ne, i + 5*ne, i + 6*ne, i + 7*ne]

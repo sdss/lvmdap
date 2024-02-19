@@ -39,6 +39,8 @@ import matplotlib.colors as mpl_colors
 
 from matplotlib import rcParams as rc
 
+from scipy.ndimage import gaussian_filter1d, median_filter
+
 warnings.simplefilter('ignore', category=VerifyWarning)
 
 __indices__ = {
@@ -1177,7 +1179,7 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
               x_min=3600,x_max=9600,y_min=-0.2,y_max=2,text='',\
               file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
               id_lines=None,output='junk.pdf',c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None,
-              colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False):
+              colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False,show_scale=True):
 
     tab_SSP=read_rsp(file_ssp)
     
@@ -1188,11 +1190,22 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     hdu=fits.open(file)
     data=hdu[0].data
     (ny,nx)=data.shape
+    
+    
 #    data=np.mean(data,axis=1)
     i0 = int(nx*0.45)
     i1 = int(nx*0.55)
 
     data = data / np.median(data[0,i0:i1])
+    if (ny==7):
+        ssp_model=data[6,:]
+    else:
+        gas = data[0,:] - data[5,:]
+        smooth = data[3,:] - data[4,:] - gas        
+        ssp_model = data[1,:]-smooth
+        if (show_scale==True):
+            ssp_model = data[1,:]
+
     hdr=hdu[0].header
     crval = hdr['crval1']
     cdelt = hdr['cdelt1']
@@ -1218,8 +1231,8 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
         ax0.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3.0,label=r'Obs. Spectrum (O$_\lambda$)')
         ax1.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=2.0)#,label=r'Observed (O$_\lambda$)')
         if (no_model==False):
-            ax0.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,label=r'St. Model (M$_\lambda$)',linestyle="solid")
-            ax1.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,linestyle="solid")#,label=r'Model (M$_\lambda$)')
+            ax0.plot(wave,ssp_model,color=colors[1],alpha=1.0,linewidth=1.5,label=r'St. Model (M$_\lambda$)',linestyle="solid")
+            ax1.plot(wave,ssp_model,color=colors[1],alpha=1.0,linewidth=1.5,linestyle="solid")#,label=r'Model (M$_\lambda$)')
     res = data[0,:]-data[1,:]
     gas_model = data[2,:]-data[1,:]
     ax0.plot(wave,res,color=colors[2],alpha=1.0,\
@@ -1272,7 +1285,7 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
             if (no_st==False):
                 axins.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3,label=r'Observed (O$_\lambda$)')
             if (no_model==False):
-                axins.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,label=r'Model (M$_\lambda$)',linestyle="solid")
+                axins.plot(wave,ssp_model,color=colors[1],alpha=1.0,linewidth=1.5,label=r'Model (M$_\lambda$)',linestyle="solid")
             axins.plot(wave,res,color=colors[2],alpha=1.0,linewidth=3,\
                        label=r'Residual (O$_\lambda$-M$_\lambda$)')
             if (no_model==False):
@@ -1315,7 +1328,7 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
                  file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
                  id_lines=None,output='junk.pdf',\
                  c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None,\
-                 colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False):
+                 colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False,show_scale=True):
                  #colors_in=['black','#ffc09f','#79addc','#fb6f92','#adf7b6','#ffee93']):
 #    tab_SSP_RSS=read_rsp(file_ssp)
 #    tab_SSP=tab_SSP_RSS[n_sp]
@@ -1328,12 +1341,25 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
 #    print(f'SHAPE output ={data.shape}')
     data=data[:,n_sp,:]
     (ny,nx)=data.shape
+    
 #    print(f'SHAPE output  ={data.shape} {n_sp}')
 #    data=np.mean(data,axis=1)
     i0 = int(nx*0.45)
     i1 = int(nx*0.55)
 
     data = data / np.median(data[0,i0:i1])
+
+    if (ny==7):
+        ssp_model=data[6,:]
+    else:
+        gas = data[0,:] - data[5,:]
+        smooth = data[3,:] - data[4,:] - gas        
+        ssp_model = data[1,:]-smooth
+        if (show_scale==True):
+            ssp_model = data[1,:]
+    
+
+
     hdr=hdu[0].header
     crval = hdr['crval1']
     cdelt = hdr['cdelt1']
@@ -1358,8 +1384,8 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
         ax0.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3,label=r'Obs. Spectrum (O$_\lambda$)')
         ax1.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3)#,label=r'Observed (O$_\lambda$)')
         if (no_model==False):
-            ax0.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,label=r'St. Model (M$_\lambda$)')
-            ax1.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5)#,label=r'Model (M$_\lambda$)')
+            ax0.plot(wave,ssp_model,color=colors[1],alpha=1.0,linewidth=1.5,label=r'St. Model (M$_\lambda$)')
+            ax1.plot(wave,ssp_model,color=colors[1],alpha=1.0,linewidth=1.5)#,label=r'Model (M$_\lambda$)')
     res = data[0,:]-data[1,:]
     gas_model = data[2,:]-data[1,:]
     ax0.plot(wave,res,color=colors[2],alpha=1.0,\
@@ -1413,7 +1439,7 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
             if (no_st==False):
                 axins.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3,label=r'Observed (O$_\lambda$)')
             if (no_model==False):
-                axins.plot(wave,data[1,:],color=colors[1],alpha=1.0,linewidth=1.5,label=r'Model (M$_\lambda$)')
+                axins.plot(wave,ssp_model,color=colors[1],alpha=1.0,linewidth=1.5,label=r'Model (M$_\lambda$)')
             axins.plot(wave,res,color=colors[2],alpha=1.0,\
                        label=r'Residual (O$_\lambda$-M$_\lambda$)',linewidth=3)
             if (no_model==False):

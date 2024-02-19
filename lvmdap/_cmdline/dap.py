@@ -1126,13 +1126,19 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        mean_value = np.nanmean(tab_PE_ord[col])
 #        tab_PE_ord[col] = np.where(tab_PE_ord[col].mask, mean_value,
 #        tab_PE_ord[col] = tab_PE_now.filled(mean_value)
-    vel_mean=np.nanmean(tab_PE_ord['vel_6562.68'])
-    disp_mean=np.nanmean(tab_PE_ord['disp_6562.68'])
+
+    #print(f'# WAVE. PE : {a_wl}')
+    w_Ha= a_wl.flat[np.abs(a_wl - 6562.68).argmin()]
+    print(f'# WAVELENGTH Ha : {w_Ha}')
+    
+
+    vel_mean=np.nanmean(tab_PE_ord[f'vel_{w_Ha}'])
+    disp_mean=np.nanmean(tab_PE_ord[f'disp_{w_Ha}'])
     vel__yx=np.zeros(hdr_flux['NAXIS2'])+vel_mean
     sigma__yx=disp_mean
 
 
-    for I,val in enumerate(tab_PE_ord['vel_6562.68'].value):
+    for I,val in enumerate(tab_PE_ord[f'vel_{w_Ha}'].value):
       if (np.isfinite(val)==True):
         try:
           vel__yx[I]=val
