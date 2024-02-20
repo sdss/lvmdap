@@ -487,8 +487,10 @@ def _main(cmd_args=sys.argv[1:]):
       # Change this
       #
       err_spec_t[i]=hdu[0].data[4,:,:][random_index[i],i]
+    err_spec_t=np.nan_to_num(err_spec_t,nan=np.nanmedian(err_spec_t))
     wl__w, f__w, ef__w = wave, org_spec, res_spec
-    out_file=args.output_path+'/sim_junk.fits'
+#    out_file = args.output_path+'/sim_junk.fits'
+    out_file = os.path.join(args.output_path, f"sim_junk_{args.label}.fits")
     config_file=args.config_file
     rsp_hdu=fits.open(args.rsp_file)
     n_coeffs=rsp_hdu[0].header['NAXIS2']
@@ -520,7 +522,7 @@ def _main(cmd_args=sys.argv[1:]):
     SPS.output_gas_emission(filename=out_file_elines, spec_id=i)
     SPS.output_coeffs_MC(filename=out_file_coeffs, write_header=i==0)
     SPS.output(filename=out_file_ps, write_header=i==0, block_plot=False)
-    hdu_org['FLUX'].data[i_sim,:]=SPS.spectra['model_min']
+    hdu_org['FLUX'].data[i_sim,:]=SPS.spectra['model_min']+err_spec_t
     print(f'### **** {i_sim}/{n_sim} *****')
 
   #

@@ -1,0 +1,66 @@
+---
+ output_path: "/home/sanchez/ana_lvm/input_sim/"
+ lvmdap_dir: "/home/sanchez/sda2/code/python/lvmdap"
+ rsp-file: "/home/sanchez/ana_lvm/my_templates/mstar-stlib-n341-SN10.fits.gz"
+# rsp-file: "/nfs/ofelia/manga/lvmdap_fitting-data/_basis_mastar_v3.1.1/stellar-basis-spectra-30.fits.gz"
+# rsp-file: "../_fitting-data/_basis-binned_mastar/stellar-basis-spectra-binned-4-mastar.fits.gz"
+ sigma-inst: 1
+ rsp-nl-file: "/nfs/ofelia/manga/lvmdap_fitting-data/_basis_mastar_v3.1.1/stellar-basis-spectra-5.fits.gz"
+ input-fmt: rss
+ redshift:
+  -  0.0
+  -  0.0001
+  -  -0.0003
+  -  0.0003
+ sigma:
+  - 1
+  - 10
+  - 5
+  - 30
+ AV:
+  - 0
+  - 0.3
+  - 0.0
+  - 1.5 
+ emission-lines-file: ../_legacy/emission_lines_strong.LVM 
+ emission-lines-file-long: ../_legacy/emission_lines_long_list.LVM
+# emission-lines-file-long: ../_legacy/emission_lines_strong.LVM
+ w-range:
+  - 3700
+  - 6900
+ ask-file: ../_legacy/mask_bands_LVM.txt
+# config-file: ../_legacy/auto_ssp_LVM_few.config
+ config-file: ../_legacy/auto_ssp_LVM.config
+ clear_outputs: True
+ w-range-nl:
+  - 3800
+  - 4000
+ bin-nl: 3
+ bin-AV: 50
+ mask_file: none
+ ignore_gas: False
+ single-gas-fit: True
+# single-gas-fit: False
+ sigma-gas: 0.8
+ flux-scale-org:
+  - -1
+  - 1
+ single_rsp: False
+ do_plots: 1
+# ny_range:
+#  - 500
+#  - 510
+# nx_range:
+#  - 100
+#  - 5000
+ out-plot-format: "pdf"
+# only-integrated: True
+ only-integrated: False
+ auto-redshift: True
+ sky-hack: False
+ SN_CUT: 20
+ #
+ # Only for the simulator
+ #
+ DAP_output_in: "ref_sim/dap-rsp30-sn20-00006109.output.fits.gz"
+ DAP_table_in: "ref_sim/dap-rsp30-sn20-00006109.dap.fits.gz"

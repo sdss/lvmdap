@@ -1179,7 +1179,7 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
               x_min=3600,x_max=9600,y_min=-0.2,y_max=2,text='',\
               file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
               id_lines=None,output='junk.pdf',c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None,
-              colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False,show_scale=True):
+              colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False,show_scale=True,n_ord=11):
 
     tab_SSP=read_rsp(file_ssp)
     
@@ -1195,17 +1195,6 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
 #    data=np.mean(data,axis=1)
     i0 = int(nx*0.45)
     i1 = int(nx*0.55)
-
-    data = data / np.median(data[0,i0:i1])
-    if (ny==7):
-        ssp_model=data[6,:]
-    else:
-        gas = data[0,:] - data[5,:]
-        smooth = data[3,:] - data[4,:] - gas        
-        ssp_model = data[1,:]-smooth
-        if (show_scale==True):
-            ssp_model = data[1,:]
-
     hdr=hdu[0].header
     crval = hdr['crval1']
     cdelt = hdr['cdelt1']
@@ -1213,6 +1202,26 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     #print(data.shape)
     (ny,nx) = data.shape
     wave = crval+cdelt*(np.arange(0,nx)-(crpix-1))
+    
+    data = data / np.median(data[0,i0:i1])
+    if (ny==7):
+        ssp_model=data[6,:]
+    else:
+        gas = data[0,:] - data[5,:]
+        smooth = data[3,:] - data[4,:] - gas        
+        ssp_model = data[1,:]-smooth
+        if (n_ord>2):
+            try:
+                f_rat = ssp_model/data[0,:]
+                c_rat0 = np.polyfit(wave, f_rat, n_ord)
+                p_rat0 = np.poly1d(c_rat0)(wave)
+                ssp_model = ssp_model*(1+1/p_rat0)*0.5
+            except:
+                show_scale=False
+        if (show_scale==True):
+            ssp_model = data[1,:]
+
+
     fig = plt.figure(figsize=(19,6)) 
     gs = fig.add_gridspec(nrows=5, ncols=6,  left=0.075, right=0.97, \
                           hspace=0.0, wspace=0.05, bottom=0.15, top=0.9)
@@ -1328,7 +1337,8 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
                  file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
                  id_lines=None,output='junk.pdf',\
                  c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None,\
-                 colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False,show_scale=True):
+                 colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False,show_scale=True,\
+                 n_ord=11):
                  #colors_in=['black','#ffc09f','#79addc','#fb6f92','#adf7b6','#ffee93']):
 #    tab_SSP_RSS=read_rsp(file_ssp)
 #    tab_SSP=tab_SSP_RSS[n_sp]
@@ -1355,6 +1365,14 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
         gas = data[0,:] - data[5,:]
         smooth = data[3,:] - data[4,:] - gas        
         ssp_model = data[1,:]-smooth
+        if (n_ord>2):
+            try:
+                f_rat = ssp_model/data[0,:]
+                c_rat0 = np.polyfit(wave, f_rat, n_ord)
+                p_rat0 = np.poly1d(c_rat0)(wave)
+                ssp_model = ssp_model*(1+1/p_rat0)*0.5
+            except:
+                show_scale=False
         if (show_scale==True):
             ssp_model = data[1,:]
     
