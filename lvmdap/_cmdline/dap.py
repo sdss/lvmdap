@@ -38,6 +38,7 @@ from lvmdap.modelling.synthesis import StellarSynthesis
 from lvmdap.modelling.auto_rsp_tools import ConfigAutoSSP
 from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header, plot_spec, read_rsp
 from lvmdap.dap_tools import load_LVMSIM_rss, read_LVMSIM_PT
+from lvmdap.dap_tools import load_in_rss, read_MaStar_PT
 from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, read_tab_EL
 from lvmdap.dap_tools import find_redshift_spec
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW
@@ -535,6 +536,12 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         default=False
     )
 
+    parser.add_argument(
+        "--in_rss",
+        help="The format of the input file is just a RSS spectra and an extension with PT. It can be True or False (default)",
+        default=False
+    )
+
     
     args = parser.parse_args(cmd_args)
     print(cmd_args)
@@ -659,10 +666,34 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
 
     if (args.lvmsim == False):
-      print('# Reading data in the LVMCFrame format...')
-      wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVM_rss(args.lvm_file,ny_range=ny_range,\
-                                                                           nx_range=nx_range,sky_hack=sky_hack)
-      tab_PT_org = read_PT(args.lvm_file,'none',ny_range=ny_range)
+      if (args.in_rss == False):
+        print('# Reading data in the LVMCFrame format...')
+        wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVM_rss(args.lvm_file,ny_range=ny_range,\
+                                                                               nx_range=nx_range,sky_hack=sky_hack)
+        tab_PT_org = read_PT(args.lvm_file,'none',ny_range=ny_range)
+      else:
+        print('# Reading data in a RSS format...')
+        wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_in_rss(args.lvm_file,ny_range=ny_range,\
+                                                                              nx_range=nx_range)
+        try:
+          tab_PT_org = read_MaStar_PT(args.lvm_file,'none',ny_range=ny_range)
+        except:
+          tab_PT_org = Table()
+          NL = rss_flux_org.shape[0]
+          tab_PT_org['id']=np.arange(NL)
+          tab_PT_org['ID']=np.arange(NL)
+          tab_PT_org['ra']=1.0*tab_PT_org['id']
+          tab_PT_org['dec']=1.0*tab_PT_org['id']
+          tab_PT_org['mask']=np.full(NL, True)
+          tab_PT_org['fiberid']=tab_PT_org['id']
+          tab_PT_org['exposure']=1.0*np.ones(NL,dtype=int)
+#        print(tab_PT_org.colnames)
+#        for I,fnorm in enumerate(tab_PT_org['FNORM']):
+#                    rss_flux_org[I,:]=rss_flux_org[I,:]*fnorm
+#                    rss_eflux_org[I,:]=rss_eflux_org[I,:]*fnorm
+
+            
+        
     else:
       print('# Reading data in the LVM Simulator format...')
       wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVMSIM_rss(args.lvm_file,ny_range=ny_range,\
