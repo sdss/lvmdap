@@ -1,5 +1,6 @@
 ---
- output_path: "/disk-a/sanchez/LVM/LVM/ver_231113/output_dap/"
+ output_path: "../_examples/output_dap/"
+# Insert here the directory where you have installed the LVMDAP
  lvmdap_dir: "/home/sanchez/sda2/code/python/lvmdap"
 # rsp-file: "../_fitting-data/_basis-binned_mastar/stellar-basis-spectra-binned-100-mastar.fits.gz"
  rsp-file: "../_fitting-data/_basis-binned_mastar/stellar-basis-spectra-binned-4-mastar.fits.gz"
@@ -20,19 +21,19 @@
   - 0
   - 0.3
   - 0.0
-  - 1.5 
- emission-lines-file: ../_legacy/emission_lines_strong.LVM 
+  - 1.5
+ emission-lines-file: ../_legacy/emission_lines_strong.LVM
 # emission-lines-file-long: ../_legacy/emission_lines_long_list.LVM
  emission-lines-file-long: ../_legacy/emission_lines_strong.LVM
  w-range:
-  - 3700
-  - 3900
+  - 3500
+  - 7000
  ask-file: ../_legacy/mask_bands_LVM.txt
  config-file: ../_legacy/auto_ssp_LVM.config
  clear_outputs: True
  w-range-nl:
   - 3800
-  - 3900
+  - 4300
  bin-nl: 3
  bin-AV: 50
  mask_file: none
@@ -46,11 +47,8 @@
  single_rsp: False
  do_plots: 1
  ny_range:
-  - 500
-  - 503
- nx_range:
-  - 100
-  - 3000
-
- 
- 
+  - 0
+  - 5
+ #nx_range:
+#  - 100
+#  - 3000

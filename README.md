@@ -74,16 +74,24 @@ and you should be able to run the following examples
 (1) Go to the _examples directory and run the script fit_6109_strong.sh. If everything runs ok,
 the you have the required files to run the DAP.
 
-(2) Go to the _examples directory and run the command line. Download the lvmCFrame-00006109.fits.gz
-file in the LVM format from the following location:
+(2) Download the lvmCFrame-00006109.fits.gz file in the LVM format from the following location:
 
-http://ifs.astroscu.unam.mx/LVM/lvmdap_fitting-data/data/ 
+http://ifs.astroscu.unam.mx/LVM/lvmdap_fitting-data/data/
 
-or from the official repositories of the LVM. Then, just run the following script (assuming
-that you place the data in the "data" directory.
+or from the official repositories of the LVM and store it in the "data" subdirectory inside the "_examples" directory.
+
+Then, being in the location where you have downloaded the "lvmdap" repository (i.e. outside the "_examples"
+directory), run the following script:
+
+lvm-dap-conf _examples/data/lvmCFrame-00006109.fits.gz dap-4-00006109 _legacy/lvm-dap_fast.yaml
+
+or 
+
+lvm-dap-conf _examples/data/lvmCFrame-00006109.fits dap-4-00006109 _legacy/lvm-dap_fast.yaml
+
+Depending if you have downloaded the compressed or uncompressed files.
 
 
-lvm-dap-conf data/lvmCFrame-00006109.fits.gz dap-4-00006109 ../_legacy/lvm-dap_fast.yaml
 
 '''
 Both two scripts, `lvm-dap` and 'lvm-dap-conf', implement the Resolved Stellar Population method (Mejia-Narvaez+, in prep.).
