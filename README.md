@@ -17,9 +17,17 @@ We recommend installing in a virtual environment to avoid dependencies crashing.
 The LVM-dap heavy depends on pyPipe3D (http://ifs.astroscu.unam.mx/pyPipe3D/ , Lacerda et al. 2022).
 That software should be installed before installing the LVM-dap.
 
-Once you have created a virtual environment (if you chose to do so), simply run the following commands:
+The most simple way to install all the required software is the following one (thanks Knox Long):
 
-git clone https://github.com/sdss/lvmdap
+conda create --name lvmdap python=3.11
+
+conda activate lvmdap
+
+conda install numpy=1.23.5  (** not to have problems with the new implemenation of np.float)
+
+pip install pyPipe3D
+
+git clone git@github.com:sdss/lvmdap.git
 
 cd lvmdap
 
@@ -62,9 +70,6 @@ If the installation went successfully (and you downloaded the data) your tree di
     ├── pyproject.toml
     ├── README.md
     ├── README.rst
-    ├── run-fsps
-    ├── run-fsps-MaNGA
-    ├── run-fsps-MaNGA-v2
     └── setup.py
 
 and you should be able to run the following examples
@@ -73,6 +78,13 @@ and you should be able to run the following examples
 
 (1) Go to the _examples directory and run the script fit_6109_strong.sh. If everything runs ok,
 the you have the required files to run the DAP.
+
+cd _examples/
+
+chmod +x fit_6109_strong.sh
+
+fit_6109_strong.sh
+
 
 (2) Download the lvmCFrame-00006109.fits.gz file in the LVM format from the following location:
 
