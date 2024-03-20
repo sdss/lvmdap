@@ -1674,6 +1674,9 @@ def read_DAP_file(dap_file,verbose=False):
     #
     # order parametric emission line table
     #
+    mask_elines = (tab_PE['model']=='eline')
+    tab_PE = tab_PE[mask_elines]
+    
     a_wl = np.unique(tab_PE['wl'])
     I=0
     for wl_now in a_wl:
