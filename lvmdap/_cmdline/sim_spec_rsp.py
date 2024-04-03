@@ -522,7 +522,7 @@ def _main(cmd_args=sys.argv[1:]):
     SPS.output_gas_emission(filename=out_file_elines, spec_id=i)
     SPS.output_coeffs_MC(filename=out_file_coeffs, write_header=i==0)
     SPS.output(filename=out_file_ps, write_header=i==0, block_plot=False)
-    hdu_org['FLUX'].data[i_sim,:]=SPS.spectra['model_min']+err_spec_t
+    hdu_org['FLUX'].data[i_sim,:]=SPS.spectra['model_min']+err_spec_t/f_scale_st
     print(f'### **** {i_sim}/{n_sim} *****')
 
   #
