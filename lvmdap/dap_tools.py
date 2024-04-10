@@ -733,8 +733,11 @@ def read_file(file_ID, mjd, whichone = 'ha', wl_shift_vel = 0., nobad=False):
     else:
         racen = hdr['POSCIRA']
         deccen = hdr['POSCIDE']
-        pa = hdr['POSCIPA']
-
+        try:
+            pa = hdr['POSCIPA']
+        except:
+            pa = 0.0
+            hdr['POSCIPA'] = pa
 
 #    print(hdr['OBJECT'],hdr['POSCIPA'])
     #ra_fib, dec_fib = make_radec(tab['xpmm'][sci], tab['ypmm'][sci], hdr['POSCIRA'], hdr['POSCIDE'], hdr['POSCIPA'])
@@ -850,7 +853,11 @@ def read_PT(fitsfile, agcam_coadd, nobad=False, ny_range=None):
     else:
         racen = hdr['POSCIRA']
         deccen = hdr['POSCIDE']
-        pa = hdr['POSCIPA']
+        try:
+            pa = hdr['POSCIPA']
+        except:
+            pa = 0.0
+            hdr['POSCIPA'] = pa
 
     ra_fib, dec_fib = make_radec(tab['xpmm'][sci], tab['ypmm'][sci], racen, deccen, pa)
     fiberid=tab['fiberid'][sci]
