@@ -1292,8 +1292,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                      vmin=0, vmax=0, title=None, filename=f'{args.label}_{param}',\
                      cmap='Spectral', fsize=8, figs_dir=args.output_path,fig_type=out_plot_format,\
                      gamma=0.3)    
-      except:
-        print(f'{param} does not exits')
+      except Exception as error:
+        print(f'{param} does not exits?',error)
         
       param='med_flux_st'
       try:
@@ -1301,8 +1301,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                      vmin=0, vmax=0, title=None, filename=f'{args.label}_{param}',\
                      cmap='Spectral', fsize=8, figs_dir=args.output_path,fig_type=out_plot_format,\
                      gamma=0.3)
-      except:
-        print(f'{param} does not exits')
+      except Exception as error:  
+        print(f'{param} does not exits',error)
 
     #args.output_path, f"elines_{args.label}")     
       

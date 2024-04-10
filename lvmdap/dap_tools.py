@@ -448,7 +448,11 @@ def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= T
 
     if (sky_hack == True):
         print(f'# sky re-evaluated')
-        rss_f_spectra=sky_hack_f(rss_f_spectra, rss_sky, rss_f_hdr)
+        try:
+            rss_f_spectra=sky_hack_f(rss_f_spectra, rss_sky, rss_f_hdr)
+        except:
+            print('# sky-hack did not work')
+            sky_hack = False
 
     if (nx_range != None):
         print(f'# X-axis trimmed: {nx_range}')
