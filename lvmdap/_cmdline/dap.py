@@ -1121,9 +1121,16 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     ############################################################################
     # Run flux_elines full SSP spectrum spectrum
     #
+    mask_elines = (tab_elines['model']=='eline')
+    tab_elines = tab_elines[mask_elines]
     
     a_wl = np.unique(tab_elines['wl'])
-#    print(f'a_wl: {a_wl}')
+  
+    #print(f'a_wl: {a_wl}')
+    #print(f'#a_wl: {a_wl.shape}')
+    print("#####################")
+    print(f'# START: Ord. ELINES table ###')
+    print("#####################")
     I=0
     tab_PE_ord=Table()
     tab_PE_ord['id']=tab_PT['id']
@@ -1134,31 +1141,15 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         for cols in tab_PE_tmp.colnames:
           if (cols != 'id'):
             tab_PE_tmp.rename_column(cols,f'{cols}_{wl_now}')
-#        if (I==0):
-#          tab_PE_ord=tab_PE_tmp
-#        else:
         tab_PE_ord=tab_join(tab_PE_ord,tab_PE_tmp,keys=['id'],join_type='left')
         I=I+1
-#    print(f'I = {I}')
-#    print(f'tab_PE_ord = ',len(tab_PE_ord))
-    
-#    print(f'model_spectra_shape {model_spectra.shape}')
-    #vel__yx=np.zeros(hdr_flux['NAXIS2'])
-#    mean_vel=np.nanmean(tab_PE_ord['vel_6562.68'].value)
-#    mean_sigma=np.nanmean(tab_PE_ord['disp_6562.68'].value)
-#    tab_PE_ord=tab_PE_ord.filled(0)
 
-#    print('PASO 1')
-#    for col in tab_PE_ord.colnames:
-#      if tab_PE_ord[col].dtype.kind in 'iufc':
-#        tab_PE_now=Table()
-#        tab_PE_now[col]=tab_PE_ord[col].value
-#        mean_value = np.mean(tab_PE_now[~tab_PE_now.mask])
-#        mean_value = np.nanmean(tab_PE_ord[col])
-#        tab_PE_ord[col] = np.where(tab_PE_ord[col].mask, mean_value,
-#        tab_PE_ord[col] = tab_PE_now.filled(mean_value)
 
-    #print(f'# WAVE. PE : {a_wl}')
+        
+
+    print("####################")
+    print(f'# END:  Ord. ELINES table ###')
+    print("####################")
     w_Ha= a_wl.flat[np.abs(a_wl - 6562.68).argmin()]
     print(f'# WAVELENGTH Ha : {w_Ha}')
     
@@ -1167,6 +1158,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     disp_mean=np.nanmean(tab_PE_ord[f'disp_{w_Ha}'])
     vel__yx=np.zeros(hdr_flux['NAXIS2'])+vel_mean
     sigma__yx=disp_mean
+    print('# ELINES Ha kinematics parameters: #')
+    print(f'# vel_mean: {vel_mean} #')
+    print(f'# disp_mean: {disp_mean} #')
 
 
     for I,val in enumerate(tab_PE_ord[f'vel_{w_Ha}'].value):
