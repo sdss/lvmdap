@@ -160,6 +160,106 @@ def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
     fig.savefig(f'{figs_dir}/{filename}.{fig_type}')
     plt.close()
 
+
+def map_plot_DAP_rgb(tab_DAP,\
+                     rgb_key=('flux_pe_6583.45','flux_pe_6562.85','flux_pe_5006.84'), \
+                     rgb_scale=(1.0,1.0,1.0),\
+                 vmin=0, vmax=0, titles=('r','g','b'), filename='junk',\
+                fsize=5, figs_dir='.',fig_type='png',\
+                 gamma=1.0, sf=1.0, tab_pt=None,fs=18):
+
+    rc.update({'font.size': fs*fsize/5,\
+               'font.weight': 900,\
+               'text.usetex': True,\
+               'path.simplify'           :   True,\
+               'xtick.labelsize' : fs*fsize/5,\
+               'ytick.labelsize' : fs*fsize/5,\
+               'axes.linewidth'  : 2.0,\
+               'xtick.major.size'        :   6,\
+               'ytick.major.size'        :   6,\
+               'xtick.minor.size'        :   3,\
+               'ytick.minor.size'        :   3,\
+               'xtick.major.width'       :   1,\
+               'ytick.major.width'       :   1,\
+               'lines.markeredgewidth'   :   1,\
+               'legend.numpoints'        :   1,\
+               'xtick.minor.width'       :   1,\
+               'ytick.minor.width'       :   1,\
+               'legend.frameon'          :   False,\
+               'legend.handletextpad'    :   0.3,\
+               'font.family'    :   'serif',\
+               'mathtext.fontset'        :   'stix',\
+               'axes.facecolor' : "w",\
+               })
+    
+    X= tab_DAP['ra'].value
+    Y= tab_DAP['dec'].value
+    R=tab_DAP[rgb_key[2]].value  
+    G=tab_DAP[rgb_key[1]].value    
+    B=tab_DAP[rgb_key[0]].value 
+    R = R * rgb_scale[2]
+    G = G * rgb_scale[1]
+    B = B * rgb_scale[0]
+    RGB = np.stack((R, G, B), axis=1)
+    if (vmin==vmax):
+        vmin=np.nanmin(RGB)
+        vmax=np.nanmax(RGB)
+    print(f'min/max:{vmin}/{vmax}')
+    r = (R-vmin)/(vmax-vmin)
+    g = (G-vmin)/(vmax-vmin)
+    b = (B-vmin)/(vmax-vmin)
+
+    r[r>1]=1
+    r[r<0]=0
+    b[b>1]=1
+    b[b<0]=0
+    r[r>1]=1
+    r[r<0]=0    
+    
+    r = np.ma.filled(r, fill_value=0.0)
+    g = np.ma.filled(g, fill_value=0.0)
+    b = np.ma.filled(b, fill_value=0.0)
+
+    r=r**gamma
+    g=g**gamma
+    b=b**gamma
+    
+#    print (r)
+    r = np.ma.compressed(r)
+    g = np.ma.compressed(g)
+    b = np.ma.compressed(b)   
+
+
+    #print(r,g,b)
+    colors = np.stack((r, g, b), axis=1)
+    colors[colors>1]=1
+    colors[colors<0]=0
+#    print(colors)
+    fig,ax = plt.subplots(1,1,figsize=(fsize,fsize*0.95))
+#    norm=mpl_colors.PowerNorm(vmin=0,vmax=1,gamma=gamma)
+    scatter(X, Y, ax, color=colors, size=sf*35.6/3600)#, color=colors)
+    ax.set_xlabel('Ra [deg]')#,fontsize=21)
+    ax.set_ylabel('Dec [deg]')#,fontsize=21)
+    xx = ax.get_xlim()
+    yy = ax.get_ylim()
+    ax.set_xlim(xx[1],xx[0])
+    ax.text(xx[1]-0.03*(xx[1]-xx[0]),yy[1]-0.06*(yy[1]-yy[0]),titles[0],fontsize=fs*(fsize/5),color='tomato')
+    ax.text(xx[1]-0.03*(xx[1]-xx[0]),yy[1]-0.12*(yy[1]-yy[0]),titles[1],fontsize=fs*(fsize/5),color='forestgreen')
+    ax.text(xx[1]-0.03*(xx[1]-xx[0]),yy[1]-0.18*(yy[1]-yy[0]),titles[2],fontsize=fs*(fsize/5),color='steelblue')
+
+    if (tab_pt != None):
+        for tap_pt_now in tab_pt:
+            ax.text(tab_pt['ra'],tab_pt['dec'],tab_pt['id'])
+#    ax.set_aspect('equal', adjustable='box')
+    try:
+        plt.show()
+    except:
+        plt_show=False
+    fig.tight_layout()
+    fig.savefig(f'{figs_dir}/{filename}.{fig_type}', facecolor='white')
+    plt.close()
+
+    
     
 def list_columns(obj, cols=4, columnwise=True, gap=2):
     """
