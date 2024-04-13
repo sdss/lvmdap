@@ -747,7 +747,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # Redefine the redshift
     #
     if (auto_redshift == True):
-      auto_z=find_redshift_spec(wl__w,m_flux)
+      auto_z=find_redshift_spec(wl__w,m_flux,z_min=-0.001,z_max=0.005,d_z=0.0001)
       args.redshift[0]=auto_z
       args.redshift[2]=args.redshift[2]*(1+auto_z)+auto_z
       args.redshift[3]=args.redshift[3]*(1+auto_z)+auto_z
