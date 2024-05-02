@@ -672,7 +672,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                                                                                nx_range=nx_range,sky_hack=sky_hack)
         tab_PT_org = read_PT(args.lvm_file,'none',ny_range=ny_range)
       else:
-        print('# Reading data in a RSS format...')
+        print('# Reading data in a RSS format...')      
         wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_in_rss(args.lvm_file,ny_range=ny_range,\
                                                                               nx_range=nx_range)
         try:
@@ -701,7 +701,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       tab_PT_org = read_LVMSIM_PT(args.lvm_file,'none',ny_range=ny_range)
 
 
-    
+    print('# Reading input fits file finished...')
 #    print(args.rsp_file)
 
 
