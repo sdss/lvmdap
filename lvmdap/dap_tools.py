@@ -528,9 +528,17 @@ def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= T
         crval1=rss_f_hdr['CRVAL1']
     except:
         rss_f_hdr = hdu[0].header
-#    rss_f_hdr = hdu['FLUX'].header
-#    rss_sky = hdu['SKY'].data
+    #    rss_f_hdr = hdu['FLUX'].header
+    #    rss_sky = hdu['SKY'].data
     
+    try:
+        rss_ivar = hdu['IVAR'].data
+        hdu_e = fits.ImageHDU(data=1/np.sqrt(rss_ivar),header=hdu[1].header,name='ERROR')
+        hdu.append(hdu_e)
+        Cframe=False
+    except:
+        Cframe=True
+
     try:
         rss_e_spectra = hdu['ERROR'].data
     except:
@@ -538,7 +546,6 @@ def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= T
         std_spectra = 0.1*np.nanstd(rss_f_spectra-median_filter(rss_f_spectra,size=(1,51)),axis=1)
         for I,std_now in enumerate(std_spectra):
             rss_e_spectra[I,:]=std_now*rss_e_spectra[I,:]
-#    wl__w = np.array([rss_f_hdr["CRVAL1"] + i*rss_f_hdr["CDELT1"] for i in range(rss_f_hdr["NAXIS1"])])
     wl__w = np.array([rss_f_hdr["CRVAL1"] + i*rss_f_hdr["CDELT1"] for i in range(hdu['FLUX'].data.shape[1])])
     wl__w = wl__w*m2a
     rss_f_spectra=rss_f_spectra*flux_scale
