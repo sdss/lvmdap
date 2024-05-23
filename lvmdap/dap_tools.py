@@ -518,7 +518,8 @@ def sky_hack_f(data, sdata, hdr, m2a=10e9, band=np.array((7238,7242,7074,7084,71
 #
 # Load an standard LVM RSS file
 #
-def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= True,nx_range=None):
+# m2a=10e9 : Pre v1.0 reduction!
+def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True,nx_range=None):
     """Return the RSS from the given and LVM filename in the parsed command line arguments"""
     hdu = fits.open(lvm_file, memmap=False)
     rss_0_hdr = hdu[0].header

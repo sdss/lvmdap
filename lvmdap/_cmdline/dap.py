@@ -669,8 +669,12 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       if (args.in_rss == False):
         print('# Reading data in the LVMCFrame format...')
         wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_LVM_rss(args.lvm_file,ny_range=ny_range,\
-                                                                               nx_range=nx_range,sky_hack=sky_hack)
+                                                                               nx_range=nx_range,sky_hack=sky_hack, m2a=1)
+        m_wl__w = np.median(wl__w)
+        if (m_wl__w<1):
+          wl__w = wl__w*10e9
         tab_PT_org = read_PT(args.lvm_file,'none',ny_range=ny_range)
+        print(f'# Mean wavelength {np.median(wl__w)}')
       else:
         print('# Reading data in a RSS format...')      
         wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0 = load_in_rss(args.lvm_file,ny_range=ny_range,\
@@ -742,7 +746,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       args.flux_scale[0]=-0.1*np.abs(np.median(m_flux_rss))
       args.flux_scale[1]=3*np.abs(np.median(m_flux_rss))+10*np.std(m_flux_rss)
 
-
     #
     # Redefine the redshift
     #
@@ -751,8 +754,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       args.redshift[0]=auto_z
       args.redshift[2]=args.redshift[2]*(1+auto_z)+auto_z
       args.redshift[3]=args.redshift[3]*(1+auto_z)+auto_z
-      print(f'auto_z derivation :{auto_z}')
-      
+      print(f'# Auto_z derivation :{auto_z}')
+
+
     #
     #
       
