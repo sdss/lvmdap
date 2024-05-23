@@ -529,7 +529,7 @@ def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= T
     except:
         rss_f_hdr = hdu[0].header
 #    rss_f_hdr = hdu['FLUX'].header
-    rss_sky = hdu['SKY'].data
+#    rss_sky = hdu['SKY'].data
     
     try:
         rss_e_spectra = hdu['ERROR'].data
@@ -555,6 +555,7 @@ def load_LVM_rss(lvm_file, m2a=10e9, flux_scale=1e16, ny_range=None, sky_hack= T
     if (sky_hack == True):
         print(f'# sky re-evaluated')
         try:
+            rss_sky = hdu['SKY'].data
             rss_f_spectra=sky_hack_f(rss_f_spectra, rss_sky, rss_f_hdr)
         except:
             print('# sky-hack did not work')
