@@ -37,6 +37,7 @@ from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
 from lvmdap.modelling.synthesis import StellarSynthesis
 from lvmdap.modelling.auto_rsp_tools import ConfigAutoSSP
 from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header, plot_spec, read_rsp
+from lvmdap.dap_tools import plot_spec_art
 from lvmdap.dap_tools import load_LVMSIM_rss, read_LVMSIM_PT
 from lvmdap.dap_tools import load_in_rss, read_MaStar_PT
 from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, read_tab_EL
@@ -942,9 +943,36 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     ####################################################################
     # Preliminar version of the output plot
     if (args.do_plots==1):
+        y_off = -1.09
+        y_off2 = -2.18
+        plot_spec_art(dir='',file=out_file_fit,\
+                      file_ssp = out_file_ps,\
+                      name=args.label,text=args.label,output=f'{args.output_path}/output_m.{args.label}.{out_plot_format}',\
+                      c_map='CMRmap',\
+                      insets=((0.00, y_off, 0.09, 0.9,3715,3739,-1,35,'[OII]'),\
+                              (0.107, y_off, 0.09, 0.9,4088,4118,-0.5,10,r'H$\delta$'),\
+                              (0.213, y_off, 0.09, 0.9,4324,4357,-0.5,18,r'H$\gamma$'),\
+                              (0.320, y_off, 0.09, 0.9,4851,4872,-1.0,38,r'H$\beta$'),\
+                              (0.425, y_off, 0.09, 0.9,4998,5015,-1.0,50,'[OIII]'),\
+                              (0.530, y_off, 0.155, 0.9,6543,6590,-2,220,r'H$\alpha$+[NII]'),\
+                              (0.700, y_off, 0.09, 0.9,6709,6737,-0.5,20,'[SII]'),\
+                              (0.807, y_off, 0.09, 0.9,9062,9076,-1.0,28,'[SIII]'),\
+                              (0.910, y_off, 0.09, 0.9,9526,9537,-1.5,82,'[SIII]'),\
+                              (0.00, y_off2, 0.22, 0.9,3801,4099,-0.5,3.2,'3800-4100'),\
+                              (0.23, y_off2, 0.22, 0.9,4801,5099,-0.2,2.8,'4800-5100'),\
+                              (0.46, y_off2, 0.10, 0.9,4363-8.1,4363+7.9,-0.25,0.8,'[OIII]'),\
+                              (0.57, y_off2, 0.10, 0.9,4472-8.1,4472+7.9,-0.25,0.8,'HeI'),\
+                              (0.68, y_off2, 0.10, 0.9,7320-8,7320+8,-0.2,1.7,'[OII]'),\
+                              (0.79, y_off2, 0.10, 0.9,5755-6,5755+6,-0.25,2.5,'[NII]'),\
+                              (0.90, y_off2, 0.10, 0.9,6312-6,6312+6,-0.25,2.5,'[SIII]')
+                              ),
+                      y_min=-0.1,y_max=10,y0_d=0.3,y1_d=2.9,\
+                      x_min=3600,x_max=9600,plot_el=True, tab_el=tab_el,plot_res=True,show_scale=False,n_ord=3,gamma=0.5)#,x_min=3600,x_max=9600)
+
+      
         plot_spec(dir='',file=out_file_fit,\
             file_ssp = out_file_ps,\
-                  name=args.label,text=args.label,output=f'{args.output_path}/output_m.{args.label}.{out_plot_format}',\
+                  name=args.label,text=args.label,output=f'{args.output_path}/output_m_simple.{args.label}.{out_plot_format}',\
                   insets=((0.25, 0.5, 0.22, 0.47,4840,5020,-0.5,16,''),\
                       (0.01, 0.5, 0.22, 0.47,3851,3999,-0.5,3,''),\
                       (0.52, 0.5, 0.22, 0.47,6303,6322,0.5,2,'[SIII]6312'),\
