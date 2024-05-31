@@ -98,6 +98,10 @@ class scatter():
         self.timer.start()
         
 
+def nanaverage(A,weights,axis):
+    return np.nansum(A*weights,axis=axis)/((~np.isnan(A))*weights).sum(axis=axis)
+
+        
 def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
                  vmin=0, vmax=0, title=None, filename='junk',\
                  cmap='Spectral', fsize=5, figs_dir='.',fig_type='png',\

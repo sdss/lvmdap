@@ -55,7 +55,8 @@ import yaml
 import re
 from collections import Counter
 
-from lvmdap.dap_tools import list_columns,read_DAP_file,map_plot_DAP
+from lvmdap.dap_tools import list_columns,read_DAP_file,map_plot_DAP,nanaverage
+
 
 #
 # Just for tests
@@ -727,10 +728,13 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     # First we create a mean spectrum
     #
-    m_flux = rss_flux.mean(axis=0)
+    #m_flux = nanaverage(rss_flux,1/rss_flux**2,axis=0)
+    m_flux = np.nanmedian(rss_flux,axis=0)#np.nanmean(rss_flux,axis=0)
     #e_flux = rss_eflux.mean(axis=0)/np.sqrt(rss_flux.shape[0])
     #m_flux = np.median(rss_flux,axis=0)
-    e_flux = rss_eflux.mean(axis=0)/np.sqrt(rss_flux.shape[0])
+    e_flux = np.sqrt(np.nanmedian(rss_eflux**2/rss_flux.shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
+#    e_flux = np.nanmedian(rss_eflux,axis=0)/np.sqrt(rss_flux.shape[0])
+    #np.sqrt(rss_flux.shape[0])
     s_flux = median_filter(m_flux,51)
 
     vel__yx=np.zeros(1)
