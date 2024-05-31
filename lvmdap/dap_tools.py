@@ -529,6 +529,9 @@ def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True
     rss_0_hdr = hdu[0].header
     rss_f_spectra = hdu['FLUX'].data
     rss_f_hdr = hdu['FLUX'].header
+    mask = hdu['MASK'].data
+    rss_f_spectra[mask==1]=np.nan
+    
     try:
         crval1=rss_f_hdr['CRVAL1']
     except:
@@ -546,6 +549,9 @@ def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True
 
     try:
         rss_e_spectra = hdu['ERROR'].data
+        rss_e_spectra[mask==1]=np.nan
+
+
     except:
         rss_e_spectra = np.ones(rss_f_spectra.shape)
         std_spectra = 0.1*np.nanstd(rss_f_spectra-median_filter(rss_f_spectra,size=(1,51)),axis=1)

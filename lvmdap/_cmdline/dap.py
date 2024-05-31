@@ -640,6 +640,12 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         sky_hack=False
 
     try:
+        mask_to_val=args.mask_to_val
+    except:
+        # Default is true
+        mask_to_val=True
+
+    try:
       auto_redshift=args.auto_redshift
     except:
       auto_redshift=False
@@ -707,6 +713,14 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       tab_PT_org = read_LVMSIM_PT(args.lvm_file,'none',ny_range=ny_range)
 
 
+    if (mask_to_val==True):
+      print("# Modifying masked regions with dummy values")
+      nanmedian_flux = np.nanmedian(rss_flux_org)
+      max_eflux = 10*np.nanmax(rss_eflux_org)
+      rss_flux_org = np.nan_to_num(rss_flux_org, copy=True, nan=nanmedian_flux, posinf=nanmedian_flux, neginf=nanmedian_flux)
+      rss_eflux_org = np.nan_to_num(rss_eflux_org, copy=True, nan=max_eflux, posinf=max_eflux, neginf=max_eflux)
+
+      
     print('# Reading input fits file finished...')
 #    print(args.rsp_file)
 
