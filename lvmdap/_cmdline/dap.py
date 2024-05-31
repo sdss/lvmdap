@@ -714,7 +714,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
 
     if (mask_to_val==True):
-      print("# Modifying masked regions with dummy values")
+      print("# Modifying masked regions with dummy values")      
       nanmedian_flux = np.nanmedian(rss_flux_org)
       max_eflux = 10*np.nanmax(rss_eflux_org)
       rss_flux_org = np.nan_to_num(rss_flux_org, copy=True, nan=nanmedian_flux, posinf=nanmedian_flux, neginf=nanmedian_flux)
@@ -742,8 +742,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     # First we create a mean spectrum
     #
-    #m_flux = nanaverage(rss_flux,1/rss_flux**2,axis=0)
-    m_flux = np.nanmedian(rss_flux,axis=0)#np.nanmean(rss_flux,axis=0)
+    m_flux = nanaverage(rss_flux,1/rss_eflux**2,axis=0)
+#    m_flux = np.nanmedian(rss_flux,axis=0)#np.nanmean(rss_flux,axis=0)
     #e_flux = rss_eflux.mean(axis=0)/np.sqrt(rss_flux.shape[0])
     #m_flux = np.median(rss_flux,axis=0)
     e_flux = np.sqrt(np.nanmedian(rss_eflux**2/rss_flux.shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
