@@ -650,6 +650,22 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
       auto_redshift=False
 
+
+    try:
+      auto_z_min=args.auto_z_min
+    except:
+      auto_z_min=-0.003
+
+    try:
+      auto_z_max=args.auto_z_max
+    except:
+      auto_z_max=0.005
+
+    try:
+      auto_z_del=args.auto_z_d
+    except:
+      auto_z_del=0.00001
+
     try:
       dump_model=args.dump_model
     except:
@@ -768,12 +784,16 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     # Redefine the redshift
     #
+
+    #
+    # This is hard coded, what is not a good idea!
+    #
     if (auto_redshift == True):
-      auto_z=find_redshift_spec(wl__w,m_flux,z_min=-0.001,z_max=0.005,d_z=0.0001)
+      auto_z=find_redshift_spec(wl__w,m_flux,z_min=auto_z_min,z_max=auto_z_max,d_z=auto_z_del)
       args.redshift[0]=auto_z
       args.redshift[2]=args.redshift[2]*(1+auto_z)+auto_z
       args.redshift[3]=args.redshift[3]*(1+auto_z)+auto_z
-      print(f'# Auto_z derivation :{auto_z}')
+      print(f'# Auto_z derivation ({auto_z_min},{auto_z_max},{auto_z_del}) :{auto_z}')
 
 
     #
