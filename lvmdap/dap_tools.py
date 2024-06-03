@@ -2116,8 +2116,11 @@ def find_redshift_spec(wave,spec,w_min=6500,w_max=6800,\
         peak_threshold=peak_threshold, dmin=2, plot=do_plot, verbose=0)
 
     print(f'# f_peaks auto_redshift : {f_peaks} using threshold: {peak_threshold}')
-#    z=find_redshift(w_peak=w_peaks,f_peak=f_peaks, w_ref=w_ref, z_min=-0.001,z_max=0.01,d_z=0.00001)
-    z=find_redshift(w_peak=w_peaks,f_peak=f_peaks, w_ref=w_ref, z_min=z_min,z_max=z_max,d_z=d_z)
+    if (len(f_peaks)<1.5*len(w_ref)):
+        #    z=find_redshift(w_peak=w_peaks,f_peak=f_peaks, w_ref=w_ref, z_min=-0.001,z_max=0.01,d_z=0.00001)
+        z=find_redshift(w_peak=w_peaks,f_peak=f_peaks, w_ref=w_ref, z_min=z_min,z_max=z_max,d_z=d_z)
+    else:
+        z=z_min
     return z
 
 
