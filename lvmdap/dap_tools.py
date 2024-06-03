@@ -592,6 +592,7 @@ def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True
         rss_f_spectra=rss_f_spectra[ny_range[0]:ny_range[1],:]
         rss_e_spectra=rss_e_spectra[ny_range[0]:ny_range[1],:]
         rss_f_hdr['NAXIS2']=ny_range[1]-ny_range[0]+1
+    rss_e_spectra=np.abs(rss_e_spectra)
     return wl__w, rss_f_spectra, rss_e_spectra, rss_f_hdr, rss_0_hdr
 
 

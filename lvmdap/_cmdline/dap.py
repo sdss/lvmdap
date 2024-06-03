@@ -731,10 +731,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     if (mask_to_val==True):
       print("# Modifying masked regions with dummy values")      
-      nanmedian_flux = np.nanmedian(rss_flux_org)
-      max_eflux = 10*np.nanmax(rss_eflux_org)
+      nanmedian_flux = np.abs(np.nanmedian(rss_flux_org))
+      max_eflux = np.abs(10*np.nanmax(rss_eflux_org))
       rss_flux_org = np.nan_to_num(rss_flux_org, copy=True, nan=nanmedian_flux, posinf=nanmedian_flux, neginf=nanmedian_flux)
       rss_eflux_org = np.nan_to_num(rss_eflux_org, copy=True, nan=max_eflux, posinf=max_eflux, neginf=max_eflux)
+      rss_eflux_org[rss_eflux_org == 0 ] = max_eflux
 
       
     print('# Reading input fits file finished...')
@@ -758,13 +759,15 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     # First we create a mean spectrum
     #
-    m_flux = nanaverage(rss_flux,1/rss_eflux**2,axis=0)
+
+    m_flux = np.abs(nanaverage(rss_flux,1/rss_eflux**2,axis=0))
 #    m_flux = np.nanmedian(rss_flux,axis=0)#np.nanmean(rss_flux,axis=0)
     #e_flux = rss_eflux.mean(axis=0)/np.sqrt(rss_flux.shape[0])
     #m_flux = np.median(rss_flux,axis=0)
     e_flux = np.sqrt(np.nanmedian(rss_eflux**2/rss_flux.shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
 #    e_flux = np.nanmedian(rss_eflux,axis=0)/np.sqrt(rss_flux.shape[0])
     #np.sqrt(rss_flux.shape[0])
+    print(f'# m_flux: {np.nanmedian(m_flux)} +- {np.nanmedian(e_flux)}');
     s_flux = median_filter(m_flux,51)
 
     vel__yx=np.zeros(1)
