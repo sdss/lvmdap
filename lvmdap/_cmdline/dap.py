@@ -789,7 +789,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # This is hard coded, what is not a good idea!
     #
     if (auto_redshift == True):
-      auto_z=find_redshift_spec(wl__w,m_flux,z_min=auto_z_min,z_max=auto_z_max,d_z=auto_z_del)
+      #,w_min=6500,w_max=6800,\
+      #                 w_min_ne=6350,w_max_ne=6500,\
+      #                 w_ref=(6548.05,6562.85,6583.45,6678.15,6716.44,6730.82),do_plot=0,\
+      auto_z=find_redshift_spec(wl__w,m_flux,z_min=auto_z_min,z_max=auto_z_max,d_z=auto_z_del,\
+                                w_min=6500,w_max=6650,w_ref=(6548.05,6562.85,6583.45))
       args.redshift[0]=auto_z
       args.redshift[2]=args.redshift[2]*(1+auto_z)+auto_z
       args.redshift[3]=args.redshift[3]*(1+auto_z)+auto_z
