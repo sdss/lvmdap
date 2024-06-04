@@ -677,6 +677,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
       SN_CUT=3
 
+    try:
+      SN_CUT_INT=args.SN_CUT_INT
+    except:
+      SN_CUT_INT=3      
+
     
 
 
@@ -761,7 +766,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
 
     m_flux = np.abs(nanaverage(rss_flux,1/rss_eflux**2,axis=0))
-#    m_flux = np.nanmedian(rss_flux,axis=0)#np.nanmean(rss_flux,axis=0)
+#    m_flux = np.abs(np.nanmedian(rss_flux,axis=0))#np.nanmean(rss_flux,axis=0)
     #e_flux = rss_eflux.mean(axis=0)/np.sqrt(rss_flux.shape[0])
     #m_flux = np.median(rss_flux,axis=0)
     e_flux = np.sqrt(np.nanmedian(rss_eflux**2/rss_flux.shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
@@ -938,7 +943,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       input_redshift=args.redshift[0], delta_redshift=args.redshift[1], min_redshift=args.redshift[2], max_redshift=args.redshift[3],
             input_sigma=args.sigma[0], delta_sigma=args.sigma[1], min_sigma=args.sigma[2], max_sigma=args.sigma[3],
             input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3],
-      sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot,SN_CUT=SN_CUT
+      sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot,SN_CUT=SN_CUT_INT
     )
 
     #print(f'SPS nl ssp models: {SPS.ssp_nl_fit.flux_models.shape}')
