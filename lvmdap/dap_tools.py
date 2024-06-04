@@ -2138,7 +2138,7 @@ def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
                   show_scale=True,n_ord=11,gamma=0.3, props=dict(facecolor='lightgrey', alpha=0.5, edgecolor='darkgrey'),\
                   alpha=1.0):
 
-    tab_SSP=read_rsp(file_ssp)
+#    tab_SSP=read_rsp(file_ssp)
     
     if (cmap==None):
         color_cm_now = vel_map_CLC()
