@@ -98,6 +98,58 @@ class scatter():
         self.timer.start()
         
 
+
+def gamma_scale(flux,gamma):
+    return (flux/np.abs(flux))*(np.abs(flux))**gamma
+
+def gamma_scale_abs(flux,gamma):
+    return (np.abs(flux))**gamma
+
+def my_medfilt (x, k):
+    """Apply a length-k median filter to a 1D array x.
+    Boundaries are extended by repeating endpoints.
+    """
+    import numpy as np
+
+    assert k % 2 == 1, "Median filter length must be odd."
+    assert x.ndim == 1, "Input must be one-dimensional."
+    
+    k2 = (k - 1) // 2
+    y = np.zeros ((len (x), k), dtype=x.dtype)
+    y[:,k2] = x
+    for i in range (k2):
+        j = k2 - i
+        y[j:,i] = x[:-j]
+        y[:j,i] = x[0]
+        y[:-j,-(i+1)] = x[j:]
+        y[-j:,-(i+1)] = x[-1]
+    return np.median (y, axis=1)
+
+
+def my_meanfilt (x, k):
+    """Apply a length-k mean filter to a 1D array x.
+    Boundaries are extended by repeating endpoints.
+    """
+    
+    import numpy as np
+
+    assert k % 2 == 1, "Median filter length must be odd."
+    assert x.ndim == 1, "Input must be one-dimensional."
+    
+    k2 = (k - 1) // 2
+    y = np.zeros ((len (x), k), dtype=x.dtype)
+    y[:,k2] = x
+    for i in range (k2):
+        j = k2 - i
+        y[j:,i] = x[:-j]
+        y[:j,i] = x[0]
+        y[:-j,-(i+1)] = x[j:]
+        y[-j:,-(i+1)] = x[-1]
+    return np.mean (y, axis=1)
+
+
+
+        
 def nanaverage(A,weights,axis):
     return np.nansum(A*weights,axis=axis)/((~np.isnan(A))*weights).sum(axis=axis)
 
@@ -224,9 +276,14 @@ def map_plot_DAP_rgb(tab_DAP,\
     g = np.ma.filled(g, fill_value=0.0)
     b = np.ma.filled(b, fill_value=0.0)
 
-    r=r**gamma
-    g=g**gamma
-    b=b**gamma
+
+    r=gamma_scale(r,gamma)
+    g=gamma_scale(g,gamma)
+    b=gamma_scale(b,gamma)
+
+#    r=r**gamma
+#    g=g**gamma
+#    b=b**gamma
     
 #    print (r)
     r = np.ma.compressed(r)
@@ -1888,7 +1945,7 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
 #
 # routine to plot the spectra
 #
-def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
+def plot_spec_art_working(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
               name='none',cmap=None,\
               x_min=3600,x_max=9600,y_min=-0.2,y_max=2,text='',\
               file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
@@ -1949,21 +2006,8 @@ def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     plt.setp(ax2.spines.values(), color=None)
     
     
-    #ax2.set_axis_off()
-    #ax2.set_xticks([])
-    #ax2.set_yticks([])
-    #ax2.spines['top'].set_visible(False)
-    #ax2.spines['bottom'].set_visible(False)
-    #ax2.spines['right'].set_visible(False)
-    #ax2.spines['left'].set_visible(False)
-
-
-    #ax2.set_visible(False)
-    #ax1 = fig.add_subplot(gs[3:5, :], sharex=ax0)   
-    #ax2.yticklabels=[]
     ax0.set_xlim(x_min,x_max)
-    #ax1.set_xlim(x_min,x_max)
-    #ax2.set_xlim(x_min,x_max)
+
     if (y_min>=0):
         sign=1
     else:
@@ -2082,6 +2126,209 @@ def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     
     plt.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+
+
+
+def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
+              name='none',cmap=None,\
+              x_min=3600,x_max=9600,y_min=-0.2,y_max=2,text='',\
+              file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
+              id_lines=None,output='junk.pdf',c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None,
+              colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False,\
+                  show_scale=True,n_ord=11,gamma=0.3, props=dict(facecolor='lightgrey', alpha=0.5, edgecolor='darkgrey'),\
+                  alpha=1.0):
+
+    tab_SSP=read_rsp(file_ssp)
+    
+    if (cmap==None):
+        color_cm_now = vel_map_CLC()
+        cmap=color_cm_now
+    file=dir+'/'+file
+    hdu=fits.open(file)
+    
+#    hdu[0].data=gamma_scale(hdu[0].data,0.5)
+#    gamma=1.0
+    
+    data=hdu[0].data
+    (ny,nx)=data.shape
+    
+    
+#    data=np.mean(data,axis=1)
+#    i0 = int(nx*0.45)
+#    i1 = int(nx*0.55)
+    i0 = int(nx*0.15)
+    i1 = int(nx*0.25)
+    hdr=hdu[0].header
+    crval = hdr['crval1']
+    cdelt = hdr['cdelt1']
+    crpix = hdr['crpix1']
+    #print(data.shape)
+    (ny,nx) = data.shape
+    wave = crval+cdelt*(np.arange(0,nx)-(crpix-1))
+    
+    med_sc = np.abs(np.nanmedian(data[0,i0:i1]))
+    std_sc = np.nanstd(data[0,i0:i1])
+    SN_sc = med_sc / std_sc
+    print(f'# S/N: {SN_sc} {med_sc} {std_sc}')
+    
+    data = data / np.abs(np.nanmedian(data[0,i0:i1]))
+    if (ny==7):
+        ssp_model=data[6,:]
+    else:
+        gas = data[0,:] - data[5,:]
+        smooth = data[3,:] - data[4,:] - gas        
+        ssp_model = data[1,:]-smooth
+
+        mean_val_ssp = np.nanmean(ssp_model)
+        print(f'# mean_val_ssp : {mean_val_ssp}')
+        if (np.mean(ssp_model)<1e-5):
+            ssp_model = data[1,:]
+        
+        if ((n_ord>2) and (SN_sc>3)):
+            base = np.abs(data[0,:])
+            f_rat = ssp_model/base
+            #data[0,:]
+            c_rat0 = np.polyfit(wave, f_rat, n_ord)
+            p_rat0 = np.poly1d(c_rat0)(wave)
+            ssp_model = ssp_model*(1+1/p_rat0)*0.5
+            data[0,:]=(data[0,:]-smooth)*(1+1/p_rat0)*0.5
+#            print(data[1,:])
+            #except:
+            #    show_scale=False  
+            #    print('# Not scaling')
+        if (show_scale==True):
+            ssp_model = data[1,:]
+
+
+    fig = plt.figure(figsize=(19,11)) 
+    gs = fig.add_gridspec(nrows=10, ncols=6,  left=0.075, right=0.97, \
+                          hspace=0.0, wspace=0.05, bottom=0.15, top=0.9)
+
+    ax2 = fig.add_subplot(gs[:, :])
+    ax0 = fig.add_subplot(gs[0:3, :])#, sharex=ax2)   
+    ax2.set_xticks([])
+    ax2.set_yticks([])
+    plt.setp(ax2.spines.values(), color=None)
+    
+    
+    ax0.set_xlim(x_min,x_max)
+
+    if (y_min>=0):
+        sign=1
+    else:
+        sign=-1
+    ax0.set_ylim(sign*np.abs(y_min**gamma),y_max**gamma)        
+
+        
+ #   colors=['black','maroon','steelblue','darkorange','olive','grey']
+#    colors=['black','palegreen','steelblue','darkorange','olive','grey']
+#    colors=['black','lightsalmon','steelblue','darkorange','olive','grey']
+    colors=colors_in
+            #ax1.plot(wave,ssp_model,color=colors[1],alpha=1.0,linewidth=1.5,linestyle="solid")#,label=r'Model (M$_\lambda$)')
+    res = data[0,:]-data[1,:]+smooth
+    gas_model = data[2,:]-data[1,:]
+    ax0.plot(wave,gamma_scale((data[0,:]+smooth),gamma)-gamma_scale(data[1,:],gamma),color=colors[2],alpha=alpha,\
+             label=r'St. Residual (O$_\lambda$-M$_\lambda$)',linewidth=3)
+    if (no_model==False):
+        ax0.plot(wave,gamma_scale(data[2,:],gamma)-gamma_scale(data[1,:],gamma),color=colors[3],alpha=alpha,linewidth=1.5,\
+                 label=r'Em. Lines model (E$_\lambda$)',linestyle="solid")
+    if (plot_res==True):
+#        ax0.plot(wave,data[4,:]**gamma,color=colors[4],alpha=1.0,linewidth=1.5,\
+        ax0.plot(wave,gamma_scale((data[0,:]+smooth),gamma)-gamma_scale(data[1,:],gamma)-(gamma_scale(data[2,:],gamma)-gamma_scale(data[1,:],gamma)),color=colors[4],alpha=alpha,linewidth=1.5,\
+                 label=r'Final residual (R$_\lambda$)',linestyle="solid")
+    
+    std_res = np.std(res[2000:2500])
+    flux = np.median(data[1,2000:2500])
+
+    if (no_st==False):
+        ax0.plot(wave,gamma_scale(data[0,:],gamma),\
+                 color=colors[0],alpha=1.0,linewidth=3.0,\
+                 label=r'Obs. Spectrum (O$_\lambda$)')
+        if (no_model==False):
+            ax0.plot(wave,gamma_scale(ssp_model,gamma),color=colors[1],\
+                     alpha=alpha,linewidth=1.5,\
+                     label=r'St. Model (M$_\lambda$)',linestyle="solid")
+    
+
+    ax0.xaxis.set_minor_locator(MultipleLocator(100))
+    #ax0.axes.get_xaxis().set_visible(False)
+    handles, labels = ax0.get_legend_handles_labels()
+    if (do_legend):
+        ax0.legend(handles, labels,loc=(0.03,1.01),frameon=True,handlelength=1.5,\
+                   ncol=5,columnspacing=0.15, prop={'size': 22})
+    x = np.arange(x_min,1.1*x_max,100)
+    y1 = 5+0*x
+    y0 = -5+0*x
+
+    if (id_lines != None):
+        mask_lines = (id_lines['wl'].value>=x_min) & (id_lines['wl'].value<x_max)
+        tab_elines = id_lines[mask_lines]
+        even=0
+        for line in tab_elines:
+            ax0.text(line['wl'],y_max-0.16*(even+1)*(y_max-y_min),\
+                     f"{line['wl']}",color=colors[even],\
+                     fontsize='16',horizontalalignment='center',rotation='vertical')
+            even=even+1
+            if (even>2):
+                even=0
+        #print(tab_elines)
+        
+    if (insets != None):
+        for Iinst,inst in enumerate(insets):
+            #x1, x2, y1, y2 = -1.5, -0.9, -2.5, -1.9  # subregion of the original image
+            axins = ax0.inset_axes(
+                [inst[0], inst[1], inst[2], inst[3]],
+                xlim=(inst[4], inst[5]), ylim=(inst[6], inst[7]),yticklabels=[])#, xticklabels=[], yticklabels=[])
+            if ((Iinst==0)|(Iinst==9)):
+                axins.set_ylabel(r'Flux$_\lambda$', fontsize=23)
+
+            if (no_st==False):
+                axins.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3,label=r'Observed (O$_\lambda$)')
+            if (no_model==False):
+                axins.plot(wave,ssp_model,color=colors[1],alpha=1.0,linewidth=1.5,label=r'Model (M$_\lambda$)',linestyle="solid")
+            axins.plot(wave,res,color=colors[2],alpha=1.0,linewidth=3,\
+                       label=r'Residual (O$_\lambda$-M$_\lambda$)')
+            if (no_model==False):
+                axins.plot(wave,gas_model,color=colors[3],alpha=1.0,linewidth=1.5,\
+                           label=r'E. lines model',linestyle="solid")
+            if (plot_res==True):
+                axins.plot(wave,data[4,:],color=colors[4],alpha=1.0,linewidth=1.5,\
+                           label=r'Em. lines model (E$_\lambda$)',linestyle="solid")
+                
+            if (plot_el == True):
+                tab_el_now=tab_el[(tab_el['wl']>inst[4]) & (tab_el['wl']<inst[5])]
+                for vals in tab_el_now:
+                    axins.plot([vals['wl'],vals['wl']],\
+                             [inst[7]-0.05*abs(inst[7]-inst[6]),\
+                              inst[7]-0.15*abs(inst[7]-inst[6])],\
+                             color='darkorange',linewidth=2)
+                axins.text(inst[4]+0.1*np.abs(inst[5]-inst[4]),\
+                           inst[7]-0.15*abs(inst[7]-inst[6]),fr'\bf {inst[8]}',bbox=props)#,\
+
+
+
+        
+
+    ax0.text(x_min+0.05*(x_max-x_min),y_min+0.85*(y_max-y_min),text,fontsize=21)
+    ax2.set_xlabel(r'rest-frame wavelength [\AA]', fontsize=23)
+    ax2.set_ylim(y0_d,y1_d)
+    if (plot_el == True):
+        for vals in tab_el:
+            ax0.plot([vals['wl'],vals['wl']],\
+                     [y_max**gamma-0.02*abs(y_max**gamma-y_min**gamma),y_max**gamma-0.10*abs(y_max**gamma-y_min**gamma)],\
+                     color='darkorange')
+    if (log==True):
+        ax0.set_yscale('log')
+    ax0.axvspan(5600, 5850, alpha=0.7, color='grey',zorder=10)
+    ax0.axvspan(7400, 7800, alpha=0.7, color='grey',zorder=10)        
+    sgamma=str(gamma)
+
+    ax0.set_ylabel(r'Flux$^{0.5}_\lambda$', fontsize=23)  
+    
+    plt.tight_layout()
+    fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+
+    
 
 def find_redshift(w_peak=np.array((6548.07,6562.84)),f_peak=np.array((1,1,1)),\
                   w_ref=(6548.05,6562.85,6583.45,6678.15,6716.44,6730.82),\

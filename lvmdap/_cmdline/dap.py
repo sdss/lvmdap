@@ -1018,8 +1018,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                               (0.79, y_off2, 0.10, 0.9,5755-6,5755+6,-0.25,2.5,'[NII]'),\
                               (0.90, y_off2, 0.10, 0.9,6312-6,6312+6,-0.25,2.5,'[SIII]')
                               ),
-                      y_min=-0.1,y_max=10,y0_d=0.3,y1_d=2.9,\
-                      x_min=3600,x_max=9600,plot_el=True, tab_el=tab_el,plot_res=True,show_scale=False,n_ord=3,gamma=0.5)#,x_min=3600,x_max=9600)
+                      y_min=-0.5,y_max=30,y0_d=0.3,y1_d=2.9,\
+                      x_min=3600,x_max=9600,plot_el=True, tab_el=tab_el,plot_res=True,show_scale=False,n_ord=2,gamma=0.5)#,x_min=3600,x_max=9600)
 
       
         plot_spec(dir='',file=out_file_fit,\
