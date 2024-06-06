@@ -37,7 +37,7 @@ from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
 from lvmdap.modelling.synthesis import StellarSynthesis
 from lvmdap.modelling.auto_rsp_tools import ConfigAutoSSP
 from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header, plot_spec, read_rsp
-from lvmdap.dap_tools import plot_spec_art
+from lvmdap.dap_tools import plot_spec_art, Table_mean_rows
 from lvmdap.dap_tools import load_LVMSIM_rss, read_LVMSIM_PT
 from lvmdap.dap_tools import load_in_rss, read_MaStar_PT
 from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, read_tab_EL
@@ -838,7 +838,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         print(f'# dir {args.output_path} created')
     except:
         print(f'# dir {args.output_path} alrady exists')
-    out_file_fe = os.path.join(args.output_path, f"m_{args.label}.fe.txt")
+    out_file_PT = os.path.join(args.output_path, f"m_{args.label}.PT.ecsv")
+    out_file_fe = os.path.join(args.output_path, f"m_{args.label}.fe.ecsv")
     out_file_elines = os.path.join(args.output_path, f"m_{args.label}.elines.txt")
     out_file_single = os.path.join(args.output_path, f"m_{args.label}.single.txt")
     out_file_coeffs = os.path.join(args.output_path, f"m_{args.label}.coeffs.txt")
@@ -1071,7 +1072,12 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       colnames.append(colname)
     colnames=np.array(colnames)
     tab_m_fe=Table(np.transpose(fe_m_data),names=colnames)  
+    tab_m_fe.write(out_file_fe, overwrite=True, delimiter=',')  
 
+    m_tab_PT = Table_mean_rows(tab_PT)
+    m_tab_PT['fiberid']=[args.label] 
+    m_tab_PT.write(out_file_PT, overwrite=True, delimiter=',')
+    
     if (only_integrated == True):
       print("# Only mean spectrum analyzed: END ALL")
       quit()

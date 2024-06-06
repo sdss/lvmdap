@@ -876,6 +876,21 @@ def make_line(wave, r1, sci, wl_shift_vel, whichone):
 
 
 #
+# Routine to aveage all rows in a table
+#
+def Table_mean_rows(input_table):
+    mean_values = {}
+    for col in input_table.colnames:
+        if np.issubdtype(input_table[col].dtype, np.number):
+            mean_values[col] = np.nanmean(input_table[col])
+        else:
+            mean_values[col] = input_table[col][0]  # Handle non-numeric columns if necessary
+    mean_row = {col: [mean_values[col]] for col in input_table.colnames if mean_values[col] is not None}
+    output_table = Table(mean_row)
+    return output_table
+
+
+#
 # routine to read into an astropy table the Emission line list file
 #
 
