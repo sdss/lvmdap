@@ -352,6 +352,11 @@ def auto_rsp_elines_single_main(
             n_iter += 1
     else:
         print(f'-> Single SSP fit ')
+        #        print(f'#  SPS.med_flux: {SPS.med_flux}')
+        # 24.06.09
+        # We force the spectra to have a positive scaling flux
+#        negative_bias = np.abs(2*SPS.med_flux)
+#        print(f'# negative_bias: {negative_bias}')
         SPS.best_redshift = cf.redshift
         SPS.e_redshift = 0.0
         print_verbose(f'- Redshift: {SPS.best_redshift:.8f} +- {SPS.e_redshift:.8f}', verbose=True)
@@ -361,6 +366,7 @@ def auto_rsp_elines_single_main(
         SPS.best_Av = cf.AV
         SPS.e_Av = 0.0
         print_verbose(f'- Av:    {SPS.best_Av:.8f} +- {SPS.e_Av:.8f}', verbose=True)
+        SPS.spectra['orig_flux']=SPS.spectra['orig_flux']#+negative_bias
         SPS.spectra['raw_flux_no_gas']=SPS.spectra['orig_flux']
         min_chi_sq_now = SPS.rsp_single_fit()
         model_ssp_min = SPS.spectra['model_ssp_min']
@@ -368,8 +374,7 @@ def auto_rsp_elines_single_main(
         SPS.gas_fit_no_rsp(ratio=median_ratio)
         model_joint =  SPS.spectra['model_ssp_min'] + SPS.spectra['raw_model_elines']
         median_ratio=SPS.get_ratio(model_joint)
-        SPS.spectra['model_ssp_min']=SPS.spectra['model_ssp_min']#*median_ratio
-        SPS.spectra['model_min']=SPS.spectra['model_min']#*median_ratio
+
         res_ssp = SPS.spectra['raw_flux_no_gas'] -  SPS.spectra['model_ssp_min']     
         res_joint = (res_ssp - SPS.spectra['raw_model_elines'])     
         SPS.spectra['model_joint'] = model_joint

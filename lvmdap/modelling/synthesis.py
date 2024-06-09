@@ -244,7 +244,7 @@ class StellarSynthesis(StPopSynt):
 
         print_verbose('', verbose=self.verbose)
         print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
-        print_verbose('--[ BEGIN non-linear fit ]---------------------------------------------', verbose=self.verbose)
+        print_verbose('--[ BEGIN RSP single fit ]---------------------------------------------', verbose=self.verbose)
 
         sigma_inst = self.sigma_inst
         sigma = self.best_sigma
@@ -263,9 +263,18 @@ class StellarSynthesis(StPopSynt):
         r_wave = models.wavenorm + half_norm_range
         self.spectra['sel_norm_window'] = (self.spectra['raw_wave'] > l_wave) & (self.spectra['raw_wave'] < r_wave)
 
-        sel_norm = self.spectra['sel_norm_window'] & self.spectra['sel_wl']
+        sel_norm = self.spectra['sel_norm_window'] #& self.spectra['sel_wl']
+ #       print(f'# sel_norm_window: {self.spectra["sel_norm_window"]} ')
+ #       print(f'# sel_wl: {self.spectra["sel_wl"]} ')
+ #       print(f'# raw_flux_no_gas window: {self.spectra["raw_wave"][self.spectra["sel_norm_window"]]}')
+ #       print(f'# raw_flux_no_gas sel_wl: {self.spectra["raw_wave"][self.spectra["sel_wl"]]}')
+ #       print(f'# raw_flux_no_gas both: {self.spectra["raw_flux_no_gas"][sel_norm]}')
         norm_mean_flux = self.spectra['raw_flux_no_gas'][sel_norm].mean()
         norm_median_flux = np.median(self.spectra['raw_flux_no_gas'][sel_norm])
+#        print(f'# norm_mean_flux : {norm_mean_flux} {norm_median_flux}')
+#        quit()
+                
+
         self.spectra['raw_flux_no_gas_norm_mean'] = np.divide(self.spectra['raw_flux_no_gas'], norm_mean_flux, where=norm_mean_flux!=0)
         self.spectra['raw_eflux_norm_mean'] = np.divide(self.spectra['raw_eflux'], norm_mean_flux, where=norm_mean_flux!=0)
         self.spectra['raw_flux_no_gas_norm_median'] = np.divide(self.spectra['raw_flux_no_gas'], norm_median_flux, where=norm_median_flux!=0)
@@ -735,6 +744,8 @@ class StellarSynthesis(StPopSynt):
 
         rms = res_joint[s['sel_norm_window']].std()
         med_flux = np.median(s['raw_flux_no_gas'][s['sel_norm_window']])
+        if (med_flux<0):
+            med_flux=np.abs(med_flux)
         FLUX = s['orig_flux'][s['sel_wl']].sum()
 
         # XXX:
@@ -1003,6 +1014,7 @@ class StellarSynthesis(StPopSynt):
 
         model_min = s['model_min'] #/ ratio
         res_min = s['raw_flux']- model_min
+        print(f'# model_min = {model_min}')
         if self.SN_norm_window > 10:
             y_ratio=self.SPS_subtract_continuum(model_min)
         else:
@@ -1060,8 +1072,11 @@ class StellarSynthesis(StPopSynt):
         # TODO: test smooth process (NaNs, zeros, inf)
 
 
-        ratio = np.divide(res_min, model, where=model>0) + 1
 
+        ratio = np.divide(res_min, model, where=model>0) + 1
+#        print(f'#res_min: {res_min}')
+#        print(f'#model: {model}')
+#        print(f'#ratio: {ratio}')
 
         
         # from pyFIT3D.common.stats import median_filter
@@ -1104,6 +1119,7 @@ class StellarSynthesis(StPopSynt):
             wave_list = [s['raw_wave']]*len(spectra_list)
             colors = ["0.4", "r", "b"]
             ylim = (-0.2, 1.5)
+            print(f'# {ylim}')
             if self.plot == 1:
                 plt.cla()
                 plot_spectra_ax(plt.gca(), wave_list, spectra_list, ylim=ylim, color=colors)

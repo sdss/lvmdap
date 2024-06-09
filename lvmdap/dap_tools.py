@@ -41,6 +41,10 @@ from matplotlib import rcParams as rc
 
 from scipy.ndimage import gaussian_filter1d, median_filter
 
+from astropy.convolution import convolve
+#from scipy.ndimage import generic_filter
+
+
 warnings.simplefilter('ignore', category=VerifyWarning)
 
 __indices__ = {
@@ -146,6 +150,38 @@ def my_meanfilt (x, k):
         y[:-j,-(i+1)] = x[j:]
         y[-j:,-(i+1)] = x[-1]
     return np.mean (y, axis=1)
+
+def replace_nan_inf_with_adjacent_avg(arr):
+    # Ensure the input is a numpy array of floats
+    arr = np.array(arr, dtype=float)
+
+    # Define a kernel for convolution (4-connected neighbors)
+    kernel = np.array([[1, 1, 1, 1, 1, 1, 1],
+                       [1, 1, 1, 1, 1, 1, 1],
+                       [1, 1, 1, 0, 1, 1, 1],
+                       [1, 1, 1, 1, 1, 1, 1],
+                       [1, 1, 1, 1, 1, 1, 1]], dtype=float)
+
+    # Handle NaN and inf values
+    mask = ~np.isfinite(arr) 
+    arr[mask] = 0  # Temporarily set NaN/inf to 0 for convolution
+
+    # Convolve the array with the kernel to get the sum of adjacent values
+    convolved_sum = convolve(arr, kernel, boundary='extend', normalize_kernel=False)
+
+    # Convolve the mask to get the count of finite adjacent values
+#    convolved_mask = convolve(~mask.astype(float), kernel, boundary='extend', normalize_kernel=False)
+    mask_r = ~mask
+    convolved_mask = convolve(mask_r.astype(float), kernel, boundary='extend', normalize_kernel=False)
+    
+    # Compute the average of adjacent values where finite adjacent values are available
+    adjacent_avg = convolved_sum / convolved_mask
+    adjacent_avg[convolved_mask == 0] = np.nan  # Handle cells with no adjacent finite values
+
+    # Replace NaN and inf values with the computed adjacent average
+    arr[mask] = adjacent_avg[mask]
+
+    return arr
 
 
 

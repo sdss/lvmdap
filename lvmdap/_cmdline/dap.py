@@ -41,7 +41,7 @@ from lvmdap.dap_tools import plot_spec_art, Table_mean_rows
 from lvmdap.dap_tools import load_LVMSIM_rss, read_LVMSIM_PT
 from lvmdap.dap_tools import load_in_rss, read_MaStar_PT
 from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, read_tab_EL
-from lvmdap.dap_tools import find_redshift_spec
+from lvmdap.dap_tools import find_redshift_spec, replace_nan_inf_with_adjacent_avg
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW
 
 from scipy.ndimage import gaussian_filter1d,median_filter
@@ -373,6 +373,7 @@ def _main(cmd_args=sys.argv[1:]):
     if args.w_range_nl is None:
         args.w_range_nl = copy(args.w_range)
 
+
     # OUTPUT NAMES ---------------------------------------------------------------------------------
     out_file_elines = os.path.join(args.output_path, f"elines_{args.label}")
     out_file_single = os.path.join(args.output_path, f"single_{args.label}")
@@ -544,6 +545,14 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         default=False
     )
 
+    parser.add_argument(
+      "--plot", type=np.int,
+      help="whether to plot (1) or not (0, default) the fitting procedure. If 2, a plot of the result is store in a file without display on screen",
+      default=0
+    )
+    
+
+    
     
     args = parser.parse_args(cmd_args)
     print(cmd_args)
@@ -554,6 +563,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         pprint("COMMAND LINE ARGUMENTS")
         pprint(f"{args}\n")
 
+    if (args.plot==1):
+      print("# Visualize fitting...")
+      from matplotlib import use as mpl_use
+      mpl_use('TkAgg')
+      import matplotlib.pyplot as plt  
 
     #
     # Read the YAML file
@@ -583,12 +597,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         default=[-1, +1]
     )
 
-    parser.add_argument(
-      "--plot", type=np.int,
-      help="whether to plot (1) or not (0, default) the fitting procedure. If 2, a plot of the result is store in a file without display on screen",
-      default=0
-    )
-    
     args = parser.parse_args(cmd_args)
 
 
@@ -644,6 +652,12 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
         # Default is true
         mask_to_val=True
+
+#    try:
+#        plot=args.plot
+#    except:
+#        # Default is true
+#        plot=1
 
     try:
       auto_redshift=args.auto_redshift
@@ -735,12 +749,15 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
 
     if (mask_to_val==True):
-      print("# Modifying masked regions with dummy values")      
-      nanmedian_flux = np.abs(np.nanmedian(rss_flux_org))
-      max_eflux = np.abs(10*np.nanmax(rss_eflux_org))
-      rss_flux_org = np.nan_to_num(rss_flux_org, copy=True, nan=nanmedian_flux, posinf=nanmedian_flux, neginf=nanmedian_flux)
-      rss_eflux_org = np.nan_to_num(rss_eflux_org, copy=True, nan=max_eflux, posinf=max_eflux, neginf=max_eflux)
-      rss_eflux_org[rss_eflux_org == 0 ] = max_eflux
+      print("# Modifying masked regions with dummy values")
+      rss_flux_org = replace_nan_inf_with_adjacent_avg(rss_flux_org)
+#      rss_eflux_org = 0.1*np.abs(rss_flux_org)
+      rss_eflux_org = replace_nan_inf_with_adjacent_avg(rss_eflux_org)
+#      nanmedian_flux = np.abs(np.nanmedian(rss_flux_org))
+#      max_eflux = np.abs(10*np.nanmax(rss_eflux_org))
+#      rss_flux_org = np.nan_to_num(rss_flux_org, copy=True, nan=nanmedian_flux, posinf=nanmedian_flux, neginf=nanmedian_flux)
+#      rss_eflux_org = np.nan_to_num(rss_eflux_org, copy=True, nan=max_eflux, posinf=max_eflux, neginf=max_eflux)
+#      rss_eflux_org[rss_eflux_org == 0 ] = max_eflux
 
       
     print('# Reading input fits file finished...')
@@ -1158,7 +1175,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        y_ratio = SPS.ratio_master
         SPS.output_gas_emission(filename=out_file_elines, spec_id=i)
         SPS.output_coeffs_MC(filename=out_file_coeffs, write_header=i==0)
-        print(f'Teff test = {SPS.teff_min}')
+#        print(f'Teff test = {SPS.teff_min}')
         try:
             SPS.output(filename=out_file_ps, write_header=i==0, block_plot=False)
         except:
