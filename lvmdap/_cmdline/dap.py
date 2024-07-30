@@ -781,15 +781,43 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     # First we create a mean spectrum
     #
+    #z_min=auto_z_min,z_max=auto_z_max
 
-    m_flux = np.abs(nanaverage(rss_flux,1/rss_eflux**2,axis=0))
-#    m_flux = np.abs(np.nanmedian(rss_flux,axis=0))#np.nanmean(rss_flux,axis=0)
-    #e_flux = rss_eflux.mean(axis=0)/np.sqrt(rss_flux.shape[0])
-    #m_flux = np.median(rss_flux,axis=0)
-    e_flux = np.sqrt(np.nanmedian(rss_eflux**2/rss_flux.shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
-#    e_flux = np.nanmedian(rss_eflux,axis=0)/np.sqrt(rss_flux.shape[0])
-    #np.sqrt(rss_flux.shape[0])
+    #
+    # We select only those regions with enough S/N to create the integrated spectrum
+    #
+
+    w0 = 6530*(1+auto_z_min)
+    w1 = 6650*(1+auto_z_max)
+    wb0 = w0-50
+    wb1 = w0
+    wr0 = w1
+    wr1 = w1+20
+    mask_a = (wl__w>wb0) & (wl__w<wr1)
+    mask_b = (wl__w>wb0) & (wl__w<wb1)
+    mask_r = (wl__w>wr0) & (wl__w<wr1)
+    mask_c = (wl__w>w0) & (wl__w<w1)
+    SN_map=[]    
+    for spec_now,e_spec_now in zip(rss_flux,rss_eflux):
+      SN_peak=np.nanmax(spec_now[mask_c]/e_spec_now[mask_c])
+      SN_map.append(SN_peak)
+    SN_map = np.array(SN_map)
+    mask_SN = (SN_map>3)
+    N_SN_3 = len(SN_map[mask_SN])
+    print(f'# N.fibers with SN>3 [{w0},{w1}] : {N_SN_3}')
+    if (N_SN_3<3):
+      m_flux = np.abs(nanaverage(rss_flux,1/rss_eflux**2,axis=0))
+      e_flux = np.sqrt(np.nanmedian(rss_eflux**2/rss_flux.shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
+    else:
+      m_flux = np.abs(nanaverage(rss_flux[mask_SN],1/rss_eflux[mask_SN]**2,axis=0))
+      e_flux = np.sqrt(np.nanmedian(rss_eflux[mask_SN]**2/rss_flux[mask_SN].shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
     print(f'# m_flux: {np.nanmedian(m_flux)} +- {np.nanmedian(e_flux)}');
+    #
+    # 29.07.25
+    # Erroneous flux calibration!
+    #
+
+    
     s_flux = median_filter(m_flux,51)
 
     vel__yx=np.zeros(1)
@@ -818,13 +846,20 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       #                 w_min_ne=6350,w_max_ne=6500,\
       #                 w_ref=(6548.05,6562.85,6583.45,6678.15,6716.44,6730.82),do_plot=0,\
       auto_z=find_redshift_spec(wl__w,m_flux,z_min=auto_z_min,z_max=auto_z_max,d_z=auto_z_del,\
-                                w_min=6500,w_max=6650,w_ref=(6548.05,6562.85,6583.45))
+                                w_min=6500,w_max=6650,w_ref=(6548.05,6562.85,6583.45),do_plot=args.do_plots)
       if (auto_z != auto_z_min):
         args.redshift[0]=auto_z
         args.redshift[2]=args.redshift[2]*(1+auto_z)+auto_z
         args.redshift[3]=args.redshift[3]*(1+auto_z)+auto_z
+        args.w_range_nl[0]=args.w_range_nl[0]*(1+auto_z)
+        args.w_range_nl[1]=args.w_range_nl[1]*(1+auto_z)     
         print(f'# Auto_z derivation ({auto_z_min},{auto_z_max},{auto_z_del}) :{auto_z}')
       else:
+        args.redshift[0]=0.0
+        args.redshift[2]=auto_z_min
+        args.redshift[3]=auto_z_max
+        args.w_range_nl[0]=args.w_range_nl[0]*(1+auto_z_min)
+        args.w_range_nl[1]=args.w_range_nl[1]*(1+auto_z_max)     
         print(f'# No auto_z peaks found, use configuration file parameters')
 
     #
@@ -1360,7 +1395,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     #print('##############################')
     #print('# Updating the header ###############')
-    hdr_0['dap_ver']=1.240208
+    #hdr_0['dap_ver']=1.240208
+    hdr_0['dap_ver']=1.240730
     #for key in dict_param.keys():
     #  val=dict_param[key]
     #  hdr_0[key]=val

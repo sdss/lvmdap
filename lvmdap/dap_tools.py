@@ -652,10 +652,15 @@ def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True
             rss_e_spectra[I,:]=std_now*rss_e_spectra[I,:]
     wl__w = np.array([rss_f_hdr["CRVAL1"] + i*rss_f_hdr["CDELT1"] for i in range(hdu['FLUX'].data.shape[1])])
     wl__w = wl__w*m2a
-    rss_f_spectra=rss_f_spectra*flux_scale
     #
     # We need to revise the errors!
     #
+    mean_flux = np.nanmedian(rss_f_spectra[:,5000:6000])
+    #print(f'# mean_flux = {mean_flux}')
+    if (mean_flux>1e-3):
+        flux_scale=1
+        print(f'# mean_flux = {mean_flux} does not seem to be in 10^-16 cgs')
+    rss_f_spectra=rss_f_spectra*flux_scale
     rss_e_spectra=rss_e_spectra*flux_scale
     rss_f_hdr["CRVAL1"]=rss_f_hdr["CRVAL1"]*m2a
     rss_f_hdr["CDELT1"]=rss_f_hdr["CDELT1"]*m2a
@@ -2405,12 +2410,17 @@ def find_redshift_spec(wave,spec,w_min=6500,w_max=6800,\
                        z_min=0,z_max=0.1,d_z=0.01,ds=0.5):
 
     mask_w = (wave>w_min) & (wave<w_max)
+    mask_w_b = (wave>(w_min-30)) & (wave<(w_min))
     mask_ne = (wave>w_min_ne) & (wave<w_max_ne)
-    peak_threshold=(np.nanmedian(spec[mask_ne])+3*np.nanstd(spec[mask_ne]))/np.nanmax(spec[mask_w])
-    if (peak_threshold>0.9):
-        peak_threshold=0.9
-    if (peak_threshold<0.1):
-        peak_threshold=0.1
+    std_dev = np.nanstd(spec[mask_w_b])
+    peak_threshold = 50*std_dev/np.nanmax(spec[mask_w])
+#    print(f'peak_threshold: {peak_threshold} , {std_dev}, {np.nanmax(spec[mask_w])}')
+    
+#    peak_threshold=(np.nanmedian(spec[mask_ne])+3*np.nanstd(spec[mask_ne]))/np.nanmax(spec[mask_w])
+#    if (peak_threshold>0.8):
+#       peak_threshold=0.8
+#    if (peak_threshold<0.2):
+#       peak_threshold=0.2
     i_peak,peaks,w_peaks,f_peaks=peak_finder(wave[mask_w], spec[mask_w], 1,\
         peak_threshold=peak_threshold, dmin=2, plot=do_plot, verbose=0)
 
