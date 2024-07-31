@@ -125,6 +125,8 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
                 crval=crval, cdelt=cdelt,
                 n_MC=n_MC, flux_ssp__w=flux_ssp__wyx[i, :],
             )
+#            print(I0, vel_I1, I2, EW, s_I0, s_vel_I1, s_I2, e_EW)
+            print(I0, vel_I1, 1.217*(I2/2.354)**2, EW, s_I0, s_vel_I1, s_I2, e_EW)
             #print(f'vel {vel_I1} vs {vel__yx[i]}')
 
             out[k, i] = I0

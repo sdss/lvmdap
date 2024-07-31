@@ -2385,8 +2385,91 @@ def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     plt.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
 
-    
 
+def adaptive_smooth(data, start_width, end_width):
+    """
+    Smooth an array with a filter that adapts in size from start_width to end_width.
+    
+    Parameters:
+    - data (np.array): The input array to be smoothed.
+    - start_width (int): The width of the smoothing kernel at the beginning of the array.
+    - end_width (int): The width of the smoothing kernel at the end of the array.
+    
+    Returns:
+    - np.array: The smoothed array.
+    """
+    # Create an array of kernel sizes changing linearly from start_width to end_width
+    n_points = len(data)
+    kernel_sizes = np.linspace(start_width, end_width, n_points).astype(int)
+    # Output array initialization
+    smoothed_data = np.zeros_like(data)
+    
+    # Apply varying filter
+    for i in range(n_points):
+        # Handle boundary effects by determining effective kernel size
+        half_width = kernel_sizes[i] // 2
+        start_index = max(0, i - half_width)
+        end_index = min(n_points, i + half_width + 1)
+        
+        # Apply uniform filter to the local segment of the data
+        smoothed_data[i] = np.median(data[start_index:end_index])
+    
+    return smoothed_data
+
+
+
+
+    
+def find_continuum(spec_s,niter=15,thresh=0.8,median_box_max=100,median_box_min=1):
+    """
+    find the continuum from a spectrum by smoothing and masking the values above
+    the smoothed version in an iterative way.
+    
+    Parameters:
+    - data (np.array): The input array from which we would like to find the continuum.
+    - niter  (int): Maximum number of iterations
+    - thresh (float): Threshold to compare the smoothed an unsmoother version
+    - median_box_max (float): Maximum size of the smoothing box
+    - median_box_min (float): Minumum size of the smoothing box    
+
+    Returns:
+    - np.array: continuum spectrum.
+    """
+    median_box=median_box_max
+    spec_s_org = spec_s.copy()
+    lim_spec = (-1)*np.abs(np.nanmin(spec_s))
+    mask = (spec_s>lim_spec)
+    #print(f'lim: {lim_spec}')
+    #print(mask)
+    #m_spec_s = adaptive_smooth(spec_s, median_box, int(median_box_max*0.5))
+    m_spec_s = st_median_filter(median_box, spec_s)
+    pixels = np.arange(0,spec_s.shape[0])
+    i_len_in = len(spec_s_org[mask])
+    for i in range(niter):
+        mask = mask & (np.divide(m_spec_s, spec_s, where=spec_s != 0, out=np.zeros_like(spec_s)) > thresh)
+        i_len = len(spec_s_org[mask])
+        if (i_len==i_len_in):
+            break
+        else:
+            i_len_in=i_len
+        spec_s = np.interp(pixels, pixels[mask], spec_s[mask])
+        m_spec_s = adaptive_smooth(spec_s, median_box, median_box_max)
+#        m_spec_s = median_filter(median_box, spec_s)
+        median_box = int(median_box*0.5)
+        if (median_box<median_box_min):
+            median_box=median_box_min
+        
+
+    spec_s = np.interp(pixels, pixels[mask], spec_s_org[mask])
+    if (median_box_min>3):
+        spec_s_out = median_filter(spec_s, size=median_box_min, mode='reflect')
+    else:
+        spec_s_out = spec_s
+    return spec_s_out
+
+
+
+    
 def find_redshift(w_peak=np.array((6548.07,6562.84)),f_peak=np.array((1,1,1)),\
                   w_ref=(6548.05,6562.85,6583.45,6678.15,6716.44,6730.82),\
                   z_min=0,z_max=0.1,d_z=0.01,ds=0.5):
@@ -2410,10 +2493,24 @@ def find_redshift_spec(wave,spec,w_min=6500,w_max=6800,\
                        z_min=0,z_max=0.1,d_z=0.01,ds=0.5):
 
     mask_w = (wave>w_min) & (wave<w_max)
-    mask_w_b = (wave>(w_min-30)) & (wave<(w_min))
+    mask_w_b = (wave>(w_min-60)) & (wave<(w_min-30))
     mask_ne = (wave>w_min_ne) & (wave<w_max_ne)
     std_dev = np.nanstd(spec[mask_w_b])
-    peak_threshold = 50*std_dev/np.nanmax(spec[mask_w])
+#    print(f'std_dev: {std_dev}')
+#    print(f'vals = {spec[mask_w_b]}')
+#    peak_threshold = 50*std_dev/np.nanmax(spec[mask_w])
+    nanmax = np.nanmax(spec[mask_w])
+    peak_threshold = 50*std_dev/nanmax
+
+    
+    if (peak_threshold<0.1):
+        peak_threshold=0.1
+
+    if (peak_threshold>0.8):
+        peak_threshold=0.8
+
+        
+    
 #    print(f'peak_threshold: {peak_threshold} , {std_dev}, {np.nanmax(spec[mask_w])}')
     
 #    peak_threshold=(np.nanmedian(spec[mask_ne])+3*np.nanstd(spec[mask_ne]))/np.nanmax(spec[mask_w])
@@ -2421,13 +2518,21 @@ def find_redshift_spec(wave,spec,w_min=6500,w_max=6800,\
 #       peak_threshold=0.8
 #    if (peak_threshold<0.2):
 #       peak_threshold=0.2
-    i_peak,peaks,w_peaks,f_peaks=peak_finder(wave[mask_w], spec[mask_w], 1,\
+    i_peak,peaks,w_peaks,f_peaks=peak_finder(wave[mask_w], spec[mask_w]/nanmax, 1,\
         peak_threshold=peak_threshold, dmin=2, plot=do_plot, verbose=0)
 
+    mask_thrs = f_peaks>peak_threshold
+    i_peak = i_peak[mask_thrs]
+    f_peaks = f_peaks[mask_thrs]
+    w_peaks = w_peaks[mask_thrs]
+
     print(f'# f_peaks auto_redshift : {f_peaks} using threshold: {peak_threshold}')
-    if (len(f_peaks)<1.5*len(w_ref)):
-        #    z=find_redshift(w_peak=w_peaks,f_peak=f_peaks, w_ref=w_ref, z_min=-0.001,z_max=0.01,d_z=0.00001)
-        z=find_redshift(w_peak=w_peaks,f_peak=f_peaks, w_ref=w_ref, z_min=z_min,z_max=z_max,d_z=d_z)
+    if ((len(f_peaks)<1.5*len(w_ref))):
+
+        if (len(f_peaks)>1):
+            z=find_redshift(w_peak=w_peaks,f_peak=f_peaks, w_ref=w_ref, z_min=z_min,z_max=z_max,d_z=d_z)
+        else:
+            z=find_redshift(w_peak=w_peaks,f_peak=f_peaks, w_ref=(6562.85,6562.85), z_min=z_min,z_max=z_max,d_z=d_z)
     else:
         z=z_min
     return z

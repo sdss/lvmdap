@@ -42,6 +42,7 @@ from lvmdap.dap_tools import load_LVMSIM_rss, read_LVMSIM_PT
 from lvmdap.dap_tools import load_in_rss, read_MaStar_PT
 from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, read_tab_EL
 from lvmdap.dap_tools import find_redshift_spec, replace_nan_inf_with_adjacent_avg
+from lvmdap.dap_tools import find_continuum
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW
 
 from scipy.ndimage import gaussian_filter1d,median_filter
@@ -821,7 +822,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     s_flux = median_filter(m_flux,51)
 
     vel__yx=np.zeros(1)
-    sigma__yx=1.5
+    #sigma__yx=1.5
+    sigma__yx=0.8
     print(f'# Number of spectral pixels : {m_flux.shape[0]}')
     m_flux_rss = np.zeros((1,m_flux.shape[0]))
     m_flux_rss[0,:]=m_flux
@@ -845,7 +847,31 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       #,w_min=6500,w_max=6800,\
       #                 w_min_ne=6350,w_max_ne=6500,\
       #                 w_ref=(6548.05,6562.85,6583.45,6678.15,6716.44,6730.82),do_plot=0,\
-      auto_z=find_redshift_spec(wl__w,m_flux,z_min=auto_z_min,z_max=auto_z_max,d_z=auto_z_del,\
+
+      #
+      # We remove the continuum to the m_flux 
+      #
+      m_flux_bgs = m_flux.copy()
+      # print(f'auto_z_bg: {args.auto_z_bg}')
+      if (args.auto_z_bg == True):
+        m_flux_bg = find_continuum(m_flux,niter=15,thresh=0.8,median_box_max=75,median_box_min=5)
+        m_flux_bgs = m_flux-m_flux_bg
+        print('# Back ground removed from auto-z spec')
+
+
+      if (args.auto_z_sc == True):
+        tab_el_sky=read_tab_EL(args.emission_lines_file_sky)
+        specSky_e_mod = np.zeros(m_flux_bgs.shape)
+        for w in tab_el_sky['wl']:
+          delta_w = np.abs(wl__w-w)
+          i_w = delta_w.argmin()
+          sigma_inst=0.05+0.75*np.sqrt(((w-3000)/10000))
+          G = m_flux_bgs[i_w]*np.exp(-0.5*(delta_w/sigma_inst)**2)
+          specSky_e_mod = specSky_e_mod+G
+        m_flux_bgs = m_flux_bgs-specSky_e_mod
+
+        print('# Night sky emission lines removed from auto-z spec')
+      auto_z=find_redshift_spec(wl__w,m_flux_bgs,z_min=auto_z_min,z_max=auto_z_max,d_z=auto_z_del,\
                                 w_min=6500,w_max=6650,w_ref=(6548.05,6562.85,6583.45),do_plot=args.do_plots)
       if (auto_z != auto_z_min):
         args.redshift[0]=auto_z
@@ -1114,6 +1140,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     ############################################################################
     # Run flux_elines on the mean spectrum
     #
+    vel__yx=np.zeros(1)+SPS.best_redshift*300000
+    sigma__yx=0.8
+
+    
     fe_m_data, fe_m_hdr =flux_elines_RSS_EW(m_flux_rss, hdr_flux_org, 5, args.emission_lines_file, vel__yx,\
                                               sigma__yx,eflux__wyx=m_e_flux_rss,\
                                               flux_ssp__wyx=m_s_flux_rss,w_range=15)
