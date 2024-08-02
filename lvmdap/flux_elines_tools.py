@@ -119,11 +119,10 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
         [i_m] = np.where(mask)
         mask_wave = (wavelengths[k]>start_w_m[0]) & (wavelengths[k]<end_w_m[0])
         for i in i_m:
-            if (plot==1):
+            if (plot>0):
                 print(k,ne,start_w_m,end_w_m,f_m,__sigma_to_FWHM__,sigma__yx)
-                plt.plot(wavelengths[k][mask_wave],flux__wyx[i, :][mask_wave])
-                plt.show()
-            
+                plt.plot(wavelengths[k][mask_wave],flux__wyx[i, :][mask_wave],color='black')
+                plt.show(block=True)
 
             I0, vel_I1, I2, EW, s_I0, s_vel_I1, s_I2, e_EW = momana_spec_wave(
                 gas_flux__w=flux__wyx[i, :],
