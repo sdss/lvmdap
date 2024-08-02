@@ -61,7 +61,6 @@ from lvmdap.dap_tools import list_columns,read_DAP_file,map_plot_DAP,nanaverage
 
 #
 # Just for tests
-#
 # import matplotlib.pyplot as plt
 
 
@@ -670,7 +669,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       auto_z_min=args.auto_z_min
     except:
       auto_z_min=-0.003
-
     try:
       auto_z_max=args.auto_z_max
     except:
@@ -697,7 +695,15 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
       SN_CUT_INT=3      
 
-    
+    try:
+      auto_z_bg=args.auto_z_bg
+    except:
+      auto_z_bg = True
+
+    try:
+      auto_z_sc=args.auto_z_sc
+    except:
+      auto_z_sc = True
 
 
 
@@ -754,6 +760,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       rss_flux_org = replace_nan_inf_with_adjacent_avg(rss_flux_org)
 #      rss_eflux_org = 0.1*np.abs(rss_flux_org)
       rss_eflux_org = replace_nan_inf_with_adjacent_avg(rss_eflux_org)
+      rss_eflux_org[rss_eflux_org == 0] = np.nanmedian(rss_eflux_org)
 #      nanmedian_flux = np.abs(np.nanmedian(rss_flux_org))
 #      max_eflux = np.abs(10*np.nanmax(rss_eflux_org))
 #      rss_flux_org = np.nan_to_num(rss_flux_org, copy=True, nan=nanmedian_flux, posinf=nanmedian_flux, neginf=nanmedian_flux)
@@ -812,7 +819,12 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     else:
       m_flux = np.abs(nanaverage(rss_flux[mask_SN],1/rss_eflux[mask_SN]**2,axis=0))
       e_flux = np.sqrt(np.nanmedian(rss_eflux[mask_SN]**2/rss_flux[mask_SN].shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
-    print(f'# m_flux: {np.nanmedian(m_flux)} +- {np.nanmedian(e_flux)}');
+
+    m_flux_median = np.nanmedian(m_flux[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
+    m_eflux_median = np.nanmedian(e_flux[int(0.45*e_flux.shape[0]):int(0.55*e_flux.shape[0])])
+    m_flux_SN = m_flux_median/m_eflux_median
+    print(f'# m_flux: {m_flux_median}, m_eflux: {m_eflux_median}');
+#    print(f'# m_flux: {np.nanmedian(m_flux)} +- {np.nanmedian(e_flux)}');
     #
     # 29.07.25
     # Erroneous flux calibration!
@@ -853,23 +865,44 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       #
       m_flux_bgs = m_flux.copy()
       # print(f'auto_z_bg: {args.auto_z_bg}')
-      if (args.auto_z_bg == True):
+      if (auto_z_bg == True):
         m_flux_bg = find_continuum(m_flux,niter=15,thresh=0.8,median_box_max=75,median_box_min=5)
         m_flux_bgs = m_flux-m_flux_bg
         print('# Back ground removed from auto-z spec')
 
 
-      if (args.auto_z_sc == True):
+      if (auto_z_sc == True):
         tab_el_sky=read_tab_EL(args.emission_lines_file_sky)
         specSky_e_mod = np.zeros(m_flux_bgs.shape)
         for w in tab_el_sky['wl']:
           delta_w = np.abs(wl__w-w)
           i_w = delta_w.argmin()
-          sigma_inst=0.05+0.75*np.sqrt(((w-3000)/10000))
-          G = m_flux_bgs[i_w]*np.exp(-0.5*(delta_w/sigma_inst)**2)
-          specSky_e_mod = specSky_e_mod+G
+          sigma_inst=0.05+0.75*np.sqrt(((w-3000)/10000))          
+          if (np.isfinite(m_flux_bgs[i_w]) == True):
+            G = m_flux_bgs[i_w]*np.exp(-0.5*(delta_w/sigma_inst)**2)
+            specSky_e_mod = specSky_e_mod+G
+#        plt.plot(wl__w,m_flux)
+#        plt.plot(wl__w,m_flux_bg)
+#        if (args.plot==1):
+#          plt.plot(wl__w,m_flux_bgs)    
         m_flux_bgs = m_flux_bgs-specSky_e_mod
+        m_flux_bgs_median = np.nanmedian(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
+        m_flux_bgs_std = np.nanstd(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
+        print(f'# m_flux_bgs: {m_flux_bgs_median} +- {m_flux_bgs_std}');
 
+        
+#        if (args.plot==1):
+#          plt.plot(wl__w,m_flux_bgs)    
+#          plt.plot(wl__w,specSky_e_mod)
+#          plt.plot(wl__w,m_flux_bgs)    
+#          plt.show()
+        #
+        # We remove the residuals of the emission lines
+        # from the integrated spectrum
+        m_flux = m_flux-specSky_e_mod
+
+
+        
         print('# Night sky emission lines removed from auto-z spec')
       auto_z=find_redshift_spec(wl__w,m_flux_bgs,z_min=auto_z_min,z_max=auto_z_max,d_z=auto_z_del,\
                                 w_min=6500,w_max=6650,w_ref=(6548.05,6562.85,6583.45),do_plot=args.do_plots)
@@ -881,12 +914,15 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         args.w_range_nl[1]=args.w_range_nl[1]*(1+auto_z)     
         print(f'# Auto_z derivation ({auto_z_min},{auto_z_max},{auto_z_del}) :{auto_z}')
       else:
-        args.redshift[0]=0.0
-        args.redshift[2]=auto_z_min
-        args.redshift[3]=auto_z_max
-        args.w_range_nl[0]=args.w_range_nl[0]*(1+auto_z_min)
-        args.w_range_nl[1]=args.w_range_nl[1]*(1+auto_z_max)     
-        print(f'# No auto_z peaks found, use configuration file parameters')
+        if (m_flux_SN>10):
+          args.redshift[0]=0.0
+          args.redshift[2]=auto_z_min
+          args.redshift[3]=auto_z_max
+          args.w_range_nl[0]=args.w_range_nl[0]*(1+auto_z_min)
+          args.w_range_nl[1]=args.w_range_nl[1]*(1+auto_z_max)
+          print(f'# No auto_z peaks found, SN={m_flux_SN} use auto_z parameters')
+        else:
+          print(f'# No auto_z peaks found, SN={m_flux_SN} use configuration file parameters')
 
     #
     #
@@ -1140,13 +1176,15 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     ############################################################################
     # Run flux_elines on the mean spectrum
     #
-    vel__yx=np.zeros(1)+SPS.best_redshift*300000
+    #vel__yx=np.zeros(1)+SPS.best_redshift*300000
+    vel__yx=np.zeros(1)+args.redshift[0]*300000
     sigma__yx=0.8
-
+    print(f'# Guess Kin param. for NP elines analysis: {vel__yx} {sigma__yx}')
     
     fe_m_data, fe_m_hdr =flux_elines_RSS_EW(m_flux_rss, hdr_flux_org, 5, args.emission_lines_file, vel__yx,\
                                               sigma__yx,eflux__wyx=m_e_flux_rss,\
-                                              flux_ssp__wyx=m_s_flux_rss,w_range=15)
+                                              flux_ssp__wyx=m_s_flux_rss,w_range=15,\
+                                            plot=args.plot)
     colnames=[]
     for i in range(fe_m_data.shape[0]):
       colname=str(fe_m_hdr[f'NAME{i}'])+'_'+str(fe_m_hdr[f'WAVE{i}'])

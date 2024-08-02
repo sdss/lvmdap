@@ -31,9 +31,13 @@ from astropy.table import Table
 from astropy.table import vstack as vstack_table
 
 def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigma__yx,
-                        eflux__wyx=None, flux_ssp__wyx=None, w_range=60):
+                        eflux__wyx=None, flux_ssp__wyx=None, w_range=60, plot=0):
     nx, nw = flux__wyx.shape
-    print(nx,nw)
+    print(nx,nw,plot)
+    if (plot==1):
+        from matplotlib import use as mpl_use
+        mpl_use('TkAgg')
+        import matplotlib.pyplot as plt  
     crpix = input_header['CRPIX1']
     crval = input_header['CRVAL1']
     cdelt = input_header['CDELT1']
@@ -99,7 +103,6 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
             input_header[wavelen_label] = '{}'.format(wavelengths[i])
             input_header[units_label] = "{}".format(units)
     for k in np.arange(0, ne):
-        print(k,ne)
         f_m = 1 + vel__yx / __c__
         start_w_m = wavelengths[k]*f_m - 1.5*__sigma_to_FWHM__*sigma__yx
         end_w_m = wavelengths[k]*f_m + 1.5*__sigma_to_FWHM__*sigma__yx
@@ -114,8 +117,14 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
         sigma_mask = sigma__yx > 0
         mask = (~(mask1 | mask2 | mask3)) & sigma_mask
         [i_m] = np.where(mask)
-        
+        mask_wave = (wavelengths[k]>start_w_m[0]) & (wavelengths[k]<end_w_m[0])
         for i in i_m:
+            if (plot==1):
+                print(k,ne,start_w_m,end_w_m,f_m,__sigma_to_FWHM__,sigma__yx)
+                plt.plot(wavelengths[k][mask_wave],flux__wyx[i, :][mask_wave])
+                plt.show()
+            
+
             I0, vel_I1, I2, EW, s_I0, s_vel_I1, s_I2, e_EW = momana_spec_wave(
                 gas_flux__w=flux__wyx[i, :],
                 egas_flux__w=eflux__wyx[i, :],

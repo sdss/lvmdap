@@ -2499,6 +2499,8 @@ def find_redshift_spec(wave,spec,w_min=6500,w_max=6800,\
 #    print(f'std_dev: {std_dev}')
 #    print(f'vals = {spec[mask_w_b]}')
 #    peak_threshold = 50*std_dev/np.nanmax(spec[mask_w])
+#    plt.plot(spec[mask_w])
+#    plt.show()
     nanmax = np.nanmax(spec[mask_w])
     peak_threshold = 50*std_dev/nanmax
 
