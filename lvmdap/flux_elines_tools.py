@@ -130,7 +130,6 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
                          flux__wyx[i, :][mask_wave],color='black')
                 plt.plot([w_m_guess,w_m_guess],[np.min(flux__wyx[i, :][mask_wave]),np.max(flux__wyx[i, :][mask_wave])],color='orange')
                 plt.show(block=True)
-            print('# :',vel_I1, 1.217*(I2/2.354)**2, EW, s_I0, s_vel_I1, s_I2, e_EW)
 
 #                time.sleep(5)
 
@@ -168,6 +167,7 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
             out[5*ne + k, i] = s_vel_I1
             out[6*ne + k, i] = s_I2
             out[7*ne + k, i] = e_EW
+        print('# :',vel_I1, 1.217*(I2/2.354)**2, EW, s_I0, s_vel_I1, s_I2, e_EW)
         print('{}/{}, {},{} DONE'.format(k + 1, ne, wavelengths[k], name_elines[k]))
     return out, input_header
 
