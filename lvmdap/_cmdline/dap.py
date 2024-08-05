@@ -886,6 +886,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        if (args.plot==1):
 #          plt.plot(wl__w,m_flux_bgs)    
         m_flux_bgs = m_flux_bgs-specSky_e_mod
+       
         m_flux_bgs_median = np.nanmedian(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
         m_flux_bgs_std = np.nanstd(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
         print(f'# m_flux_bgs: {m_flux_bgs_median} +- {m_flux_bgs_std}');
@@ -1184,7 +1185,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     fe_m_data, fe_m_hdr =flux_elines_RSS_EW(m_flux_rss, hdr_flux_org, 5, args.emission_lines_file, vel__yx,\
                                               sigma__yx,eflux__wyx=m_e_flux_rss,\
                                               flux_ssp__wyx=m_s_flux_rss,w_range=15,\
-                                            plot=args.plot)
+                                            plot=args.do_plots)
     colnames=[]
     for i in range(fe_m_data.shape[0]):
       colname=str(fe_m_hdr[f'NAME{i}'])+'_'+str(fe_m_hdr[f'WAVE{i}'])

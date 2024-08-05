@@ -5,6 +5,7 @@ from os.path import basename
 from copy import deepcopy as copy
 import os
 from astropy.wcs import WCS
+import time
 
 from pyFIT3D.common.io import ReadArguments
 from pyFIT3D.common.io import get_data_from_fits, array_to_fits
@@ -30,14 +31,15 @@ from pyFIT3D.common.io import array_to_fits, get_data_from_fits, trim_waves
 from astropy.table import Table
 from astropy.table import vstack as vstack_table
 
+from matplotlib import use as mpl_use
+mpl_use('Agg')
+import matplotlib.pyplot as plt
+
+
 def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigma__yx,
                         eflux__wyx=None, flux_ssp__wyx=None, w_range=60, plot=0):
     nx, nw = flux__wyx.shape
     print(nx,nw,plot)
-    if (plot==1):
-        from matplotlib import use as mpl_use
-        mpl_use('TkAgg')
-        import matplotlib.pyplot as plt  
     crpix = input_header['CRPIX1']
     crval = input_header['CRVAL1']
     cdelt = input_header['CDELT1']
@@ -104,6 +106,7 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
             input_header[units_label] = "{}".format(units)
     for k in np.arange(0, ne):
         f_m = 1 + vel__yx / __c__
+        w_m_guess = wavelengths[k]*f_m
         start_w_m = wavelengths[k]*f_m - 1.5*__sigma_to_FWHM__*sigma__yx
         end_w_m = wavelengths[k]*f_m + 1.5*__sigma_to_FWHM__*sigma__yx
         start_i_m = ((start_w_m - crval)/cdelt).astype(int)
@@ -117,12 +120,19 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
         sigma_mask = sigma__yx > 0
         mask = (~(mask1 | mask2 | mask3)) & sigma_mask
         [i_m] = np.where(mask)
-        mask_wave = (wavelengths[k]>start_w_m[0]) & (wavelengths[k]<end_w_m[0])
         for i in i_m:
-            if (plot>0):
-                print(k,ne,start_w_m,end_w_m,f_m,__sigma_to_FWHM__,sigma__yx)
-                plt.plot(wavelengths[k][mask_wave],flux__wyx[i, :][mask_wave],color='black')
+#            print('*** PASO:',i,i_m,plot)
+            if (plot==1):
+#                print(k,ne,start_w_m,end_w_m,f_m,__sigma_to_FWHM__,sigma__yx)
+                w_plot = crval+np.arange(0,flux__wyx[i, :].shape[0])*cdelt
+                mask_wave = (w_plot>start_w_m[0]) & (w_plot<end_w_m[0])
+                plt.plot(w_plot[mask_wave],\
+                         flux__wyx[i, :][mask_wave],color='black')
+                plt.plot([w_m_guess,w_m_guess],[np.min(flux__wyx[i, :][mask_wave]),np.max(flux__wyx[i, :][mask_wave])],color='orange')
                 plt.show(block=True)
+                print('# :',vel_I1, 1.217*(I2/2.354)**2, EW, s_I0, s_vel_I1, s_I2, e_EW)
+
+#                time.sleep(5)
 
             I0, vel_I1, I2, EW, s_I0, s_vel_I1, s_I2, e_EW = momana_spec_wave(
                 gas_flux__w=flux__wyx[i, :],
@@ -134,15 +144,24 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
                 n_MC=n_MC, flux_ssp__w=flux_ssp__wyx[i, :],
             )
 #            print(I0, vel_I1, I2, EW, s_I0, s_vel_I1, s_I2, e_EW)
-            print(I0, vel_I1, 1.217*(I2/2.354)**2, EW, s_I0, s_vel_I1, s_I2, e_EW)
+            #
+            # Patch! 24.08.05
+            #
+            #I0 = I0 * 1.02
+            #I0 = I0*cdelt*np.sqrt(2*np.pi)
+            #I0 = I0*1.1#np.sqrt(1.217*(I2/2.354)**2/cdelt)
+            
             #print(f'vel {vel_I1} vs {vel__yx[i]}')
 
-            out[k, i] = I0
+            out[k, i] = I0 #*cdelt*np.sqrt(2*np.pi)
             out[ne + k, i] = vel_I1
             #
             # Hack based on simulations
             # 08.02.2024
             #out[2*ne + k, i] = I2
+            #
+            # New results
+            #
             out[2*ne + k, i] = 1.217*(I2/2.354)**2
             out[3*ne + k, i] = EW
             out[4*ne + k, i] = s_I0
