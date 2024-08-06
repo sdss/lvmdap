@@ -886,11 +886,28 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        if (args.plot==1):
 #          plt.plot(wl__w,m_flux_bgs)    
         m_flux_bgs = m_flux_bgs-specSky_e_mod
-       
-        m_flux_bgs_median = np.nanmedian(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
-        m_flux_bgs_std = np.nanstd(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
-        print(f'# m_flux_bgs: {m_flux_bgs_median} +- {m_flux_bgs_std}');
 
+
+        m_flux_bgs_max = np.nanmax(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
+        m_flux_bgs_median = np.nanmedian(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
+
+        m_flux_bgs_std = np.nanstd(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
+        m_flux_bgs_SN = m_flux_bgs_max / m_flux_bgs_std
+        print(f'# m_flux_bgs: {m_flux_bgs_median} +- {m_flux_bgs_std}');
+        print(f'# m_flux_bgs_max: {m_flux_bgs_max},  S/N: {m_flux_bgs_SN}');
+        WA0 = 6500.0
+        WA1 = 6650.0
+
+        WAb0 = WA0-60.0
+#        WAb1 = WA0-30.0
+        mask_WA = (wl__w > WA0) & (wl__w < WA1)
+#        mask_WAb = (wl__w > WAb0) & (wl__w < WAb1)
+        m_flux_bgs_max_WA = np.nanmax(m_flux_bgs[mask_WA])
+        m_flux_bgs_median_WA = np.nanmedian(m_flux_bgs[mask_WA])
+        m_flux_bgs_std_WA = np.nanmedian(e_flux[mask_WA])
+        m_flux_bgs_SN_WA = m_flux_bgs_max_WA / m_flux_bgs_std_WA
+        print(f'# m_flux_bgs auto_z     window: {m_flux_bgs_median_WA} +- {m_flux_bgs_std_WA}');
+        print(f'# m_flux_bgs_max auto_z window: {m_flux_bgs_max_WA},  S/N: {m_flux_bgs_SN_WA}');
         
 #        if (args.plot==1):
 #          plt.plot(wl__w,m_flux_bgs)    
@@ -1186,6 +1203,36 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                                               sigma__yx,eflux__wyx=m_e_flux_rss,\
                                               flux_ssp__wyx=m_s_flux_rss,w_range=15,\
                                             plot=args.do_plots)
+#m_flux_rss[0,:]=out_model[0,:]-out_model[1,:]
+    
+    if (args.plot==1):
+      fig,ax = plt.subplots(1,1,figsize=(12,4.5))
+      ax.plot(wl__w,\
+              m_flux_rss[0,:],color='black',linewidth=1.5,label='obs.')
+      ne_np = int(fe_m_data.shape[0]/8)
+      for k in np.arange(ne_np):
+         I0 = fe_m_data[k, 0] #*cdelt*np.sqrt(2*np.pi)
+         vel_I1 = fe_m_data[ne_np + k, 0] 
+         I2 = fe_m_data[2*ne_np + k, 0]
+         w_m_guess = tab_el[k]['wl']*(1+vel_I1/300000)
+         G_f = np.exp(-0.5*((wl__w - w_m_guess)/I2)**2)
+         if (k==0): 
+           G = (I0/(I2*np.sqrt(2*np.pi)))*G_f
+         else:
+           G = G + (I0/(I2*np.sqrt(2*np.pi)))*G_f                
+         ax.plot([w_m_guess,w_m_guess],[0.8*np.nanmax(m_flux),np.nanmax(m_flux)],color='red',alpha=0.8)
+      ax.plot(wl__w,G,color='blue',alpha=0.8,label='NP mod.')
+      ax.plot(wl__w,m_flux_rss[0,:]-G,color='orange',alpha=0.8,label='NP res.')
+      ax.set_title(f'NP analysis')
+      ax.set_xlabel(r'wavelength ($\AA$)')
+      ax.set_ylabel(r'flux')
+      ax.legend()
+      plt.tight_layout()
+      plt.show(block=True)
+    
+
+
+    
     colnames=[]
     for i in range(fe_m_data.shape[0]):
       colname=str(fe_m_hdr[f'NAME{i}'])+'_'+str(fe_m_hdr[f'WAVE{i}'])

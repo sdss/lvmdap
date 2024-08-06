@@ -106,7 +106,6 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
             input_header[units_label] = "{}".format(units)
     for k in np.arange(0, ne):
         f_m = 1 + vel__yx / __c__
-        w_m_guess = wavelengths[k]*f_m
         start_w_m = wavelengths[k]*f_m - 1.5*__sigma_to_FWHM__*sigma__yx
         end_w_m = wavelengths[k]*f_m + 1.5*__sigma_to_FWHM__*sigma__yx
         start_i_m = ((start_w_m - crval)/cdelt).astype(int)
@@ -121,18 +120,6 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
         mask = (~(mask1 | mask2 | mask3)) & sigma_mask
         [i_m] = np.where(mask)
         for i in i_m:
-#            print('*** PASO:',i,i_m,plot)
-            if (plot==1):
-#                print(k,ne,start_w_m,end_w_m,f_m,__sigma_to_FWHM__,sigma__yx)
-                w_plot = crval+np.arange(0,flux__wyx[i, :].shape[0])*cdelt
-                mask_wave = (w_plot>start_w_m[0]) & (w_plot<end_w_m[0])
-                plt.plot(w_plot[mask_wave],\
-                         flux__wyx[i, :][mask_wave],color='black')
-                plt.plot([w_m_guess,w_m_guess],[np.min(flux__wyx[i, :][mask_wave]),np.max(flux__wyx[i, :][mask_wave])],color='orange')
-                plt.show(block=True)
-
-#                time.sleep(5)
-
             I0, vel_I1, I2, EW, s_I0, s_vel_I1, s_I2, e_EW = momana_spec_wave(
                 gas_flux__w=flux__wyx[i, :],
                 egas_flux__w=eflux__wyx[i, :],
@@ -142,32 +129,49 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
                 crval=crval, cdelt=cdelt,
                 n_MC=n_MC, flux_ssp__w=flux_ssp__wyx[i, :],
             )
-#            print(I0, vel_I1, I2, EW, s_I0, s_vel_I1, s_I2, e_EW)
+            I2=1.217*(I2/2.354)**2
+            sig_I2 = I2#/2.354
+            w_m_guess = wavelengths[k]*(1+vel_I1/__c__)
             #
-            # Patch! 24.08.05
+            # Aperture correction
             #
-            #I0 = I0 * 1.02
-            #I0 = I0*cdelt*np.sqrt(2*np.pi)
-            #I0 = I0*1.1#np.sqrt(1.217*(I2/2.354)**2/cdelt)
-            
-            #print(f'vel {vel_I1} vs {vel__yx[i]}')
-
+            w_plot = crval+np.arange(0,flux__wyx[i, :].shape[0])*cdelt
+            mask_wave = (w_plot>start_w_m[0]) & (w_plot<end_w_m[0])
+            G_f = np.exp(-0.5*((w_plot-wavelengths[k]*(1+vel_I1/__c__))/sig_I2)**2)
+            sum_G = sig_I2 * np.sqrt(2*np.pi)
+            sum_G_obs = np.sum(G_f[mask_wave]*cdelt)
+            A_corr = sum_G/sum_G_obs
+            #print(f'# A_corr = {A_corr}')
+            if (np.isfinite(A_corr)):
+                I0=I0*A_corr
+            G = (I0/(sig_I2*np.sqrt(2*np.pi)))*G_f            
+            res_NP = flux__wyx[i, :]-G            
+            if (plot==1):
+                fig,ax = plt.subplots(1,1,figsize=(8,4.5))
+                ax.plot(w_plot[mask_wave],\
+                         flux__wyx[i, :][mask_wave],color='black',linewidth=1.5,label='obs.')
+                ax.plot([w_m_guess,w_m_guess],[0.8*np.max(flux__wyx[i, :][mask_wave]),np.max(flux__wyx[i, :][mask_wave])],color='red',alpha=0.8)
+                ax.plot(w_plot[mask_wave],\
+                         G[mask_wave],color='blue',alpha=0.8,label='NP mod.')
+                ax.plot(w_plot[mask_wave],\
+                         res_NP[mask_wave],color='orange',alpha=0.8,label='NP res.')
+                ax.set_title(f'NP analysis: {wavelengths[k]}')
+                ax.set_xlabel(r'wavelength ($\AA$)')
+                ax.set_ylabel(r'flux')
+                ax.legend()
+                plt.tight_layout()
+                plt.show(block=True)
             out[k, i] = I0 #*cdelt*np.sqrt(2*np.pi)
             out[ne + k, i] = vel_I1
-            #
-            # Hack based on simulations
-            # 08.02.2024
-            #out[2*ne + k, i] = I2
-            #
-            # New results
-            #
-            out[2*ne + k, i] = 1.217*(I2/2.354)**2
+            out[2*ne + k, i] = I2
             out[3*ne + k, i] = EW
             out[4*ne + k, i] = s_I0
             out[5*ne + k, i] = s_vel_I1
             out[6*ne + k, i] = s_I2
             out[7*ne + k, i] = e_EW
             print('# :',I0,vel_I1, 1.217*(I2/2.354)**2, EW, s_I0, s_vel_I1, s_I2, e_EW)
+        
         print('{}/{}, {},{} DONE'.format(k + 1, ne, wavelengths[k], name_elines[k]))
+    
     return out, input_header
 
