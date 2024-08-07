@@ -43,7 +43,7 @@ from lvmdap.dap_tools import load_in_rss, read_MaStar_PT
 from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, read_tab_EL
 from lvmdap.dap_tools import find_redshift_spec, replace_nan_inf_with_adjacent_avg
 from lvmdap.dap_tools import find_continuum
-from lvmdap.flux_elines_tools import flux_elines_RSS_EW
+from lvmdap.flux_elines_tools import flux_elines_RSS_EW,flux_elines_RSS_EW_cl
 
 from scipy.ndimage import gaussian_filter1d,median_filter
 
@@ -820,8 +820,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       m_flux = np.abs(nanaverage(rss_flux[mask_SN],1/rss_eflux[mask_SN]**2,axis=0))
       e_flux = np.sqrt(np.nanmedian(rss_eflux[mask_SN]**2/rss_flux[mask_SN].shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
 
-    m_flux_median = np.nanmedian(m_flux[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
-    m_eflux_median = np.nanmedian(e_flux[int(0.45*e_flux.shape[0]):int(0.55*e_flux.shape[0])])
+    m_flux_median = np.nanmedian(m_flux[int(0.25*m_flux.shape[0]):int(0.35*m_flux.shape[0])])
+    m_eflux_median = np.nanmedian(e_flux[int(0.25*e_flux.shape[0]):int(0.35*e_flux.shape[0])])
     m_flux_SN = m_flux_median/m_eflux_median
     print(f'# m_flux: {m_flux_median}, m_eflux: {m_eflux_median}');
 #    print(f'# m_flux: {np.nanmedian(m_flux)} +- {np.nanmedian(e_flux)}');
@@ -925,14 +925,17 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       auto_z=find_redshift_spec(wl__w,m_flux_bgs,z_min=auto_z_min,z_max=auto_z_max,d_z=auto_z_del,\
                                 w_min=6500,w_max=6650,w_ref=(6548.05,6562.85,6583.45),do_plot=args.do_plots)
       if (auto_z != auto_z_min):
-        args.redshift[0]=auto_z
-        args.redshift[2]=args.redshift[2]*(1+auto_z)+auto_z
-        args.redshift[3]=args.redshift[3]*(1+auto_z)+auto_z
-        args.w_range_nl[0]=args.w_range_nl[0]*(1+auto_z)
-        args.w_range_nl[1]=args.w_range_nl[1]*(1+auto_z)     
-        print(f'# Auto_z derivation ({auto_z_min},{auto_z_max},{auto_z_del}) :{auto_z}')
+        if (m_flux_bgs_SN_WA>10):
+          args.redshift[0]=auto_z
+          args.redshift[2]=args.redshift[2]*(1+auto_z)+auto_z
+          args.redshift[3]=args.redshift[3]*(1+auto_z)+auto_z
+          args.w_range_nl[0]=args.w_range_nl[0]*(1+auto_z)
+          args.w_range_nl[1]=args.w_range_nl[1]*(1+auto_z)     
+          print(f'# Auto_z derivation ({auto_z_min},{auto_z_max},{auto_z_del}) :{auto_z}')
+        else:
+          print(f'# No auto_z derived, S/N is too low')
       else:
-        if (m_flux_SN>10):
+        if (m_flux_SN>20):
           args.redshift[0]=0.0
           args.redshift[2]=auto_z_min
           args.redshift[3]=auto_z_max
@@ -1003,8 +1006,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     tab_el=read_tab_EL(args.emission_lines_file_long)
     #    print('EL file:',args.emission_lines_file_long)
-    #    print('tab_EL:',tab_el)
-    #    quit()
+    
+    #print('tab_EL:',tab_el['id'])
+    #quit()
 
 
     #
@@ -1199,38 +1203,12 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     sigma__yx=0.8
     print(f'# Guess Kin param. for NP elines analysis: {vel__yx} {sigma__yx}')
     
-    fe_m_data, fe_m_hdr =flux_elines_RSS_EW(m_flux_rss, hdr_flux_org, 5, args.emission_lines_file, vel__yx,\
+    fe_m_data, fe_m_hdr =flux_elines_RSS_EW_cl(m_flux_rss, hdr_flux_org, 5, tab_el, vel__yx,\
                                               sigma__yx,eflux__wyx=m_e_flux_rss,\
                                               flux_ssp__wyx=m_s_flux_rss,w_range=15,\
                                             plot=args.do_plots)
 #m_flux_rss[0,:]=out_model[0,:]-out_model[1,:]
     
-    if (args.plot==1):
-      fig,ax = plt.subplots(1,1,figsize=(12,4.5))
-      ax.plot(wl__w,\
-              m_flux_rss[0,:],color='black',linewidth=1.5,label='obs.')
-      ne_np = int(fe_m_data.shape[0]/8)
-      for k in np.arange(ne_np):
-         I0 = fe_m_data[k, 0] #*cdelt*np.sqrt(2*np.pi)
-         vel_I1 = fe_m_data[ne_np + k, 0] 
-         I2 = fe_m_data[2*ne_np + k, 0]
-         w_m_guess = tab_el[k]['wl']*(1+vel_I1/300000)
-         G_f = np.exp(-0.5*((wl__w - w_m_guess)/I2)**2)
-         if (k==0): 
-           G = (I0/(I2*np.sqrt(2*np.pi)))*G_f
-         else:
-           G = G + (I0/(I2*np.sqrt(2*np.pi)))*G_f                
-         ax.plot([w_m_guess,w_m_guess],[0.8*np.nanmax(m_flux),np.nanmax(m_flux)],color='red',alpha=0.8)
-      ax.plot(wl__w,G,color='blue',alpha=0.8,label='NP mod.')
-      ax.plot(wl__w,m_flux_rss[0,:]-G,color='orange',alpha=0.8,label='NP res.')
-      ax.set_title(f'NP analysis')
-      ax.set_xlabel(r'wavelength ($\AA$)')
-      ax.set_ylabel(r'flux')
-      ax.legend()
-      plt.tight_layout()
-      plt.show(block=True)
-    
-
 
     
     colnames=[]
@@ -1436,9 +1414,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #    vel__yx=tab_PE_ord['vel_6562.68'].value
 #    sigma__yx=2.354*tab_PE_ord['disp_6562.68'].value
 
-    fe_data, fe_hdr =flux_elines_RSS_EW(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5, args.emission_lines_file_long, vel__yx,\
+    fe_data, fe_hdr =flux_elines_RSS_EW_cl(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5,\
+                                           tab_el, vel__yx,\
                                               sigma__yx,eflux__wyx=rss_eflux,\
-                                              flux_ssp__wyx=model_spectra[1,:,:],w_range=15)
+                                              flux_ssp__wyx=model_spectra[1,:,:],w_range=15,verbose=False)
 
     
     colnames=[]

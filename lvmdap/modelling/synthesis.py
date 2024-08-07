@@ -1014,7 +1014,7 @@ class StellarSynthesis(StPopSynt):
 
         model_min = s['model_min'] #/ ratio
         res_min = s['raw_flux']- model_min
-        print(f'# model_min = {model_min}')
+#        print(f'# model_min = {model_min}')
         if self.SN_norm_window > 10:
             y_ratio=self.SPS_subtract_continuum(model_min)
         else:
