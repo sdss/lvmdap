@@ -758,14 +758,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     if (mask_to_val==True):
       print("# Modifying masked regions with dummy values")
       rss_flux_org = replace_nan_inf_with_adjacent_avg(rss_flux_org)
-#      rss_eflux_org = 0.1*np.abs(rss_flux_org)
       rss_eflux_org = replace_nan_inf_with_adjacent_avg(rss_eflux_org)
       rss_eflux_org[rss_eflux_org == 0] = np.nanmedian(rss_eflux_org)
-#      nanmedian_flux = np.abs(np.nanmedian(rss_flux_org))
-#      max_eflux = np.abs(10*np.nanmax(rss_eflux_org))
-#      rss_flux_org = np.nan_to_num(rss_flux_org, copy=True, nan=nanmedian_flux, posinf=nanmedian_flux, neginf=nanmedian_flux)
-#      rss_eflux_org = np.nan_to_num(rss_eflux_org, copy=True, nan=max_eflux, posinf=max_eflux, neginf=max_eflux)
-#      rss_eflux_org[rss_eflux_org == 0 ] = max_eflux
+
 
       
     print('# Reading input fits file finished...')
@@ -820,6 +815,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       m_flux = np.abs(nanaverage(rss_flux[mask_SN],1/rss_eflux[mask_SN]**2,axis=0))
       e_flux = np.sqrt(np.nanmedian(rss_eflux[mask_SN]**2/rss_flux[mask_SN].shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
 
+
+    m_flux[~np.isfinite(m_flux)]=np.nanmedian(m_flux)
+    e_flux[~np.isfinite(e_flux)]=np.nanmedian(e_flux)
+      
     m_flux_median = np.nanmedian(m_flux[int(0.25*m_flux.shape[0]):int(0.35*m_flux.shape[0])])
     m_eflux_median = np.nanmedian(e_flux[int(0.25*e_flux.shape[0]):int(0.35*e_flux.shape[0])])
     m_flux_SN = m_flux_median/m_eflux_median
@@ -901,6 +900,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         WAb0 = WA0-60.0
 #        WAb1 = WA0-30.0
         mask_WA = (wl__w > WA0) & (wl__w < WA1)
+        print(m_flux[mask_WA])
+        print(m_flux_bg[mask_WA])
+        print(m_flux_bgs[mask_WA])
 #        mask_WAb = (wl__w > WAb0) & (wl__w < WAb1)
         m_flux_bgs_max_WA = np.nanmax(m_flux_bgs[mask_WA])
         m_flux_bgs_median_WA = np.nanmedian(m_flux_bgs[mask_WA])
