@@ -900,9 +900,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         WAb0 = WA0-60.0
 #        WAb1 = WA0-30.0
         mask_WA = (wl__w > WA0) & (wl__w < WA1)
-        print(m_flux[mask_WA])
-        print(m_flux_bg[mask_WA])
-        print(m_flux_bgs[mask_WA])
 #        mask_WAb = (wl__w > WAb0) & (wl__w < WAb1)
         m_flux_bgs_max_WA = np.nanmax(m_flux_bgs[mask_WA])
         m_flux_bgs_median_WA = np.nanmedian(m_flux_bgs[mask_WA])
