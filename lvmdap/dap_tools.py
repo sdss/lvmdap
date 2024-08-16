@@ -258,7 +258,7 @@ def map_plot_DAP_rgb(tab_DAP,\
                      rgb_scale=(1.0,1.0,1.0),\
                  vmin=0, vmax=0, titles=('r','g','b'), filename='junk',\
                 fsize=5, figs_dir='.',fig_type='png',\
-                 gamma=1.0, sf=1.0, tab_pt=None,fs=18):
+                     gamma=1.0, sf=1.0, tab_pt=None,fs=18, equal=True):
 
     rc.update({'font.size': fs*fsize/5,\
                'font.weight': 900,\
@@ -347,7 +347,8 @@ def map_plot_DAP_rgb(tab_DAP,\
     if (tab_pt != None):
         for tap_pt_now in tab_pt:
             ax.text(tab_pt['ra'],tab_pt['dec'],tab_pt['id'])
-#    ax.set_aspect('equal', adjustable='box')
+    if (equal == True):
+        ax.set_aspect('equal', adjustable='box')
     try:
         plt.show()
     except:
