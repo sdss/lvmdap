@@ -929,7 +929,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #          plt.plot(wl__w,m_flux_bg,alpha=0.7,color='cyan')
 #          plt.plot(wl__w,m_flux_bgs,alpha=0.7,color='red')
 
-          plt.show()
+#          plt.show()
         #
         # We remove the residuals of the emission lines
         # from the integrated spectrum
