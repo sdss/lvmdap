@@ -2381,7 +2381,7 @@ def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     ax0.axvspan(7400, 7800, alpha=0.7, color='grey',zorder=10)        
     sgamma=str(gamma)
 
-    ax0.set_ylabel(r'Flux$^{0.5}_\lambda$', fontsize=23)  
+    ax0.set_ylabel(r'Norm. Flux$^{0.5}_\lambda$', fontsize=23)  
     
     plt.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")

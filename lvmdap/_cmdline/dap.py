@@ -808,21 +808,34 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     mask_SN = (SN_map>3)
     N_SN_3 = len(SN_map[mask_SN])
     print(f'# N.fibers with SN>3 [{w0},{w1}] : {N_SN_3}')
+    #
+    # Averaging weighting by the error may not
+    # 
+    
     if (N_SN_3<3):
-      m_flux = np.abs(nanaverage(rss_flux,1/rss_eflux**2,axis=0))
+      #m_flux = np.abs(nanaverage(rss_flux,1/rss_eflux**2,axis=0))
+      m_flux = nanaverage(rss_flux,1/rss_eflux**2,axis=0)
+      #m_flux = np.mean(rss_flux,axis=0))
       e_flux = np.sqrt(np.nanmedian(rss_eflux**2/rss_flux.shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
     else:
-      m_flux = np.abs(nanaverage(rss_flux[mask_SN],1/rss_eflux[mask_SN]**2,axis=0))
+#      m_flux = np.mean(rss_flux[mask_SN],axis=0))
+      #m_flux = np.abs(nanaverage(rss_flux,1/rss_eflux**2,axis=0))
+      m_flux = nanaverage(rss_flux[mask_SN],1/rss_eflux[mask_SN]**2,axis=0)
       e_flux = np.sqrt(np.nanmedian(rss_eflux[mask_SN]**2/rss_flux[mask_SN].shape[0],axis=0))#/np.sqrt(rss_flux.shape[0])
 
 
     m_flux[~np.isfinite(m_flux)]=np.nanmedian(m_flux)
     e_flux[~np.isfinite(e_flux)]=np.nanmedian(e_flux)
-      
+
+    # No negative values allowed!
+    # Statistical bias in here:
+    # But needed for the rest of the fit!
+    m_flux[m_flux<=0]=e_flux[m_flux<0]/1e6
+    
     m_flux_median = np.nanmedian(m_flux[int(0.25*m_flux.shape[0]):int(0.35*m_flux.shape[0])])
     m_eflux_median = np.nanmedian(e_flux[int(0.25*e_flux.shape[0]):int(0.35*e_flux.shape[0])])
     m_flux_SN = m_flux_median/m_eflux_median
-    print(f'# m_flux: {m_flux_median}, m_eflux: {m_eflux_median}');
+    print(f'# m_flux: {m_flux_median}, m_eflux: {m_eflux_median} => {m_flux_SN}');
 #    print(f'# m_flux: {np.nanmedian(m_flux)} +- {np.nanmedian(e_flux)}');
     #
     # 29.07.25
@@ -883,8 +896,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        plt.plot(wl__w,m_flux)
 #        plt.plot(wl__w,m_flux_bg)
 #        if (args.plot==1):
-#          plt.plot(wl__w,m_flux_bgs)    
-        m_flux_bgs = m_flux_bgs-specSky_e_mod
+#          plt.plot(wl__w,m_flux_bgs)
+#        if           plt.plot(wl__w,m_flux_bg)    
+#        m_flux_bgs = m_flux_bgs-specSky_e_mod
 
 
         m_flux_bgs_max = np.nanmax(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
@@ -911,12 +925,19 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #        if (args.plot==1):
 #          plt.plot(wl__w,m_flux_bgs)    
 #          plt.plot(wl__w,specSky_e_mod)
-#          plt.plot(wl__w,m_flux_bgs)    
-#          plt.show()
+#          plt.plot(wl__w,m_flux,linewidth=2,color='black')    
+#          plt.plot(wl__w,m_flux_bg,alpha=0.7,color='cyan')
+#          plt.plot(wl__w,m_flux_bgs,alpha=0.7,color='red')
+
+          plt.show()
         #
         # We remove the residuals of the emission lines
         # from the integrated spectrum
-        m_flux = m_flux-specSky_e_mod
+
+        if (m_flux_SN>0):
+          m_flux = m_flux-specSky_e_mod
+        else:
+          m_flux = m_flux-m_flux_bg
 
 
         
@@ -944,6 +965,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         else:
           print(f'# No auto_z peaks found, SN={m_flux_SN} use configuration file parameters')
 
+
+
+    
+      
     #
     #
       
