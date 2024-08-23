@@ -965,6 +965,7 @@ class StellarSynthesis(StPopSynt):
             SPS_kin.redshift_correct_masks(redshift=SPS_kin.best_redshift, correct_wl_ranges=correct_wl_ranges)
             coeffs_now, chi_sq, _ = SPS_kin.fit_WLS_invmat(ssp=ssp, smooth_cont=True, sel_wavelengths=s['sel_nl_wl'])
             self.best_coeffs_sigma = coeffs_now
+            SPS_kin.best_coeffs_sigma = coeffs_now
             if cf.delta_sigma > 0:
                 if not fit_sigma_rnd:
                     SPS_kin._fit_sigma(guided=guide_sigma)
