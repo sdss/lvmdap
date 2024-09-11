@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lvmdap"
-version = "1.0.0"
+version = "1.1.0"
 description = "LVM Data Analisys Pipeline"
 license = "MIT"
 authors = ["Sebastian F. Sanchez <sfsanchez@astro.unam.mx>","Alfredo Mejia-Narvaez <amejia@astro.unam.mx>"]
