@@ -23,20 +23,30 @@ conda create --name lvmdap python=3.11
 
 conda activate lvmdap
 
-conda install numpy=1.23.5  (** not to have problems with the new implemenation of np.float)
+conda install numpy=1.23.5  (** not to have problems with the new implemenation of np.float / np.int)
 
-pip install pyPipe3D
+or
+
+pip install numpy==1.23.5
+
+git clone https://gitlab.com/pipe3d/pyPipe3D.git
+
+cd pyPipe3D
+
+pip install . --user
+
+cd ..
 
 git clone git@github.com:sdss/lvmdap.git
 
 cd lvmdap
 
-pip install .
+pip install . --user
 
 
 Then you need to download the content of the following directory in your computer:
 
-http://ifs.astroscu.unam.mx/LVM/lvmdap_fitting-data/
+https://tinyurl.com/mudr6yw7
 
 We recommend you to define three environmental variables:
 
@@ -86,23 +96,23 @@ chmod +x fit_6109_strong.sh
 fit_6109_strong.sh
 
 
-(2) Download the lvmCFrame-00006109.fits.gz file in the LVM format from the following location:
+(2) Download the lvmSFrame-example.fits.gz file in the LVM format from the following location:
 
-http://ifs.astroscu.unam.mx/LVM/lvmdap_fitting-data/data/
+https://tinyurl.com/mudr6yw7
+
 
 or from the official repositories of the LVM and store it in the "data" subdirectory inside the "_examples" directory.
 
 Then, being in the location where you have downloaded the "lvmdap" repository (i.e. outside the "_examples"
 directory), run the following script:
 
-lvm-dap-conf _examples/data/lvmCFrame-00006109.fits.gz dap-4-00006109 _legacy/lvm-dap_fast.yaml
+lvm-dap-conf _examples/data/lvmSFrame-example.fits.gz dap-4-example _legacy/lvm-dap_fast.yaml
 
 or 
 
-lvm-dap-conf _examples/data/lvmCFrame-00006109.fits dap-4-00006109 _legacy/lvm-dap_fast.yaml
+lvm-dap-conf _examples/data/lvmCFrame-example.fits dap-4-example _legacy/lvm-dap_fast.yaml
 
 Depending if you have downloaded the compressed or uncompressed files.
-
 
 
 '''
@@ -116,20 +126,21 @@ usage: lvm-dap-conf [-h] [-d] lvm_file label config_yaml
 lvm_file:  Fitsfile in the LVM format, comprising the following extensions:
 
 No.    Name      Ver    Type      Cards   Dimensions   Format
-  0  PRIMARY       1 PrimaryHDU     301   () 
+  0  PRIMARY       1 PrimaryHDU     556   ()      
   1  FLUX          1 ImageHDU        22   (12401, 1944)   float32   
-  2  ERROR         1 ImageHDU         8   (12401, 1944)   float32   
-  3  MASK          1 ImageHDU         8   (12401, 1944)   uint8   
-  4  WAVE          1 ImageHDU         7   (12401,)   float32   
-  5  FWHM          1 ImageHDU         8   (12401, 1944)   float32   
-  6  SKY           1 ImageHDU         8   (12401, 1944)   float32   
-  7  SKY_ERROR     1 ImageHDU         8   (12401, 1944)   float32   
-  8  SUPERSKY      1 BinTableHDU     24   1458345R x 6C   [E, E, E, J, J, 4A]   
-  9  SLITMAP       1 BinTableHDU     43   1944R x 17C   [K, K, 3A, K, 8A, 5A, K, 4A, D, D, D, 6A, 8A, K, 17A, K, K]   
+  2  IVAR          1 ImageHDU        19   (12401, 1944)   float32   
+  3  MASK          1 ImageHDU        19   (12401, 1944)   uint8   
+  4  WAVE          1 ImageHDU        18   (12401,)   float64   
+  5  LSF           1 ImageHDU        19   (12401, 1944)   float32   
+  6  SKY           1 ImageHDU        19   (12401, 1944)   float32   
+  7  SKY_IVAR      1 ImageHDU        20   (12401, 1944)   float32   
+  8  SLITMAP       1 BinTableHDU     51   1944R x 21C   [K, K, 3A, K, 8A, 5A, K, 4A, D, D, D, 6A, 8A, K, 17A, D, K, K, K, D, D]   
 
 label: string to label the current run
 
 config_ymal: config file including the entries required to fit the spectra
+
+(see the example in provided in the link above)
 
 ---
 # output directory
