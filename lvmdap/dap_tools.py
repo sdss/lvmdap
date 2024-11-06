@@ -2228,8 +2228,8 @@ def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     std_sc = np.nanstd(data[0,i0:i1])
     SN_sc = med_sc / std_sc
     print(f'# S/N: {SN_sc} {med_sc} {std_sc}')
-    
-    data = data / np.abs(np.nanmedian(data[0,i0:i1]))
+    #     data = data / np.abs(np.nanmedian(data[0,i0:i1]))
+    data = data / (med_sc+0.05*std_sc)
     if (ny==7):
         ssp_model=data[6,:]
     else:
