@@ -27,11 +27,16 @@ from lvmdap.modelling.auto_rsp_tools import auto_rsp_elines_single_main
 
 from pyFIT3D.common.auto_ssp_tools import load_rss, dump_rss_output
 from pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
-
+from pyFIT3D.common.io import trim_waves, sel_waves, read_spectra, output_spectra, write_img_header
 from pyFIT3D.common.gas_tools import detect_create_ConfigEmissionModel
+from pyFIT3D.common.gas_tools import ConfigEmissionModel
 from pyFIT3D.common.io import create_ConfigAutoSSP_from_lists
 from pyFIT3D.common.io import create_emission_lines_file_from_list
 from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
+from pyFIT3D.common.gas_tools import kin_rss_elines_main
+from pyFIT3D.common.constants import __c__, __Ha_central_wl__, _MODELS_ELINE_PAR
+
+
 #from pyFIT3D.common.tools import read_coeffs_CS
 
 from lvmdap.modelling.synthesis import StellarSynthesis
@@ -705,6 +710,22 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
       auto_z_sc = True
 
+    try:
+      kin_fixed = args.kin_fixed
+    except:
+      kin_fixed = 2
+
+    try:
+      N_MC = args.N_MC
+    except:
+      N_MC = 20
+
+    try:
+      n_loops = args.n_loops
+    except:
+      n_loops = 5
+
+      
 
 
 
@@ -1222,8 +1243,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     ############################################################################
     # Run flux_elines on the mean spectrum
     #
-    #vel__yx=np.zeros(1)+SPS.best_redshift*300000
-    vel__yx=np.zeros(1)+args.redshift[0]*300000
+    #vel__yx=np.zeros(1)+SPS.best_redshift*__c__
+    vel__yx=np.zeros(1)+args.redshift[0]*__c__
     sigma__yx=0.8
     print(f'# Guess Kin param. for NP elines analysis: {vel__yx} {sigma__yx}')
     
@@ -1266,6 +1287,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     ############################################################################
     out_file_fe = os.path.join(args.output_path, f"{args.label}.fe.txt")
     out_file_elines = os.path.join(args.output_path, f"{args.label}.elines.txt")
+    out_file_kel = os.path.join(args.output_path, f"{args.label}.kel.txt")
     out_file_single = os.path.join(args.output_path, f"{args.label}.single.txt")
     out_file_coeffs = os.path.join(args.output_path, f"{args.label}.coeffs.txt")
     out_file_fit = os.path.join(args.output_path, f"{args.label}.output.fits.gz")
@@ -1277,6 +1299,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         clean_preview_results_files(out_file_ps, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
         clean_preview_results_files(out_file_fe, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
         clean_preview_results_files(out_file_dap, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
+        clean_preview_results_files(out_file_kel, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
     # ----------------------------------------------------------------------------------------------
     # OUTPUT NAMES ---------------------------------------------------------------------------------
     is_guided_sigma = False
@@ -1438,6 +1461,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #    vel__yx=tab_PE_ord['vel_6562.68'].value
 #    sigma__yx=2.354*tab_PE_ord['disp_6562.68'].value
 
+#    gas_spectra = 
     fe_data, fe_hdr =flux_elines_RSS_EW_cl(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5,\
                                            tab_el, vel__yx,\
                                               sigma__yx,eflux__wyx=rss_eflux,\
@@ -1474,6 +1498,90 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print("##################################################")
  
 
+    #
+    # 27.11.2024
+    #
+    print("#####################################################")
+    print("# START: KIN_ELINES analysis on full RSS spectra ###")
+    print("#####################################################")
+    # out_file_kel = os.path.join(args.output_path, f"{args.label}.kel.txt")
+    #    fe_data, fe_hdr =flux_elines_RSS_EW_cl(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5,\
+    #    tab_el, vel__yx,\
+    #                                          sigma__yx,eflux__wyx=rss_eflux,\
+    #                                          flux_ssp__wyx=model_spectra[1,:,:],w_range=15,verbose=False)
+    #     vel_mean=np.nanmean(tab_PE_ord[f'vel_{w_Ha}'])
+    # disp_mean=np.nanmean(tab_PE_ord[f'disp_{w_Ha}'])
+    cf = SPS.config
+
+    vel_map = np.array(tab_PE_ord[f'vel_{w_Ha}'])
+    vel_hr = 3*np.nanstd(vel_map)
+    vel_min = vel_mean - vel_hr
+    vel_max = vel_mean + vel_hr
+
+    vel_mask_map = None
+    sigma_map = np.array(tab_PE_ord[f'disp_{w_Ha}'])
+    sigma_fixed = None
+    vel_fixed = None
+    disp_sigma=np.nanstd(tab_PE_ord[f'disp_{w_Ha}'])
+
+#    plot=1
+    for i_s in range(cf.n_systems):
+      syst = cf.systems[i_s]
+      z_fact = 1 + vel_mean/__c__
+      w_min = syst['start_w']
+      w_max = syst['end_w']
+      w_min_corr = int(w_min*z_fact)
+      w_max_corr = int(w_max*z_fact)
+      elcf = cf.systems_config[i_s]
+      # v0
+      elcf.guess[0][_MODELS_ELINE_PAR['v0']] = vel_mean
+      elcf.to_fit[0][_MODELS_ELINE_PAR['v0']] = 1
+      elcf.pars_0[0][_MODELS_ELINE_PAR['v0']] = vel_min
+      elcf.pars_1[0][_MODELS_ELINE_PAR['v0']] = vel_max
+      elcf.links[0][_MODELS_ELINE_PAR['v0']] = -1
+      # sigma
+      elcf.guess[0][_MODELS_ELINE_PAR['sigma']] = disp_mean
+      elcf.to_fit[0][_MODELS_ELINE_PAR['sigma']] = 1
+      elcf.pars_0[0][_MODELS_ELINE_PAR['sigma']] = disp_mean-1.5*disp_sigma
+      elcf.pars_1[0][_MODELS_ELINE_PAR['sigma']] = disp_mean+1.5*disp_sigma
+      elcf.links[0][_MODELS_ELINE_PAR['sigma']] = -1
+      sel_wl_range = trim_waves(wl__w, [w_min_corr, w_max_corr])
+      #out_file_kel = os.path.join(args.output_path, f"{args.label}.kel_{i_s}")
+      gas_spectra = (model_spectra[0,:,:]-model_spectra[1,:,:])
+      sec_flux = gas_spectra.T[sel_wl_range]
+      sec_eflux = rss_eflux.T[sel_wl_range]
+      sec_flux = sec_flux.T
+      sec_eflux = sec_eflux.T
+      w_minmax_prefix = f'{w_min}_{w_max}'
+      _m_str = 'model'
+      if elcf.n_models > 1:
+        _m_str += 's'
+      print(f'# analyzing {elcf.n_models} {_m_str} in {w_minmax_prefix.replace("_", "-")} wavelength range')
+      kin_rss_elines_main(wl__w[sel_wl_range], \
+                          sec_flux,\
+                          elcf, out_file=out_file_kel, \
+                          rss_eflux=sec_eflux, run_mode='BOTH', guided=True, memo=False, \
+                          vel_map=vel_map, vel_mask_map=None, vel_fixed=kin_fixed,\
+                          sigma_map=sigma_map, sigma_fixed=kin_fixed, \
+                          n_MC=N_MC, n_loops=n_loops, scale_ini=0.15, \
+                          fine_search=None, redefine_max=False, max_factor=2, \
+                          redefine_min=False, min_factor=0.012, plot=args.plot)
+
+
+
+    tab_kel=read_elines_RSP(elines_file=out_file_kel)
+    id_kel=[]    
+    for id_fib in tab_kel['id_fib']:
+        id_kel.append(tab_PT['id'].value[id_fib])
+    id_kel=np.array(id_kel)
+    tab_kel.add_column(id_kel,name='id',index=0)
+      
+    print("#####################################################")
+    print("# END: KIN_ELINES analysis on full RSS spectra ###")
+    print("#####################################################")
+
+
+    
 
     print("##################################################")
     print("# START: Storing the results in a single file  ###")
@@ -1516,7 +1624,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #print('# Updating the header ###############')
     #hdr_0['dap_ver']=1.240208
     #hdr_0['dap_ver']=1.240730
-    hdr_0['dap_ver']='1.1.0.241106'
+    #hdr_0['dap_ver']='1.1.0.241106'
+    hdr_0['dap_ver']='1.1.0.241127'
     #for key in dict_param.keys():
     #  val=dict_param[key]
     #  hdr_0[key]=val
@@ -1536,8 +1645,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     hdu_FE_I = fits.BinTableHDU(tab_fe_I,name='NP_ELINES_I')
     hdu_RSP = fits.BinTableHDU(tab_rsp,name='RSP')
     hdu_COEFFS = fits.BinTableHDU(tab_coeffs,name='COEFFS')
-
-    hdu_dap =fits.HDUList([hdu_hdr_0,hdu_PT,hdu_RSP,hdu_COEFFS,hdu_ELINES,hdu_FE_B,hdu_FE_R,hdu_FE_I,hdu_info])
+    hdu_KEL = fits.BinTableHDU(tab_kel,name='PM_KEL')
+    
+    hdu_dap =fits.HDUList([hdu_hdr_0,hdu_PT,hdu_RSP,hdu_COEFFS,hdu_ELINES,hdu_FE_B,hdu_FE_R,hdu_FE_I,hdu_KEL,hdu_info])
     hdu_dap.writeto(out_file_dap,overwrite=True)
     print(f'# dap_file: {out_file_dap} written')
     print("##################################################")
@@ -1546,7 +1656,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     if (args.do_plots==1):
       print("##################################################")
-      print("# STAR: Plotting Ha and continous flux maps                                                   ###")
+      print("# START: Plotting Ha and continous flux maps                                                   ###")
       print("##################################################")
       tab_DAP=read_DAP_file(out_file_dap,verbose=True)
       param='flux_Halpha_6562.85'

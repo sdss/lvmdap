@@ -2566,7 +2566,13 @@ def read_DAP_file(dap_file,verbose=False):
     tab_NPE_B=Table(dap_hdu['NP_ELINES_B'].data)
     tab_NPE_R=Table(dap_hdu['NP_ELINES_R'].data)
     tab_NPE_I=Table(dap_hdu['NP_ELINES_I'].data)
-
+    kel_ext = 0
+    try:
+        kel_ext = 1
+        tab_KEL=Table(dap_hdu['PM_KEL'].data)
+    except:
+        kel_ext = 0
+        print('No PM_KEL extension')
     #
     # Rename some entries!
     #
@@ -2590,6 +2596,14 @@ def read_DAP_file(dap_file,verbose=False):
     tab_PE.rename_column('e_disp','e_disp_pe')
     tab_PE.rename_column('vel','vel_pe')
     tab_PE.rename_column('e_vel','e_vel_pe')
+
+    if (kel_ext == 1):
+        tab_KEL.rename_column('flux','flux_pek')
+        tab_KEL.rename_column('e_flux','e_flux_pek')
+        tab_KEL.rename_column('disp','disp_pek')
+        tab_KEL.rename_column('e_disp','e_disp_pek')
+        tab_KEL.rename_column('vel','vel_pek')
+        tab_KEL.rename_column('e_vel','e_vel_pek')
     #
     # id	id_fib	rsp	TEFF	LOGG	META	ALPHAM	COEFF	Min.Coeff	log(M/L)	AV	N.Coeff	Err.Coeff
     #
@@ -2630,8 +2644,32 @@ def read_DAP_file(dap_file,verbose=False):
                 tab_PE_ord=tab_PE_tmp
             else:
                 tab_PE_ord=join(tab_PE_ord,tab_PE_tmp,keys=['id'],join_type='left')
-            I=I+1
+            I=I+1        
     tab_DAP=join(tab_DAP,tab_PE_ord,keys=['id'],join_type='left')
+
+
+    #
+    # order parametric emission line table with fixed kinematics
+    #
+    if (kel_ext == 1):
+        mask_elines = (tab_KEL['model']=='eline')
+        tab_KEL = tab_KEL[mask_elines]
+    
+        a_wl = np.unique(tab_KEL['wl'])
+        I=0
+        for wl_now in a_wl:
+            if (wl_now>0.0):
+                tab_KEL_now=tab_KEL[tab_KEL['wl']==wl_now]
+                tab_KEL_tmp=tab_KEL_now['id','flux_pek','e_flux_pek','disp_pek','e_disp_pek','vel_pek','e_vel_pek']
+                for cols in tab_KEL_tmp.colnames:        
+                    if (cols != 'id'):
+                        tab_KEL_tmp.rename_column(cols,f'{cols}_{wl_now}')
+                if (I==0):
+                    tab_KEL_ord=tab_KEL_tmp
+                else:
+                    tab_KEL_ord=join(tab_KEL_ord,tab_KEL_tmp,keys=['id'],join_type='left')
+                I=I+1        
+        tab_DAP=join(tab_DAP,tab_KEL_ord,keys=['id'],join_type='left')
 
     #
     # Order COEFFS table
@@ -2665,6 +2703,11 @@ def read_DAP_file(dap_file,verbose=False):
         print('|        PE_ord                   |')
         print('----------------------------------')
         list_columns(tab_PE_ord.colnames)
+        if (kel_ext == 1):
+            print('----------------------------------')
+            print('|        PEK_ord                   |')
+            print('----------------------------------')
+            list_columns(tab_KEL_ord.colnames)
         print('----------------------------------')
         print('|        NPE_B                    |')
         print('----------------------------------')
