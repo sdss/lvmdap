@@ -1513,17 +1513,24 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # disp_mean=np.nanmean(tab_PE_ord[f'disp_{w_Ha}'])
     cf = SPS.config
 
-    vel_map = np.array(tab_PE_ord[f'vel_{w_Ha}'])
+    # We use as guide the non-parametric derivation
+    # vel_map = np.array(tab_PE_ord[f'vel_{w_Ha}'])
+    vel_map = np.array(tab_fe[f'vel_Halpha_{w_Ha}'])
     vel_hr = 3*np.nanstd(vel_map)
     vel_min = vel_mean - vel_hr
     vel_max = vel_mean + vel_hr
 
     vel_mask_map = None
-    sigma_map = np.array(tab_PE_ord[f'disp_{w_Ha}'])
+    # We use as guide the non-parametric derivation
+    #    sigma_map = np.array(tab_PE_ord[f'disp_{w_Ha}'])
+    #    disp_sigma=np.nanstd(tab_PE_ord[f'disp_{w_Ha}'])
+    sigma_map = np.array(tab_fe[f'disp_Halpha_{w_Ha}'])
+    disp_sigma=np.nanstd(tab_fe[f'disp_Halpha_{w_Ha}'])
     sigma_fixed = None
     vel_fixed = None
-    disp_sigma=np.nanstd(tab_PE_ord[f'disp_{w_Ha}'])
 
+
+    
 #    plot=1
     for i_s in range(cf.n_systems):
       syst = cf.systems[i_s]
