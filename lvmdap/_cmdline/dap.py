@@ -725,6 +725,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
       n_loops = 5
 
+    try:
+      w_range_FE = args.w_range_FE
+    except:
+      w_range_FE = 30
+
       
 
 
@@ -1250,7 +1255,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     
     fe_m_data, fe_m_hdr =flux_elines_RSS_EW_cl(m_flux_rss, hdr_flux_org, 5, tab_el, vel__yx,\
                                               sigma__yx,eflux__wyx=m_e_flux_rss,\
-                                              flux_ssp__wyx=m_s_flux_rss,w_range=15,\
+                                              flux_ssp__wyx=m_s_flux_rss,w_range=w_range_FE,\
                                             plot=args.do_plots)
 #m_flux_rss[0,:]=out_model[0,:]-out_model[1,:]
     
@@ -1465,7 +1470,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     fe_data, fe_hdr =flux_elines_RSS_EW_cl(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5,\
                                            tab_el, vel__yx,\
                                               sigma__yx,eflux__wyx=rss_eflux,\
-                                              flux_ssp__wyx=model_spectra[1,:,:],w_range=15,verbose=False)
+                                              flux_ssp__wyx=model_spectra[1,:,:],w_range=w_range_FE,verbose=False)
 
     
     colnames=[]
