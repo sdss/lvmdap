@@ -48,6 +48,7 @@ from lvmdap.dap_tools import load_in_rss, read_MaStar_PT
 from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, read_tab_EL
 from lvmdap.dap_tools import find_redshift_spec, replace_nan_inf_with_adjacent_avg
 from lvmdap.dap_tools import find_continuum
+from lvmdap.dap_tools import fit_legendre_polynomial
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW,flux_elines_RSS_EW_cl
 
 from scipy.ndimage import gaussian_filter1d,median_filter
@@ -511,6 +512,7 @@ def _main(cmd_args=sys.argv[1:]):
 def _dap_yaml(cmd_args=sys.argv[1:]):
     PLATESCALE = 112.36748321030637
 
+    
 #    print(f'n_MC = {__n_Monte_Carlo__}')
 #    quit()
 
@@ -730,7 +732,17 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     except:
       w_range_FE = 30
 
-      
+
+    try:
+      smooth_size = args.smooth_size
+    except:
+      smooth_size = 21
+
+    try:
+      n_leg = args.n_leg
+    except:
+      n_leg = 51
+
 
 
 
@@ -1235,12 +1247,22 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # Run flux_elines on the mean spectrum once subtracted the RSP model
     #
     out_model = np.array(SPS.output_spectra_list)
+    #
+    # We re-arange the results
+    #
+    gas = out_model[0,:] - out_model[1,:]
+    smooth = median_filter(gas, size=smooth_size, mode='reflect')
+    l_smooth = fit_legendre_polynomial(wl__w, smooth,n_leg)
+    out_model[2,:] = out_model[2,:]+l_smooth
+    out_model[3,:] = out_model[0,:]-(out_model[1,:]+l_smooth)
+    out_model[4,:] = out_model[0,:]-out_model[2,:]
+    
     m_flux_rss = np.zeros((1,m_flux.shape[0]))
-    m_flux_rss[0,:]=out_model[0,:]-out_model[1,:]
+    m_flux_rss[0,:]=out_model[0,:]-out_model[1,:]+l_smooth
     m_e_flux_rss = np.zeros((1,m_flux.shape[0]))
     m_e_flux_rss[0,:]=e_flux
     m_s_flux_rss = np.zeros((1,s_flux.shape[0]))
-    m_s_flux_rss[0,:]=out_model[1,:]
+    m_s_flux_rss[0,:]=out_model[1,:]+l_smooth
 
 
 
@@ -1383,9 +1405,25 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             SPS.e_alph_min_mass = np.nan
             SPS.e_AV_min_mass = np.nan
             SPS.output(filename=out_file_ps, write_header=i==0, block_plot=False)
-        model_spectra.append(SPS.output_spectra_list)
+        model_spectra.append(SPS.output_spectra_list) 
+
+
 
     model_spectra = np.array(model_spectra).transpose(1, 0, 2)
+
+    #
+    # We re-arange the results
+    #
+    gas_spectra = model_spectra[0,:,:] - model_spectra[1,:,:]
+    l_smooth_spectra = gas_spectra*0.0
+    for idx,gas in enumerate(gas_spectra): 
+      smooth = median_filter(gas, size=smooth_size, mode='reflect')
+      l_smooth = fit_legendre_polynomial(wl__w, smooth,n_leg)
+      l_smooth_spectra[idx,:] = l_smooth
+      
+    model_spectra[2,:,:] = model_spectra[2,:,:] + l_smooth_spectra
+    model_spectra[3,:,:] = model_spectra[0,:,:] - (model_spectra[1,:,:] + l_smooth_spectra)
+    model_spectra[4,:,:] = model_spectra[0,:,:] - model_spectra[2,:,:]
 
 
     tab_rsp=read_rsp(file_ssp=out_file_ps)
@@ -1467,7 +1505,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 #    sigma__yx=2.354*tab_PE_ord['disp_6562.68'].value
 
 #    gas_spectra = 
-    fe_data, fe_hdr =flux_elines_RSS_EW_cl(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5,\
+    fe_data, fe_hdr =flux_elines_RSS_EW_cl(model_spectra[0,:,:]-model_spectra[1,:,:]-l_smooth_spectra, hdr_flux, 5,\
                                            tab_el, vel__yx,\
                                               sigma__yx,eflux__wyx=rss_eflux,\
                                               flux_ssp__wyx=model_spectra[1,:,:],w_range=w_range_FE,verbose=False)
@@ -1559,7 +1597,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       elcf.links[0][_MODELS_ELINE_PAR['sigma']] = -1
       sel_wl_range = trim_waves(wl__w, [w_min_corr, w_max_corr])
       #out_file_kel = os.path.join(args.output_path, f"{args.label}.kel_{i_s}")
-      gas_spectra = (model_spectra[0,:,:]-model_spectra[1,:,:])
+      gas_spectra = (model_spectra[0,:,:]-model_spectra[1,:,:]-l_smooth_spectra)
       sec_flux = gas_spectra.T[sel_wl_range]
       sec_eflux = rss_eflux.T[sel_wl_range]
       sec_flux = sec_flux.T

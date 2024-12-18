@@ -44,6 +44,7 @@ from scipy.ndimage import gaussian_filter1d, median_filter
 from astropy.convolution import convolve
 #from scipy.ndimage import generic_filter
 
+from numpy.polynomial.legendre import Legendre
 
 warnings.simplefilter('ignore', category=VerifyWarning)
 
@@ -2727,3 +2728,26 @@ def read_DAP_file(dap_file,verbose=False):
         
     return tab_DAP
     
+
+def fit_legendre_polynomial(x, y, degree):
+    """
+    Fits a Legendre polynomial to the given data points.
+
+    Parameters:
+    - x (array-like): The x-coordinates of the data points.
+    - y (array-like): The y-coordinates of the data points.
+    - degree (int): The degree of the Legendre polynomial to fit.
+
+    Returns:
+    - Legendre: The fitted Legendre polynomial object.
+    - callable: A callable function representing the fitted polynomial.
+    """
+    # Normalize x to the interval [-1, 1] for Legendre polynomial fitting
+    x_min, x_max = np.min(x), np.max(x)
+    x_normalized = 2 * (x - x_min) / (x_max - x_min) - 1
+    
+    # Fit the Legendre polynomial
+    coeffs = Legendre.fit(x_normalized, y, degree).convert().coef
+    legendre_poly = Legendre(coeffs)
+    vals = legendre_poly(2 * (x - x_min) / (x_max - x_min) - 1) 
+    return vals
