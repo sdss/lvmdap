@@ -346,7 +346,7 @@ def _main(cmd_args=sys.argv[1:]):
   try:
     n_leg = args.n_leg
   except:
-    n_leg = 51
+    n_leg = 11
 
   
   lvmCFrame=args.lvm_file
