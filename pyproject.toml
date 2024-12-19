@@ -51,6 +51,7 @@ gas-cube-extractor="lvmdap._cmdline.gas_cube_extractor:_main"
 mwm-dap="lvmdap._cmdline.mwm_dap:_main"
 lvm-dap-conf="lvmdap._cmdline.dap:_dap_yaml"
 lvm-dap-sim="lvmdap._cmdline.sim_spec_rsp:_main"
+lvm-dap-gen-out-mod="lvmdap._cmdline.gen_output_model:_main"
 
 [tool.dephell.main]
 from = {format = "poetry", path = "pyproject.toml"}
