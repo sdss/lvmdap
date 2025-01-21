@@ -14,8 +14,8 @@ The **LVM-DAP** is the official data analysis pipeline for the **SDSS-V Local Vo
 
 ### Recommended Setup
 It is recommended to install **LVM-DAP** in a virtual environment to avoid dependency issues. Options include:
-- [Miniconda](https://docs.conda.io/en/latest/miniconda.html)
-- [venv](https://docs.python.org/3.8/library/venv.html) (Recommended)
+- [Conda/Miniconda](https://docs.conda.io/en/latest/miniconda.html) (Recommended)
+- [venv](https://docs.python.org/3.8/library/venv.html) 
 - [pipenv](https://pipenv.pypa.io/en/latest/)
 
 ### Prerequisites
@@ -74,7 +74,7 @@ After a successful installation, the directory should be structured as follows:
 
 ---
 ## Running Tests
-### Test 1: Running Example Script
+### Test 1: Running Example Script (deprecated, just for testing)
 ```bash
 cd _examples/
 chmod +x fit_6109_strong.sh
@@ -174,20 +174,25 @@ single_rsp: False
   - 100
   - 3000
   out-plot-format: "pdf"
-# out-plot-format: "png"
-# only-integrated: False
+# Format of the output plot format : "png"
  only-integrated: True
-auto-redshift: True
+# Fit only the integrated spectrum or not
+ auto-redshift: True
+# Find the central redshift automatically using the integrated spectrum
 auto_z_min: -0.005
 auto_z_max: 0.01
 auto_z_del: 0.0001
+# Parameters that define the range min,max and delta
 auto_z_bg: True
+# Subtract the background to detect Ha+NII in the integrated spectrum to find the central redshift
 auto_z_sc: True
-#auto_z_del: 0.00001
-# auto-redshift: False
+# Correct the residual background for the integrated spectrum
 sky-hack: False
+# Appply a correction of the sky spectrum (deprecated, useful for DRP<1.0.3)
 SN_CUT: 20
+# SN cut for the multi-RSP analysis
 SN_CUT_INT: 0.1
+# SN cut for the single-RSP analysis
 ```
 
 ```bash
