@@ -95,6 +95,88 @@ lvm-dap-conf _examples/data/lvmSFrame-example.fits.gz dap-4-example _legacy/lvm-
 
 #### Example YAML Configuration
 ```yaml
+# output directory
+ output_path: "/disk-a/sanchez/LVM/LVM/ver_231113/output_dap/"
+# LVM-DAP software directory  
+ lvmdap_dir: "/home/sanchez/sda2/code/python/lvmdap"
+# rsp-file for the full stellar decomposition 
+ rsp-file: "../_fitting-data/_basis-binned_mastar/stellar-basis-spectra-binned-4-mastar.fits.gz"
+# rsp-file for the derivation of the non-linear (NL) parameters (vel, vel_disp, Av)
+ rsp-nl-file: "../_fitting-data/_basis-binned_mastar/stellar-basis-spectra-binned-4-mastar.fits.gz"
+# approximate instrumental resolution in AA
+ sigma-inst: 1
+# input format for fitting the data (deprecated)
+input-fmt: rss
+# redshift range (or velocity) to explore in the NL
+ redshift:
+  -  0.0      # guess
+  -  0.0001   # delta
+  -  -0.0003  # min
+  -  0.0003   # max
+# velocity dispersion in km/s range to explore in the NL
+ sigma:
+  - 1  # guess
+  - 5  # delta
+  - 1  # min
+  - 15 # max
+# Dust attenuation in the V-band
+ AV:
+  - 0    # guess
+  - 0.3  # delta
+  - 0.0  # min
+  - 1.5  # max
+# list of strong emission lines to analyze
+ emission-lines-file: ../_legacy/emission_lines_strong.LVM 
+# emission-lines-file-long: ../_legacy/emission_lines_long_list.LVM
+# full list of emission lines to analyze using the non-parametric fitting procedure
+emission-lines-file-long: ../_legacy/emission_lines_strong.LVM
+# Wavelength range in which the full stellar decomposition is peformed
+w-range:
+  - 3700
+  - 9500
+# Wavelength range in which the kinematics parameters (vel,vel_disp) are fitted
+w-range-nl:
+  - 3800
+  - 4200
+# File comprising the wavelength bands to be masked (e.g., the bands between spectrographs)
+ mask-file: ../_legacy/mask_bands_LVM.txt
+# File with a set wavelengths to mask (narrow range around the designed wavelength)
+ mask_file: none
+# Configuration file defining the emission lines to fit during the RSP fitting.
+ config-file: ../_legacy/auto_ssp_LVM.config
+# Flag indicating if any previous file with the same label should be removed
+ clear_outputs: True
+# not used so far. Possible binning the wavelength range to speed-up the fitting procedure
+ bin-nl: 3
+# not used so far. Possible binning in the derivation of Av to speed-up the process
+ bin-AV: 50
+# Flag to ignore the emission line fitting during the RSP analysis
+ ignore_gas: False
+# Initial guess for the velocity dispersion for the emission lines analysis in AA
+ sigma-gas: 0.8
+# Flag to perform the emission line fitting one once during the RSP analysis
+single-gas-fit: True
+# Flag indicating if instead of a decomposition the code looks for the best RSP in the template that
+# matchs with the observed spectra
+single_rsp: False
+# Flag indicating wether to generate plots or not along the fitting process
+ do_plots: 1
+# Flux range for plotting. When set ot [-1,1] it will automatically determine the required range
+ flux-scale-org:
+  - -1 # min
+  - 1  # max
+# Range of fibers to fit in case that you do not want to fit the full RSS
+ ny_range:
+  - 500
+  - 503
+# Not used so far: range of spectral pixels to perform the fitting
+ nx_range:
+  - 100
+  - 3000
+  out-plot-format: "pdf"
+# out-plot-format: "png"
+# only-integrated: False
+ only-integrated: True
 auto-redshift: True
 auto_z_min: -0.005
 auto_z_max: 0.01
