@@ -886,7 +886,7 @@ class StellarSynthesis(StPopSynt):
                        sigma_rnd_medres_merit=False, correct_wl_ranges=False):
     # def non_linear_fit(self, guided_sigma=None):
         """
-        Do the non linear fit in order to find the kinematics parameters and the dust
+        Do the non linear fit in order to find the kinematics parameters without the dust
         extinction. This procedure uses the set of SSP models, `self.models_nl_fit`.
         At the end will set the first entry to the ssp fit chain with the coefficients
         for the best model after the non-linear fit.
@@ -973,7 +973,7 @@ class StellarSynthesis(StPopSynt):
                     print_verbose(f'- fit_sigma_rnd', verbose=True)
                     SPS_kin._fit_sigma_rnd(guided=guide_sigma,
                                         medres_merit=sigma_rnd_medres_merit)
-                # self._fit_sigma(guided_sigma)
+                #SPS_kin._fit_sigma(guided=guided_sigma)
                 self.best_sigma=SPS_kin.best_sigma
                 self.e_sigma=SPS_kin.e_sigma
                 self.best_chi_sq_nl_fit = self.get_last_chi_sq_sigma()

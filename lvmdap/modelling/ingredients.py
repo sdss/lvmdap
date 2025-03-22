@@ -147,16 +147,23 @@ class StellarModels(object):
             Redshift of the Observed frame.
         """
         if coeffs is None:
+
+            #
+            # SFS: Bug found 21.03.25
+            #
             flux_models_obsframe = np.asarray([
-                shift_convolve(wavelength, self.wavelength, self.flux_models[i], redshift, sigma_inst, sigma)
+#                shift_convolve(wavelength, self.wavelength, self.flux_models[i], redshift, sigma_inst, sigma)
+                shift_convolve(wavelength, self.wavelength, self.flux_models[i], redshift, sigma, sigma_inst)
                 for i in range(self.n_models)
             ])
         else:
             # generates a dictionary with i_tZ as key and the coeff as the dict[i_tZ] = coeff
             tZcoeff_dict = {i: c for i, c in enumerate(coeffs) if c > 0}
             flux_models_obsframe = np.asarray([
+#                shift_convolve(wavelength, self.wavelength, self.flux_models[i], redshift,
+#                               sigma_inst, sigma)
                 shift_convolve(wavelength, self.wavelength, self.flux_models[i], redshift,
-                               sigma_inst, sigma)
+                               sigma, sigma_inst)
                 for i in tZcoeff_dict.keys()
             ])
         self.flux_models_obsframe = flux_models_obsframe

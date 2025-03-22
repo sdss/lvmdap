@@ -274,8 +274,19 @@ def auto_rsp_elines_single_main(
         SPS_AV = deepcopy(SPS)
         try:
             print('-> NL kin fitting')
+#            print('##### non_linear_fit_kin')
+#            fit_sigma_rnd=False
+#            print(f'sigma_inst = {SPS.sigma_inst} {fit_sigma_rnd}')
+#            print(f'{SPS.config.sigma_inst}')
             SPS.non_linear_fit_kin(is_guided_sigma, fit_sigma_rnd=fit_sigma_rnd,
                                    sigma_rnd_medres_merit=losvd_rnd_medres_merit)
+
+#            print('##### non_linear_fit')
+#            SPS.config.delta_AV = 0
+#            SPS.non_linear_fit_rsp(is_guided_sigma, fit_sigma_rnd=fit_sigma_rnd,
+#                                   sigma_rnd_medres_merit=losvd_rnd_medres_merit)
+#            SPS.config.delta_AV = SPS_AV.config.delta_AV
+            
         except:
             print('-> NL kin not fitted')
             SPS.best_redshift = cf.redshift
