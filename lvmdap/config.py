@@ -2,10 +2,10 @@
 from os.path import isfile
 
 
-from pyFIT3D.common.constants import __selected_extlaw__, __selected_R_V__, __n_Monte_Carlo__
-from pyFIT3D.common.io import print_verbose
-from pyFIT3D.common.auto_ssp_tools import ConfigAutoSSP
-from pyFIT3D.common.gas_tools import ConfigEmissionModel
+from lvmdap.pyFIT3D.common.constants import __selected_extlaw__, __selected_R_V__, __n_Monte_Carlo__
+from lvmdap.pyFIT3D.common.io import print_verbose
+from lvmdap.pyFIT3D.common.auto_ssp_tools import ConfigAutoSSP
+from lvmdap.pyFIT3D.common.gas_tools import ConfigEmissionModel
 
 class ConfigRSP(ConfigAutoSSP):
     def __init__(self, config_file,

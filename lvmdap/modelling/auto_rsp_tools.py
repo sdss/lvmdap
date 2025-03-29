@@ -4,21 +4,21 @@ from astropy.io import fits
 from copy import deepcopy as copy
 from os.path import basename, isfile
 
-from pyFIT3D.modelling.stellar import StPopSynt
+from lvmdap.pyFIT3D.modelling.stellar import StPopSynt
 #from lvmdap.modelling.synthesis import StellarSynthesis as StPopSynt
 from lvmdap.dap_tools import binArray,bin1D
 
-from  pyFIT3D.common.io import read_spectra, print_time, clean_preview_results_files, ReadArguments
-from  pyFIT3D.common.io import array_to_fits, trim_waves, sel_waves, print_verbose, write_img_header
-from  pyFIT3D.common.gas_tools import append_emission_lines_parameters
-from  pyFIT3D.common.gas_tools import ConfigEmissionModel, create_emission_lines_parameters
+from lvmdap.pyFIT3D.common.io import read_spectra, print_time, clean_preview_results_files, ReadArguments
+from lvmdap.pyFIT3D.common.io import array_to_fits, trim_waves, sel_waves, print_verbose, write_img_header
+from lvmdap.pyFIT3D.common.gas_tools import append_emission_lines_parameters
+from lvmdap.pyFIT3D.common.gas_tools import ConfigEmissionModel, create_emission_lines_parameters
 
-from  pyFIT3D.common.constants import __selected_extlaw__, __selected_R_V__, __n_Monte_Carlo__
-from pyFIT3D.common.constants import __c__, _MODELS_ELINE_PAR, __mask_elines_window__
-from pyFIT3D.common.constants import __selected_half_range_sysvel_auto_ssp__, _figsize_default, _plot_dpi
-from pyFIT3D.common.constants import __sigma_to_FWHM__, __selected_half_range_wl_auto_ssp__
+from lvmdap.pyFIT3D.common.constants import __selected_extlaw__, __selected_R_V__, __n_Monte_Carlo__
+from lvmdap.pyFIT3D.common.constants import __c__, _MODELS_ELINE_PAR, __mask_elines_window__
+from lvmdap.pyFIT3D.common.constants import __selected_half_range_sysvel_auto_ssp__, _figsize_default, _plot_dpi
+from lvmdap.pyFIT3D.common.constants import __sigma_to_FWHM__, __selected_half_range_wl_auto_ssp__
 
-from pyFIT3D.common.stats import pdl_stats, _STATS_POS, WLS_invmat, median_box, median_filter
+from lvmdap.pyFIT3D.common.stats import pdl_stats, _STATS_POS, WLS_invmat, median_box, median_filter
 
 from copy import deepcopy
 
@@ -368,13 +368,23 @@ def auto_rsp_elines_single_main(
         # We force the spectra to have a positive scaling flux
 #        negative_bias = np.abs(2*SPS.med_flux)
 #        print(f'# negative_bias: {negative_bias}')
-        SPS.best_redshift = cf.redshift
+        
+        try:
+            SPS.best_redshift = SPS_master.best_redshift
+        except:
+            SPS.best_redshift = cf.redshift
         SPS.e_redshift = 0.0
         print_verbose(f'- Redshift: {SPS.best_redshift:.8f} +- {SPS.e_redshift:.8f}', verbose=True)
-        SPS.best_sigma = cf.sigma
+        try:
+            SPS.best_sigma = SPS_master.best_sigma
+        except:
+            SPS.best_sigma = cf.sigma
         SPS.e_sigma = 0.0
         print_verbose(f'- Sigma:    {SPS.best_sigma:.8f} +- {SPS.e_sigma:.8f}', verbose=True)
-        SPS.best_Av = cf.AV
+        try:
+            SPS.best_Av = SPS_master.best_Av
+        except:
+            SPS.best_Av = cf.AV
         SPS.e_Av = 0.0
         print_verbose(f'- Av:    {SPS.best_Av:.8f} +- {SPS.e_Av:.8f}', verbose=True)
         SPS.spectra['orig_flux']=SPS.spectra['orig_flux']#+negative_bias
@@ -476,6 +486,11 @@ def model_rsp_elines_single_main(
 
     else:
         cf = SPS_master.config
+        cf.best_redshift=SPS_master.best_redshift
+        cf.best_sigma=SPS_master.best_sigma
+        cf.best_AV=SPS_master.best_AV
+        cf.redshift_set=redshift_set
+        cf.redshift_set=redshift_set
         cf.redshift_set=redshift_set
         cf.sigma_set=sigma_set
         cf.AV_set=AV_set

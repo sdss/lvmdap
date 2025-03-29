@@ -17,14 +17,14 @@ mpl_use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 
-from pyFIT3D.common.stats import median_filter as st_median_filter
-from pyFIT3D.common.stats import hyperbolic_fit_par, std_m, pdl_stats, _STATS_POS
-from pyFIT3D.common.io import trim_waves, get_data_from_fits, get_wave_from_header
-from pyFIT3D.common.constants import __c__, __sigma_to_FWHM__
-from pyFIT3D.common.io import output_spectra, array_to_fits, write_img_header, print_verbose
-from pyFIT3D.common.constants import __Hubble_constant__, __Omega_matter__, __Omega_Lambda__
-from pyFIT3D.common.constants import __solar_luminosity__, __solar_metallicity__, _figsize_default
-from pyFIT3D.common.tools import peak_finder
+from lvmdap.pyFIT3D.common.stats import median_filter as st_median_filter
+from lvmdap.pyFIT3D.common.stats import hyperbolic_fit_par, std_m, pdl_stats, _STATS_POS
+from lvmdap.pyFIT3D.common.io import trim_waves, get_data_from_fits, get_wave_from_header
+from lvmdap.pyFIT3D.common.constants import __c__, __sigma_to_FWHM__
+from lvmdap.pyFIT3D.common.io import output_spectra, array_to_fits, write_img_header, print_verbose
+from lvmdap.pyFIT3D.common.constants import __Hubble_constant__, __Omega_matter__, __Omega_Lambda__
+from lvmdap.pyFIT3D.common.constants import __solar_luminosity__, __solar_metallicity__, _figsize_default
+from lvmdap.pyFIT3D.common.tools import peak_finder
 
 
 from astropy.table import Table,join
@@ -1024,6 +1024,27 @@ def plotty(line_dict, vmin, vmax, title, filename, size=30):
 
     plt.close()
 
+def read_RSS_PT(fitsfile, nobad=False, ny_range=None, exposure=666):
+    rsshdu = fits.open(fitsfile)
+    hdr = rsshdu[0].header
+    hdr['exposure']=exposure
+    tab = Table(rsshdu['PT'].data)
+    sci = np.full(len(tab), True)
+    fiberid=tab['id']
+    exp_fib=[]
+    for IfibID,fibID in enumerate(fiberid):
+        exp_fib.append(str(hdr['exposure'])+'.'+str(IfibID))
+    try:
+        tab['id'] = tab['fiberid']
+    except:
+        tab['id'] = np.array(exp_fib)
+    tab['mask']=sci
+    tab['fiberid']=fiberid
+    tab['exposure']=hdr['exposure']*np.ones(len(tab),dtype=int)
+    if (ny_range != None):
+        tab=tab[ny_range[0]:ny_range[1]]
+    return tab
+
 
 def read_MaStar_PT(fitsfile, agcam_coadd, nobad=False, ny_range=None, exposure=666):
     rsshdu = fits.open(fitsfile)
@@ -1185,7 +1206,7 @@ def plot_spec_simple(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
               name='none',cmap=None,\
               x_min=3600,x_max=9400,y_min=-0.2,y_max=2,text='',\
               file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
-             id_lines=None,output='junk.pdf'):
+             id_lines=None,output='junk.pdf',figsize=(22,12)):
     tab_SSP=read_rsp(file_ssp)
     
     if (cmap==None):
@@ -1207,7 +1228,7 @@ def plot_spec_simple(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     #print(data.shape)
     (ny,nx) = data.shape
     wave = crval+cdelt*(np.arange(0,nx)-(crpix-1))
-    fig = plt.figure(figsize=(22,12)) 
+    fig = plt.figure(figsize=figsize) 
     gs = fig.add_gridspec(nrows=5, ncols=7, left=0.075, right=0.97, hspace=0.0, wspace=0.05, bottom=0.12, top=0.99)
     ax0 = fig.add_subplot(gs[:-1, 0:6])
     ax1 = fig.add_subplot(gs[-1:, 0:6], sharex=ax0)
@@ -1520,7 +1541,7 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
               x_min=3600,x_max=9600,y_min=-0.2,y_max=2,text='',\
               file_ssp = 'output/m_lvmSCFrame-00006109',no_st=False,no_model=False,log=False,\
               id_lines=None,output='junk.pdf',c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None,
-              colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False,show_scale=True,n_ord=11):
+              colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False,show_scale=True,n_ord=11,figsize=(19,6)):
 
     tab_SSP=read_rsp(file_ssp)
     
@@ -1564,7 +1585,7 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
             ssp_model = data[1,:]
 
 
-    fig = plt.figure(figsize=(19,6)) 
+    fig = plt.figure(figsize=figsize) 
     gs = fig.add_gridspec(nrows=5, ncols=6,  left=0.075, right=0.97, \
                           hspace=0.0, wspace=0.05, bottom=0.15, top=0.9)
     ax0 = fig.add_subplot(gs[:-1, :])
@@ -2751,3 +2772,74 @@ def fit_legendre_polynomial(x, y, degree):
     legendre_poly = Legendre(coeffs)
     vals = legendre_poly(2 * (x - x_min) / (x_max - x_min) - 1) 
     return vals
+
+
+def sort_table_by_id(table_to_sort,reference_table):
+    """
+    Sorts `table_to_sort` based on the order of 'id' values in `reference_table`.
+
+    Parameters
+    ----------
+    table_to_sort : astropy.table.Table
+        The table you want to reorder.
+    
+    reference_table : astropy.table.Table
+        The reference table containing 'id' values in the desired order.
+
+    Returns
+    -------
+    sorted_table : astropy.table.Table
+        A new table with the content of `table_to_sort` sorted to match the order in `reference_table`.
+    """
+    # Build a dictionary of {id: index} from the reference table
+    order_dict = {id_val: i for i, id_val in enumerate(reference_table['id'])}
+
+    # Add a temporary column that maps each row to its position in the reference
+    table_to_sort['__order__'] = [order_dict.get(id_val, -1) for id_val in table_to_sort['id']]
+
+    # Filter out rows whose id is not in the reference table
+    filtered_table = table_to_sort[table_to_sort['__order__'] >= 0]
+
+    # Sort by the temporary order column
+    sorted_table = filtered_table.copy()
+    sorted_table.sort('__order__')
+
+    # Remove the temporary column
+    sorted_table.remove_column('__order__')
+
+    return sorted_table
+
+
+def find_closest_indices(array, target_value):
+    """
+    Returns the indices of the elements in 'array' that are closest to 'target_value'.
+    """
+    array = np.asarray(array)
+    diff = np.abs(array - target_value)
+    min_diff = np.min(diff)
+    indices = np.where(diff == min_diff)[0]
+    return indices
+
+def find_closest_indices_different(array, target_value):
+    """
+    Returns indices of elements in 'array' that are closest to 'target_value'
+    but not equal to 'target_value'.
+    """
+    array = np.asarray(array)
+
+    # Mask to ignore elements equal to the target value
+    mask = array != target_value
+    if not np.any(mask):
+        return np.array([], dtype=int)  # No valid alternatives
+
+    # Filtered array and corresponding indices
+    filtered_array = array[mask]
+    original_indices = np.where(mask)[0]
+
+    # Compute distances to the target
+    diff = np.abs(filtered_array - target_value)
+    min_diff = np.min(diff)
+
+    # Get indices within the filtered array
+    closest_mask = diff == min_diff
+    return original_indices[closest_mask]

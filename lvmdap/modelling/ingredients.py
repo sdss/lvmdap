@@ -2,8 +2,8 @@
 import numpy as np
 from astropy.io import fits
 
-from pyFIT3D.modelling.dust import spec_apply_dust
-from pyFIT3D.common.stats import shift_convolve
+from lvmdap.pyFIT3D.modelling.dust import spec_apply_dust
+from lvmdap.pyFIT3D.common.stats import shift_convolve
 
 class StellarModels(object):
     def __init__(self, filename):

@@ -14,7 +14,7 @@ import seaborn as sns
 from matplotlib import patches
 from scipy.ndimage import gaussian_filter
 
-from pyFIT3D.common.tools import get_wave_from_header
+from lvmdap.pyFIT3D.common.tools import get_wave_from_header
 
 
 CWD = os.getcwd()

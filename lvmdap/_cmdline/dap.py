@@ -17,27 +17,27 @@ from copy import deepcopy as copy
 from pprint import pprint
 
 # pyFIT3D dependencies
-from pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
+from lvmdap.pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
 
 # 18.11.2023
-# So far we were ysing the auto_ssp_tools from pyFIT3D
+# So far we were ysing the auto_ssp_tools from lvmdap.pyFIT3D
 # We will attempt to modify them
-#from pyFIT3D.common.auto_ssp_tools import auto_ssp_elines_single_main
+#from lvmdap.pyFIT3D.common.auto_ssp_tools import auto_ssp_elines_single_main
 from lvmdap.modelling.auto_rsp_tools import auto_rsp_elines_single_main
 
-from pyFIT3D.common.auto_ssp_tools import load_rss, dump_rss_output
-from pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
-from pyFIT3D.common.io import trim_waves, sel_waves, read_spectra, output_spectra, write_img_header
-from pyFIT3D.common.gas_tools import detect_create_ConfigEmissionModel
-from pyFIT3D.common.gas_tools import ConfigEmissionModel
-from pyFIT3D.common.io import create_ConfigAutoSSP_from_lists
-from pyFIT3D.common.io import create_emission_lines_file_from_list
-from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
-from pyFIT3D.common.gas_tools import kin_rss_elines_main
-from pyFIT3D.common.constants import __c__, __Ha_central_wl__, _MODELS_ELINE_PAR
+from lvmdap.pyFIT3D.common.auto_ssp_tools import load_rss, dump_rss_output
+from lvmdap.pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
+from lvmdap.pyFIT3D.common.io import trim_waves, sel_waves, read_spectra, output_spectra, write_img_header
+from lvmdap.pyFIT3D.common.gas_tools import detect_create_ConfigEmissionModel
+from lvmdap.pyFIT3D.common.gas_tools import ConfigEmissionModel
+from lvmdap.pyFIT3D.common.io import create_ConfigAutoSSP_from_lists
+from lvmdap.pyFIT3D.common.io import create_emission_lines_file_from_list
+from lvmdap.pyFIT3D.common.io import create_emission_lines_mask_file_from_list
+from lvmdap.pyFIT3D.common.gas_tools import kin_rss_elines_main
+from lvmdap.pyFIT3D.common.constants import __c__, __Ha_central_wl__, _MODELS_ELINE_PAR
 
 
-#from pyFIT3D.common.tools import read_coeffs_CS
+#from lvmdap.pyFIT3D.common.tools import read_coeffs_CS
 
 from lvmdap.modelling.synthesis import StellarSynthesis
 from lvmdap.modelling.auto_rsp_tools import ConfigAutoSSP
@@ -49,6 +49,9 @@ from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, rea
 from lvmdap.dap_tools import find_redshift_spec, replace_nan_inf_with_adjacent_avg
 from lvmdap.dap_tools import find_continuum
 from lvmdap.dap_tools import fit_legendre_polynomial
+from lvmdap.dap_tools import read_RSS_PT
+from lvmdap.dap_tools import sort_table_by_id
+from lvmdap.dap_tools import find_closest_indices_different 
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW,flux_elines_RSS_EW_cl
 
 from scipy.ndimage import gaussian_filter1d,median_filter
@@ -62,7 +65,7 @@ import yaml
 import re
 from collections import Counter
 
-from lvmdap.dap_tools import list_columns,read_DAP_file,map_plot_DAP,nanaverage
+from lvmdap.dap_tools import list_columns,read_DAP_file,map_plot_DAP,nanaverage,find_closest_indices
 
 
 #
@@ -81,7 +84,7 @@ def _no_traceback(type, value, traceback):
 
 
 #######################################################
-# RSP version of the auto_ssp_elines_rnd from pyFIT3D
+# RSP version of the auto_ssp_elines_rnd from lvmdap.pyFIT3D
 #######################################################
 def auto_rsp_elines_rnd(
     wl__w, f__w, ef__w, ssp_file, spaxel_id, config_file=None, plot=None,
@@ -506,13 +509,13 @@ def _main(cmd_args=sys.argv[1:]):
 
 
 
-####################################################
-# MAIN script. Uses the entries from commands lines
-####################################################
+#########################################################################
+# MAIN script. Uses the entries from commands lines and the YAML file
+#########################################################################
 def _dap_yaml(cmd_args=sys.argv[1:]):
     PLATESCALE = 112.36748321030637
 
-    
+   
 #    print(f'n_MC = {__n_Monte_Carlo__}')
 #    quit()
 
@@ -770,15 +773,18 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         try:
           tab_PT_org = read_MaStar_PT(args.lvm_file,'none',ny_range=ny_range)
         except:
-          tab_PT_org = Table()
-          NL = rss_flux_org.shape[0]
-          tab_PT_org['id']=np.arange(NL)
-          tab_PT_org['ID']=np.arange(NL)
-          tab_PT_org['ra']=1.0*tab_PT_org['id']
-          tab_PT_org['dec']=1.0*tab_PT_org['id']
-          tab_PT_org['mask']=np.full(NL, True)
-          tab_PT_org['fiberid']=tab_PT_org['id']
-          tab_PT_org['exposure']=1.0*np.ones(NL,dtype=int)
+            try:
+              tab_PT_org = read_RSS_PT(args.lvm_file, ny_range = ny_range)
+            except:
+              tab_PT_org = Table()
+              NL = rss_flux_org.shape[0]
+              tab_PT_org['id']=np.arange(NL)
+              tab_PT_org['ID']=np.arange(NL)
+              tab_PT_org['ra']=1.0*tab_PT_org['id']
+              tab_PT_org['dec']=1.0*tab_PT_org['id']
+              tab_PT_org['mask']=np.full(NL, True)
+              tab_PT_org['fiberid']=tab_PT_org['id']
+              tab_PT_org['exposure']=1.0*np.ones(NL,dtype=int)
 #        print(tab_PT_org.colnames)
 #        for I,fnorm in enumerate(tab_PT_org['FNORM']):
 #                    rss_flux_org[I,:]=rss_flux_org[I,:]*fnorm
@@ -792,6 +798,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                                                                            nx_range=nx_range)
       tab_PT_org = read_LVMSIM_PT(args.lvm_file,'none',ny_range=ny_range)
 
+    try:
+      hdu_LSF = fits.open(args.lvm_file)
+      LSF_mean = np.nanmedian(hdu_LSF['LSF'].data,axis=0)/2.354
+    except:
+      LSF_mean =  config['sigma_gas'] * np.ones(rss_flux.shape[1])
 
     if (mask_to_val==True):
       print("# Modifying masked regions with dummy values")
@@ -1067,6 +1078,27 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # Reading the emission line file
     #
     tab_el=read_tab_EL(args.emission_lines_file_long)
+    lsf = []
+    blended = []
+    for wl_el in tab_el['wl']:
+      i_wl_el = find_closest_indices(wl__w, wl_el)
+      lsf_now = LSF_mean[i_wl_el[0]]
+      lsf.append(lsf_now)
+      i_wl_near = find_closest_indices_different(tab_el['wl'], wl_el)
+      dist_abs = np.abs(wl_el-tab_el['wl'][i_wl_near[0]])
+      if (dist_abs<4*args.sigma_gas):
+        blended.append(1)
+      else:
+        blended.append(0)
+    blended = np.array(blended)    
+    tab_el['blended'] = blended
+    lsf = np.array(lsf)
+    tab_el['lsf'] = lsf
+
+
+
+
+
     #    print('EL file:',args.emission_lines_file_long)
     
     #print('tab_EL:',tab_el['id'])
@@ -1273,12 +1305,13 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #vel__yx=np.zeros(1)+SPS.best_redshift*__c__
     vel__yx=np.zeros(1)+args.redshift[0]*__c__
     sigma__yx=0.8
+    sigma_we = 1.0
     print(f'# Guess Kin param. for NP elines analysis: {vel__yx} {sigma__yx}')
     
     fe_m_data, fe_m_hdr =flux_elines_RSS_EW_cl(m_flux_rss, hdr_flux_org, 5, tab_el, vel__yx,\
                                               sigma__yx,eflux__wyx=m_e_flux_rss,\
                                               flux_ssp__wyx=m_s_flux_rss,w_range=w_range_FE,\
-                                            plot=args.do_plots)
+                                            plot=args.do_plots, sigma_we=sigma_we)
 #m_flux_rss[0,:]=out_model[0,:]-out_model[1,:]
     
 
@@ -1362,6 +1395,18 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         #
         # We fit all in a single fit 
         #
+
+        #
+        # We fix the input parameters
+        #
+        args.redshift[0] = SPS.best_redshift
+        args.sigma[0] = SPS.best_sigma
+        args.AV[0] = SPS.best_AV
+        cf = SPS.config
+        cf.redshift = SPS.best_redshift
+        cf.sigma = SPS.best_sigma
+        cf.AV = SPS.best_AV
+
         _, SPS = auto_rsp_elines_rnd(
             wl__w, f__w, ef__w, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
             config_file=args.config_file,
@@ -1469,6 +1514,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             tab_PE_tmp.rename_column(cols,f'{cols}_{wl_now}')
         tab_PE_ord=tab_join(tab_PE_ord,tab_PE_tmp,keys=['id'],join_type='left')
         I=I+1
+    tab_PE_ord = sort_table_by_id(tab_PE_ord,tab_PT)
 
 
         
@@ -1492,23 +1538,19 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     for I,val in enumerate(tab_PE_ord[f'vel_{w_Ha}'].value):
       if (np.isfinite(val)==True):
         try:
-          vel__yx[I]=val
+            vel__yx[I]=val
         except:
-          try_vel__yx=False
-          
-#    print(tab_PE_ord['vel_6562.68'])
-#    for I,val in enumerate(tab_PE_ord['disp_6562.68'].value):
-#      if (np.isfinite(val)==False):
-#        tab_PE_ord['disp_6562.68'][I]=disp_mean
+            vel__yx[I]=vel_mean
+      else:
+        vel__yx[I] = vel_mean
 
-#    vel__yx=tab_PE_ord['vel_6562.68'].value
-#    sigma__yx=2.354*tab_PE_ord['disp_6562.68'].value
-
-#    gas_spectra = 
+    #sigma_we = np.nanmedian(sigma__yx)
+    sigma_we = 1.0
     fe_data, fe_hdr =flux_elines_RSS_EW_cl(model_spectra[0,:,:]-model_spectra[1,:,:]-l_smooth_spectra, hdr_flux, 5,\
                                            tab_el, vel__yx,\
                                               sigma__yx,eflux__wyx=rss_eflux,\
-                                              flux_ssp__wyx=model_spectra[1,:,:],w_range=w_range_FE,verbose=False)
+                                              flux_ssp__wyx=model_spectra[1,:,:],w_range=w_range_FE,\
+                                                sigma_we = sigma_we, verbose=False)
 
     
     colnames=[]

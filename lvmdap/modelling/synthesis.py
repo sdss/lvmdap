@@ -5,24 +5,24 @@ import os
 import sys
 import numpy as np
 
-from pyFIT3D.common.constants import __selected_extlaw__, __selected_R_V__
+from lvmdap.pyFIT3D.common.constants import __selected_extlaw__, __selected_R_V__
 
-from pyFIT3D.common.stats import calc_chi_sq, smooth_ratio
-from pyFIT3D.common.io import print_verbose
-from pyFIT3D.common.io import plot_spectra_ax
-from pyFIT3D.modelling.stellar import StPopSynt
+from lvmdap.pyFIT3D.common.stats import calc_chi_sq, smooth_ratio
+from lvmdap.pyFIT3D.common.io import print_verbose
+from lvmdap.pyFIT3D.common.io import plot_spectra_ax
+from lvmdap.pyFIT3D.modelling.stellar import StPopSynt
 #from lvmdap.modelling.synthesis import StellarSynthesis as StPopSynt
 
 
 from lvmdap.modelling.ingredients import StellarModels
-from pyFIT3D.common.gas_tools import fit_elines_main
-from pyFIT3D.common.io import plot_spectra_ax, array_to_fits, write_img_header
-from pyFIT3D.common.io import sel_waves, trim_waves, print_verbose, get_wave_from_header
-from pyFIT3D.common.stats import pdl_stats, _STATS_POS, WLS_invmat, median_box, median_filter
-from pyFIT3D.common.stats import calc_chi_sq, smooth_ratio, shift_convolve, hyperbolic_fit_par
-from pyFIT3D.common.constants import __c__, _MODELS_ELINE_PAR, __mask_elines_window__, __selected_R_V__
-from pyFIT3D.common.constants import __selected_half_range_sysvel_auto_ssp__, _figsize_default, _plot_dpi
-from pyFIT3D.common.constants import __sigma_to_FWHM__, __selected_extlaw__, __selected_half_range_wl_auto_ssp__
+from lvmdap.pyFIT3D.common.gas_tools import fit_elines_main
+from lvmdap.pyFIT3D.common.io import plot_spectra_ax, array_to_fits, write_img_header
+from lvmdap.pyFIT3D.common.io import sel_waves, trim_waves, print_verbose, get_wave_from_header
+from lvmdap.pyFIT3D.common.stats import pdl_stats, _STATS_POS, WLS_invmat, median_box, median_filter
+from lvmdap.pyFIT3D.common.stats import calc_chi_sq, smooth_ratio, shift_convolve, hyperbolic_fit_par
+from lvmdap.pyFIT3D.common.constants import __c__, _MODELS_ELINE_PAR, __mask_elines_window__, __selected_R_V__
+from lvmdap.pyFIT3D.common.constants import __selected_half_range_sysvel_auto_ssp__, _figsize_default, _plot_dpi
+from lvmdap.pyFIT3D.common.constants import __sigma_to_FWHM__, __selected_extlaw__, __selected_half_range_wl_auto_ssp__
 from copy import deepcopy
 
 from scipy.interpolate import interp1d
@@ -1080,7 +1080,7 @@ class StellarSynthesis(StPopSynt):
 #        print(f'#ratio: {ratio}')
 
         
-        # from pyFIT3D.common.stats import median_filter
+        # from lvmdap.pyFIT3D.common.stats import median_filter
         # print(sigma_mean)
         # print(int(7*sigma_mean*__sigma_to_FWHM__))
         # median_ratio = median_filter(7*sigma_mean*__sigma_to_FWHM__, copy(ratio))

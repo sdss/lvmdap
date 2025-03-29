@@ -17,16 +17,16 @@ from copy import deepcopy as copy
 from pprint import pprint
 
 # pyFIT3D dependencies
-from pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
-from pyFIT3D.common.auto_ssp_tools import auto_ssp_elines_single_main, dump_rss_output
-from pyFIT3D.common.auto_ssp_tools import load_rss
-from pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
+from lvmdap.pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
+from lvmdap.pyFIT3D.common.auto_ssp_tools import auto_ssp_elines_single_main, dump_rss_output
+from lvmdap.pyFIT3D.common.auto_ssp_tools import load_rss
+from lvmdap.pyFIT3D.common.io import clean_preview_results_files, print_time, read_spectra
 
-from pyFIT3D.common.gas_tools import detect_create_ConfigEmissionModel
-from pyFIT3D.common.io import create_ConfigAutoSSP_from_lists
-from pyFIT3D.common.io import create_emission_lines_file_from_list
-from pyFIT3D.common.io import create_emission_lines_mask_file_from_list
-#from pyFIT3D.common.tools import read_coeffs_CS
+from lvmdap.pyFIT3D.common.gas_tools import detect_create_ConfigEmissionModel
+from lvmdap.pyFIT3D.common.io import create_ConfigAutoSSP_from_lists
+from lvmdap.pyFIT3D.common.io import create_emission_lines_file_from_list
+from lvmdap.pyFIT3D.common.io import create_emission_lines_mask_file_from_list
+#from lvmdap.pyFIT3D.common.tools import read_coeffs_CS
 
 from lvmdap.modelling.synthesis import StellarSynthesis
 from lvmdap.dap_tools import load_LVM_rss, read_PT, rsp_print_header, plot_spec, read_rsp
@@ -54,7 +54,7 @@ def _no_traceback(type, value, traceback):
 
 
 #######################################################
-# RSP version of the auto_ssp_elines_rnd from pyFIT3D
+# RSP version of the auto_ssp_elines_rnd from lvmdap.pyFIT3D
 #######################################################
 def auto_rsp_elines_rnd(
     wl__w, f__w, ef__w, ssp_file, spaxel_id, config_file=None, plot=None,

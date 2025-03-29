@@ -14,7 +14,7 @@ from specutils.manipulation import gaussian_smooth
 from astropy.io import fits
 import astropy.units as u
 
-from pyFIT3D.common.tools import get_wave_from_header
+from lvmdap.pyFIT3D.common.tools import get_wave_from_header
 
 
 CWD = os.getcwd()

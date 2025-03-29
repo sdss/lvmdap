@@ -7,11 +7,11 @@ import matplotlib.pyplot as plt
 from pprint import pprint
 from scipy.interpolate import griddata
 from scipy.ndimage import median_filter, gaussian_filter
-from pyFIT3D.common.constants import __sigma_to_FWHM__
-from pyFIT3D.common.tools import rss_seg2cube, get_slice, smooth_spec_clip_cube, spec_extract_cube_mean
-from pyFIT3D.common.io import array_to_fits
-from pyFIT3D.common.io import get_wave_from_header
-from pyFIT3D.common.tools import flux_elines_cube_EW
+from lvmdap.pyFIT3D.common.constants import __sigma_to_FWHM__
+from lvmdap.pyFIT3D.common.tools import rss_seg2cube, get_slice, smooth_spec_clip_cube, spec_extract_cube_mean
+from lvmdap.pyFIT3D.common.io import array_to_fits
+from lvmdap.pyFIT3D.common.io import get_wave_from_header
+from lvmdap.pyFIT3D.common.tools import flux_elines_cube_EW
 
 from copy import deepcopy as copy
 from astropy.io import fits
