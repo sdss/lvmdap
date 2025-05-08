@@ -613,18 +613,114 @@ def sky_hack_f(data, sdata, hdr, m2a=10e9, band=np.array((7238,7242,7074,7084,71
     data_c=data-np.transpose(np.transpose(sdata)*scale)
     return data_c
 
-
+def eline(w,W,F,D,V,dap_fwhm=2.354):
+  c = 299792.00
+  w0 = W*(1+(V/c))
+  sigma=D/dap_fwhm
+  e1=np.exp(-0.5*((w-w0)/sigma)**2)
+  return F*e1/(sigma*((2*3.1416)**0.5))     
 #
 # Load an standard LVM RSS file
 #
 # m2a=10e9 : Pre v1.0 reduction!
-def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True,nx_range=None):
+def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True,nx_range=None, get_lsf=False):
     """Return the RSS from the given and LVM filename in the parsed command line arguments"""
     hdu = fits.open(lvm_file, memmap=False)
     rss_0_hdr = hdu[0].header
     rss_f_spectra = hdu['FLUX'].data
     rss_f_hdr = hdu['FLUX'].header
     mask = hdu['MASK'].data
+    if (get_lsf == True):
+        LSF_rss = np.float32(hdu['LSF'].data/2.354)
+    else:
+        LSF_rss = np.float32(rss_f_spectra*0.0)
+
+#    rss_f_spectra[mask==1]=np.nan
+    
+    try:
+        crval1=rss_f_hdr['CRVAL1']
+    except:
+        rss_f_hdr = hdu[0].header
+    #    rss_f_hdr = hdu['FLUX'].header
+    #    rss_sky = hdu['SKY'].data
+    
+    try:
+        rss_ivar = hdu['IVAR'].data
+        hdu_e = fits.ImageHDU(data=1/np.sqrt(rss_ivar),header=hdu[1].header,name='ERROR')
+        hdu.append(hdu_e)
+        Cframe=False
+    except:
+        Cframe=True
+
+    try:
+        rss_e_spectra = hdu['ERROR'].data
+ #       rss_e_spectra[mask==1]=np.nan
+
+
+    except:
+        rss_e_spectra = np.ones(rss_f_spectra.shape)
+        std_spectra = 0.1*np.nanstd(rss_f_spectra-median_filter(rss_f_spectra,size=(1,51)),axis=1)
+        for I,std_now in enumerate(std_spectra):
+            rss_e_spectra[I,:]=std_now*rss_e_spectra[I,:]
+    wl__w = np.array([rss_f_hdr["CRVAL1"] + i*rss_f_hdr["CDELT1"] for i in range(hdu['FLUX'].data.shape[1])])
+    wl__w = wl__w*m2a
+    #
+    # We need to revise the errors!
+    #
+    mean_flux = np.nanmedian(rss_f_spectra[:,5000:6000])
+    #print(f'# mean_flux = {mean_flux}')
+    if (mean_flux>1e-3):
+        flux_scale=1
+        print(f'# mean_flux = {mean_flux} does not seem to be in 10^-16 cgs')
+    rss_f_spectra=rss_f_spectra*flux_scale
+    rss_e_spectra=rss_e_spectra*flux_scale
+    rss_f_hdr["CRVAL1"]=rss_f_hdr["CRVAL1"]*m2a
+    rss_f_hdr["CDELT1"]=rss_f_hdr["CDELT1"]*m2a
+    rss_f_hdr['NAXIS1']=hdu['FLUX'].data.shape[1]
+    rss_f_hdr['NAXIS2']=hdu['FLUX'].data.shape[0]
+    #ny=hdr['NAXIS2']
+    
+    if (sky_hack == True):
+        print(f'# sky re-evaluated')
+        try:
+            rss_sky = hdu['SKY'].data
+            rss_f_spectra=sky_hack_f(rss_f_spectra, rss_sky, rss_f_hdr)
+        except:
+            print('# sky-hack did not work')
+            sky_hack = False
+
+    if (nx_range != None):
+        print(f'# X-axis trimmed: {nx_range}')
+        rss_f_spectra=rss_f_spectra[:,nx_range[0]:nx_range[1]]
+        rss_e_spectra=rss_e_spectra[:,nx_range[0]:nx_range[1]]
+        LSF_rss=LSF_rss[:,nx_range[0]:nx_range[1]]
+        wl__w=wl__w[nx_range[0]:nx_range[1]]
+        rss_f_hdr['NAXIS1']=nx_range[1]-nx_range[0]+1
+        rss_f_hdr["CRVAL1"]=rss_f_hdr["CRVAL1"]+nx_range[0]*rss_f_hdr["CDELT1"]
+    
+    if (ny_range != None):
+        print(f'# Y-axis trimmed: {ny_range}')
+        rss_f_spectra=rss_f_spectra[ny_range[0]:ny_range[1],:]
+        rss_e_spectra=rss_e_spectra[ny_range[0]:ny_range[1],:]
+        LSF_rss=LSF_rss[ny_range[0]:ny_range[1],:]
+        rss_f_hdr['NAXIS2']=ny_range[1]-ny_range[0]+1
+
+    rss_e_spectra=np.abs(rss_e_spectra)
+    if (get_lsf == True):
+        return wl__w, rss_f_spectra, rss_e_spectra, rss_f_hdr, rss_0_hdr,LSF_rss
+    else:
+        return wl__w, rss_f_spectra, rss_e_spectra, rss_f_hdr, rss_0_hdr
+
+
+def load_LVM_rss_old(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True,nx_range=None):
+    """Return the RSS+lsf from the given and LVM filename in the parsed command line arguments"""
+    hdu = fits.open(lvm_file, memmap=False)
+    rss_0_hdr = hdu[0].header
+    rss_f_spectra = hdu['FLUX'].data
+    rss_f_hdr = hdu['FLUX'].header
+    mask = hdu['MASK'].data
+
+
 #    rss_f_spectra[mask==1]=np.nan
     
     try:
@@ -2578,7 +2674,6 @@ def bin1D(data,width):
    return bindata
 
 
-
 def read_DAP_file(dap_file,verbose=False):
     dap_hdu=fits.open(dap_file)
     tab_PT=Table(dap_hdu['PT'].data)
@@ -2595,6 +2690,15 @@ def read_DAP_file(dap_file,verbose=False):
     except:
         kel_ext = 0
         print('No PM_KEL extension')
+
+    sig_ext = 0
+    try:
+        sig_ext = 1
+        tab_SIGMA = Table(dap_hdu['ELINES_SIGMA_CHI'].data)
+    except:
+        sig_ext = 0
+        print('No SIGMA_CHI extension')
+
     #
     # Rename some entries!
     #
@@ -2642,6 +2746,172 @@ def read_DAP_file(dap_file,verbose=False):
     tab_COEFFS.rename_column('Err.Coeff','e_W_rsp')
     
     tab_DAP=Table(dap_hdu['PT'].data)
+    tab_DAP=join(tab_DAP,tab_RSP,keys=['id'],join_type='left')
+    tab_DAP=join(tab_DAP,tab_NPE_B,keys=['id'],join_type='left')
+    tab_DAP=join(tab_DAP,tab_NPE_R,keys=['id'],join_type='left')
+    tab_DAP=join(tab_DAP,tab_NPE_I,keys=['id'],join_type='left')
+
+    #
+    # order parametric emission line table
+    #
+    mask_elines = (tab_PE['model']=='eline')
+    tab_PE = tab_PE[mask_elines]
+    
+    a_wl = np.unique(tab_PE['wl'])
+    I=0
+    for wl_now in a_wl:
+        if (wl_now>0.0):
+            tab_PE_now=tab_PE[tab_PE['wl']==wl_now]
+            tab_PE_tmp=tab_PE_now['id','flux_pe','e_flux_pe','disp_pe','e_disp_pe','vel_pe','e_vel_pe']
+            for cols in tab_PE_tmp.colnames:        
+                if (cols != 'id'):
+                    tab_PE_tmp.rename_column(cols,f'{cols}_{wl_now}')
+            if (I==0):
+                tab_PE_ord=tab_PE_tmp
+            else:
+                tab_PE_ord=join(tab_PE_ord,tab_PE_tmp,keys=['id'],join_type='left')
+            I=I+1        
+    tab_DAP=join(tab_DAP,tab_PE_ord,keys=['id'],join_type='left')
+
+
+    #
+    # order parametric emission line table with fixed kinematics
+    #
+    if (kel_ext == 1):
+        mask_elines = (tab_KEL['model']=='eline')
+        tab_KEL = tab_KEL[mask_elines]
+    
+        a_wl = np.unique(tab_KEL['wl'])
+        I=0
+        for wl_now in a_wl:
+            if (wl_now>0.0):
+                tab_KEL_now=tab_KEL[tab_KEL['wl']==wl_now]
+                tab_KEL_tmp=tab_KEL_now['id','flux_pek','e_flux_pek','disp_pek','e_disp_pek','vel_pek','e_vel_pek']
+                for cols in tab_KEL_tmp.colnames:        
+                    if (cols != 'id'):
+                        tab_KEL_tmp.rename_column(cols,f'{cols}_{wl_now}')
+                if (I==0):
+                    tab_KEL_ord=tab_KEL_tmp
+                else:
+                    tab_KEL_ord=join(tab_KEL_ord,tab_KEL_tmp,keys=['id'],join_type='left')
+                I=I+1        
+        tab_DAP=join(tab_DAP,tab_KEL_ord,keys=['id'],join_type='left')
+
+    #
+    # Order COEFFS table
+    #
+    a_rsp=np.unique(tab_COEFFS['id_rsp'])
+    for I,rsp_now in enumerate(a_rsp):
+        tab_C_now=tab_COEFFS[tab_COEFFS['id_rsp']==rsp_now]
+        tab_C_tmp=tab_C_now['id','Teff_rsp', 'Log_g_rsp', 'Fe_rsp',\
+                            'alpha_rsp', 'W_rsp', 'min_W_rsp',\
+                            'log_ML_rsp', 'Av_rsp', 'n_W_rsp', 'e_W_rsp']
+        for cols in tab_C_tmp.colnames:        
+            if (cols != 'id'):
+                tab_C_tmp.rename_column(cols,f'{cols}_{rsp_now}')
+        if (I==0):
+            tab_C_ord=tab_C_tmp
+        else:
+            tab_C_ord=join(tab_C_ord,tab_C_tmp,keys=['id'],join_type='left')
+    tab_DAP=join(tab_DAP,tab_C_ord,keys=['id'],join_type='left')
+
+    if (sig_ext == 1):
+        tab_DAP=join(tab_DAP,tab_SIGMA,keys=['id'],join_type='left')
+     
+    if (verbose==True):
+        print('---- ALL Table Columns -----')
+        print('-------------------------------')
+        print('|        PT                   |')
+        print('-------------------------------')
+        list_columns(tab_PT.colnames)
+        print('----------------------------------')
+        print('|        RSP                      |')
+        print('----------------------------------')
+        list_columns(tab_RSP.colnames)
+        print('----------------------------------')
+        print('|        PE_ord                   |')
+        print('----------------------------------')
+        list_columns(tab_PE_ord.colnames)
+        if (kel_ext == 1):
+            print('----------------------------------')
+            print('|        PEK_ord                   |')
+            print('----------------------------------')
+            list_columns(tab_KEL_ord.colnames)
+        print('----------------------------------')
+        print('|        NPE_B                    |')
+        print('----------------------------------')
+        list_columns(tab_NPE_B.colnames,3)
+        print('----------------------------------')
+        print('|        NPE_R                    |')
+        print('----------------------------------')
+        list_columns(tab_NPE_R.colnames,3)
+        print('----------------------------------')
+        print('|        NPE_I                    |')
+        print('----------------------------------')
+        list_columns(tab_NPE_I.colnames,3)
+        print('----------------------------------')
+        print('|        C_ord                    |')
+        print('----------------------------------')
+        list_columns(tab_C_ord.colnames,4)
+        if (sig_ext == 1):
+            print('----------------------------------')
+            print('|        SIGMA_CHI                   |')
+            print('----------------------------------')
+            list_columns(tab_SIGMA.colnames)
+        
+    return tab_DAP
+
+
+def get_DAP_tab(tab_PT,tab_RSP,tab_COEFFS,tab_PE,tab_NPE_B,tab_NPE_R,tab_NPE_I,tab_KEL = None, kel_ext = 0, verbose=False):
+    #
+    # Rename some entries!
+    #
+     
+
+    tab_RSP.rename_column('Av','Av_st')
+    tab_RSP.rename_column('e_Av','e_Av_st')
+    tab_RSP.rename_column('z','z_st')
+    tab_RSP.rename_column('e_z','e_z_st')
+    tab_RSP.rename_column('disp','disp_st')
+    tab_RSP.rename_column('e_disp','e_disp_st')
+    tab_RSP.rename_column('flux','flux_st')
+    tab_RSP.rename_column('redshift','redshift_st')
+    tab_RSP.rename_column('med_flux','med_flux_st')
+    tab_RSP.rename_column('e_med_flux','e_med_flux_st')
+    tab_RSP.rename_column('sys_vel','vel_st')
+    #
+    # Parametric elines
+    #
+    tab_PE.rename_column('flux','flux_pe')
+    tab_PE.rename_column('e_flux','e_flux_pe')
+    tab_PE.rename_column('disp','disp_pe')
+    tab_PE.rename_column('e_disp','e_disp_pe')
+    tab_PE.rename_column('vel','vel_pe')
+    tab_PE.rename_column('e_vel','e_vel_pe')
+
+    if (kel_ext == 1):
+        tab_KEL.rename_column('flux','flux_pek')
+        tab_KEL.rename_column('e_flux','e_flux_pek')
+        tab_KEL.rename_column('disp','disp_pek')
+        tab_KEL.rename_column('e_disp','e_disp_pek')
+        tab_KEL.rename_column('vel','vel_pek')
+        tab_KEL.rename_column('e_vel','e_vel_pek')
+    #
+    # id	id_fib	rsp	TEFF	LOGG	META	ALPHAM	COEFF	Min.Coeff	log(M/L)	AV	N.Coeff	Err.Coeff
+    #
+    tab_COEFFS.rename_column('rsp','id_rsp')
+    tab_COEFFS.rename_column('TEFF','Teff_rsp')
+    tab_COEFFS.rename_column('LOGG','Log_g_rsp')
+    tab_COEFFS.rename_column('META','Fe_rsp')
+    tab_COEFFS.rename_column('ALPHAM','alpha_rsp')
+    tab_COEFFS.rename_column('COEFF','W_rsp')
+    tab_COEFFS.rename_column('Min.Coeff','min_W_rsp')
+    tab_COEFFS.rename_column('log(M/L)','log_ML_rsp')
+    tab_COEFFS.rename_column('AV','Av_rsp')
+    tab_COEFFS.rename_column('N.Coeff','n_W_rsp')
+    tab_COEFFS.rename_column('Err.Coeff','e_W_rsp')
+    
+    tab_DAP=tab_PT
     tab_DAP=join(tab_DAP,tab_RSP,keys=['id'],join_type='left')
     tab_DAP=join(tab_DAP,tab_NPE_B,keys=['id'],join_type='left')
     tab_DAP=join(tab_DAP,tab_NPE_R,keys=['id'],join_type='left')

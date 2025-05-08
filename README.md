@@ -74,14 +74,28 @@ After a successful installation, the directory should be structured as follows:
 
 ---
 ## Running Tests
-### Test 1: Running Example Script (deprecated, just for testing)
+
+### Test 1: Running the notebook lvm-dap-conf.ipynb located in the notebook
+director.
+
+1. Download the example FITS file:
+   - [Download example FITS](https://tinyurl.com/mudr6yw7)
+2. Place it inside a local directory
+3. Copy the notebook into that directory.
+4: Copy the file: _examples/data/lvmSFrame-example.fits.gz dap-4-example _legacy/lvm-dap_fast.yaml
+    into that directory
+3. Edit the notebook and change the 'lvm_file', 'label' and 'yaml_path' variables.
+4. Run the notebook cell by cell
+
+
+### Test 2: Running Example Script (deprecated, just for testing)
 ```bash
 cd _examples/
 chmod +x fit_6109_strong.sh
 ./fit_6109_strong.sh
 ```
 
-### Test 2: Running DAP on a FITS File
+### Test 3: Running DAP on a FITS File
 1. Download the example FITS file:
    - [Download example FITS](https://tinyurl.com/mudr6yw7)
 2. Place it inside `_examples/data/`
@@ -234,7 +248,7 @@ lvm-dap-sim [-h] [-n_sim n_sim] [-n_st n_st] [-f_st f_scale_st] [-f_el f_scale_e
 - `-dap_fwhm dap_fwhm` : Scaling factor applied to DAP non-parametric dispersion for emission lines (default: 2.354)
 - `-d, --debug` : Enable debugging mode (default: False)
 
-### `lvm-dap` Command (Deprecated)
+### `lvm-dap` Command (Deprecated: Do not use it)
 
 `lvm-dap` is now deprecated. Users are encouraged to use `lvm-dap-conf`, `lvm-dap-gen-out-mod`, or `lvm-dap-sim` instead.
 ```bash
