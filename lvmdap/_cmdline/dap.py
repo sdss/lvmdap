@@ -1750,6 +1750,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
           tab_DAP[f'lsf_{name}'] = lsf_now
           a_sig_name.append(f'sigma_kms_{name}')
           f_fwhm = 1
+          sigma_obs = np.abs((tab_DAP[cols]/f_fwhm))
+          min_sigma_obs = np.nanmin(sigma_obs)
+          min_lsf = np.nanmin(lsf_now)
+          if (min_sigma_obs<min_lsf):
+              lsf_now = (min_sigma_obs/min_lsf)*lsf_now
           tab_DAP[f'sigma_kms_{name}'] = np.float32(np.sqrt(np.abs((tab_DAP[cols]/f_fwhm)**2 - lsf_now**2))*__c__ /(wave))
 
     tab_el_chi['name'] = np.array(el_names)
