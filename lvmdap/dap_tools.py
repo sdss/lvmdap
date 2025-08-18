@@ -652,6 +652,12 @@ def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True
     except:
         Cframe=True
 
+    try: 
+        rss_e_spectra = hdu['ERR'].data
+        hdu_e = fits.ImageHDU(data=rss_e_spectra,header=hdu[1].header,name='ERROR')
+    except:
+        print('# No ERR extension') 
+
     try:
         rss_e_spectra = hdu['ERROR'].data
  #       rss_e_spectra[mask==1]=np.nan
