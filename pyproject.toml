@@ -22,7 +22,7 @@ include = ["lvmdap/etc"]
 python = ">=3.8,<4.0"
 numpy = "^1.18.5"
 scipy = "^1.4.1"
-matplotlib = "^3.5.3"
+matplotlib = "=3.7.3"
 seaborn = "^0.11.2"
 tqdm = "^4.64.0"
 astropy = "^5.1"
