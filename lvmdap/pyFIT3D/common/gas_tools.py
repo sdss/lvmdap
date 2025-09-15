@@ -12,7 +12,7 @@ from .stats import pdl_stats, _STATS_POS, calc_chi_sq
 from .io import get_data_from_fits, get_wave_from_header, array_to_fits
 from .io import print_time, read_masks_file, remove_isfile, print_verbose
 from .io import trim_waves, sel_waves, read_spectra, output_spectra, write_img_header
-from pyFIT3D.modelling.gas import EmissionLines, EmissionLinesLM, EmissionLinesRND
+from lvmdap.pyFIT3D.modelling.gas import EmissionLines, EmissionLinesLM, EmissionLinesRND
 
 from .constants import __sigma_to_FWHM__, __FWHM_to_sigma__, __c__
 from .constants import __selected_extlaw__, __selected_R_V__, __n_models_params__

@@ -5,12 +5,12 @@ import os
 import sys
 import numpy as np
 
-from pyFIT3D.common.constants import __selected_extlaw__, __selected_R_V__
+from lvmdap.pyFIT3D.common.constants import __selected_extlaw__, __selected_R_V__
 
-from pyFIT3D.common.stats import calc_chi_sq, smooth_ratio
-from pyFIT3D.common.io import print_verbose
-from pyFIT3D.common.io import plot_spectra_ax
-from pyFIT3D.modelling.stellar import StPopSynt
+from lvmdap.pyFIT3D.common.stats import calc_chi_sq, smooth_ratio
+from lvmdap.pyFIT3D.common.io import print_verbose
+from lvmdap.pyFIT3D.common.io import plot_spectra_ax
+from lvmdap.pyFIT3D.modelling.stellar import StPopSynt
 
 from lvmdap.modelling.ingredients import StellarModels
 

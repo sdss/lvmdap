@@ -11,10 +11,10 @@ np.set_printoptions(precision=4, suppress=True, linewidth=200)
 # warnings.filterwarnings('ignore', category=UserWarning, append=True)
 
 # local imports
-from pyFIT3D.common.io import output_spectra, plot_spectra_ax
-from pyFIT3D.common.stats import _STATS_POS, pdl_stats, WLS_invmat, calc_chi_sq
-from pyFIT3D.common.constants import _MODELS_ELINE_PAR, _EL_MODELS
-from pyFIT3D.common.constants import __c__, __sigma_to_FWHM__, __ELRND_fine_search_option__
+from lvmdap.pyFIT3D.common.io import output_spectra, plot_spectra_ax
+from lvmdap.pyFIT3D.common.stats import _STATS_POS, pdl_stats, WLS_invmat, calc_chi_sq
+from lvmdap.pyFIT3D.common.constants import _MODELS_ELINE_PAR, _EL_MODELS
+from lvmdap.pyFIT3D.common.constants import __c__, __sigma_to_FWHM__, __ELRND_fine_search_option__
 
 latex_ppi = 72.0
 latex_column_width_pt = 240.0

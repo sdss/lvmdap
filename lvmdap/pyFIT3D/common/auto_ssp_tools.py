@@ -4,7 +4,7 @@ from astropy.io import fits
 from copy import deepcopy as copy
 from os.path import basename, isfile
 
-from pyFIT3D.modelling.stellar import StPopSynt
+from lvmdap.pyFIT3D.modelling.stellar import StPopSynt
 
 from .io import read_spectra, print_time, clean_preview_results_files, ReadArguments
 from .io import array_to_fits, trim_waves, sel_waves, print_verbose, write_img_header

@@ -6,7 +6,7 @@ import argparse
 from copy import deepcopy as copy
 from pprint import pprint
 
-from pyFIT3D.common.io import remove_previous
+from lvmdap.pyFIT3D.common.io import remove_previous
 
 
 CWD = os.path.abspath(".")

@@ -42,7 +42,7 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import seaborn as sns
 
-from pyFIT3D.common.io import get_wave_from_header
+from lvmdap.pyFIT3D.common.io import get_wave_from_header
 from lvmdap.analysis.stats import weighted_pdf
 from lvmdap.analysis.stats import normalize_to_pdf, get_nth_moment, get_nth_percentile
 from lvmdap.analysis import img_scale
