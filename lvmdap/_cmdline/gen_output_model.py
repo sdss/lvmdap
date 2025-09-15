@@ -156,7 +156,7 @@ def _main(cmd_args=sys.argv[1:]):
     default=0
   )
   parser.add_argument(
-    "--flux-scale", metavar=("min","max"), type=np.float, nargs=2,
+    "--flux-scale", metavar=("min","max"), type=np.float64, nargs=2,
     help="scale of the flux in the input spectrum",
     default=[-1,1]
   )
