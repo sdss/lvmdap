@@ -170,7 +170,7 @@ def smooth_ratio(flux_ratio, sigma, kernel_size_factor=None):
     # setbadtoval(1)
     flux_ratio[~(np.isfinite(flux_ratio))] = 1
 
-    kernel_size = round_up_to_odd(np.int(kernel_size_factor*sigma))
+    kernel_size = round_up_to_odd(int(kernel_size_factor*sigma))
     # return median_filter(kernel_size, flux_ratio)
     sm_ratio = median_filter(kernel_size, flux_ratio)
     # if (sm_ratio == flux_ratio).all():

@@ -780,7 +780,7 @@ class EmissionLinesRND(EmissionLines):
                         models_stacked.append(tmp)
                         # n_models_free += 1
                     else:
-                        i_m_linked = np.int(cf.links[i_m][i_p] - 1)
+                        i_m_linked = int(cf.links[i_m][i_p] - 1)
                         model_flux_linked = models_stacked[i_m_linked]
                         tmp = tmp*cf.pars_0[i_m][i_p]
                         models_stacked[i_m_linked] = tmp + model_flux_linked
