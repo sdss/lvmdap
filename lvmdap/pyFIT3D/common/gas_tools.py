@@ -176,7 +176,7 @@ class ConfigEmissionModel(object):
                         max_rows=n_pars,
                         dtype=np.dtype([
                             ("guess", np.float64),
-                            ("to_fit", np.bool),
+                            ("to_fit", np.bool_),
                             ("pars_0", float64),
                             ("pars_1", float64),
                             ("links", np.int64)
@@ -257,7 +257,7 @@ class ConfigEmissionModel(object):
                     max_rows=__n_models_params__,
                     dtype=np.dtype([
                         ("guess", np.float64),
-                        ("to_fit", np.bool),
+                        ("to_fit", np.bool_),
                         ("pars_0", np.float64),
                         ("pars_1", np.float64),
                         ("links", np.int64)
@@ -736,7 +736,7 @@ def create_ConfigEmissionModel(wave_guess_list, flux_guess_list,
         pars_0 = np.zeros((__n_models_params__), dtype=np.float64)
         pars_1 = np.zeros((__n_models_params__), dtype=np.float64)
         links = -1*np.ones((__n_models_params__), dtype=np.int64)
-        to_fit = np.zeros((__n_models_params__), dtype=np.bool)
+        to_fit = np.zeros((__n_models_params__), dtype=np.bool_)
         guess[i_wave] = wave_guess
         guess[i_flux] = flux_guess
         guess[i_sigma] = sigma_guess
@@ -767,7 +767,7 @@ def create_ConfigEmissionModel(wave_guess_list, flux_guess_list,
         pars_0 = np.zeros((__n_models_params__), dtype=np.float64)
         pars_1 = np.zeros((__n_models_params__), dtype=np.float64)
         links = -1*np.ones((__n_models_params__), dtype=np.int64)
-        to_fit = np.zeros((__n_models_params__), dtype=np.bool)
+        to_fit = np.zeros((__n_models_params__), dtype=np.bool_)
 
         _poly_coeff_guess = np.zeros(shape=(n), dtype=float)
         _poly_bounds = np.zeros(shape=(n, 2), dtype=float)
