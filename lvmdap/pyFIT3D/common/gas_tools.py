@@ -179,7 +179,7 @@ class ConfigEmissionModel(object):
                             ("to_fit", np.bool),
                             ("pars_0", np.float),
                             ("pars_1", np.float),
-                            ("links", np.int)
+                            ("links", np.int64)
                         ]),
                         unpack=True
                     )
@@ -260,7 +260,7 @@ class ConfigEmissionModel(object):
                         ("to_fit", np.bool),
                         ("pars_0", np.float),
                         ("pars_1", np.float),
-                        ("links", np.int)
+                        ("links", np.int64)
                     ]),
                     unpack=True
                 )

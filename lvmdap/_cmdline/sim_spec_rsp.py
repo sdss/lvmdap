@@ -268,13 +268,13 @@ def _main(cmd_args=sys.argv[1:]):
 #  dap_file=args.DAP_table_in
   
   parser.add_argument(
-    "-n_sim",  metavar="n_sim", type=np.int,
+    "-n_sim",  metavar="n_sim", type=np.int64,
     help="Number of simulated spectra. Default =10",
     default=10
   )
   
   parser.add_argument(
-    "-n_st",  metavar="n_st", type=np.int,
+    "-n_st",  metavar="n_st", type=np.int64,
     help="Number of stars included in the model. Default =10",
     default=10
   )
@@ -362,7 +362,7 @@ def _main(cmd_args=sys.argv[1:]):
   )
   
   parser.add_argument(
-    "--plot", type=np.int,
+    "--plot", type=np.int64,
     help="whether to plot (1) or not (0, default) the fitting procedure. If 2, a plot of the result is store in a file without display on screen",
     default=0
   )

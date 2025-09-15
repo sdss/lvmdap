@@ -90,7 +90,7 @@ def _main(cmd_args=sys.argv[1:]):
         action="store_true"
     )
     parser.add_argument(
-        "--n-mc", type=np.int,
+        "--n-mc", type=np.int64,
         help="number of MC realisations for the spectral fitting",
         default=N_MC
     )

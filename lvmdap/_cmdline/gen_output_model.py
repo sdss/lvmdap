@@ -151,7 +151,7 @@ def _main(cmd_args=sys.argv[1:]):
   )
 
   parser.add_argument(
-    "--plot", type=np.int,
+    "--plot", type=np.int64,
     help="whether to plot (1) or not (0, default) the fitting procedure. If 2, a plot of the result is store in a file without display on screen",
     default=0
   )

@@ -210,7 +210,7 @@ def _main(cmd_args=sys.argv[1:]):
         help="the resolved stellar population *reduced* basis, for non-linear fitting"
     )
     parser.add_argument(
-        "--plot", type=np.int,
+        "--plot", type=np.int64,
         help="whether to plot (1) or not (0, default) the fitting procedure. If 2, a plot of the result is store in a file without display on screen",
         default=0
     )
@@ -260,7 +260,7 @@ def _main(cmd_args=sys.argv[1:]):
         action="store_true"
     )
     parser.add_argument(
-        "--n-mc", type=np.int,
+        "--n-mc", type=np.int64,
         help="number of MC realisations for the spectral fitting",
         default=N_MC
     )
