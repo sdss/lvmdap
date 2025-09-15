@@ -27,17 +27,6 @@ It is recommended to install **LVM-DAP** in a virtual environment to avoid depen
 conda create --name lvmdap python=3.11
 conda activate lvmdap
 
-# Install required dependencies
-conda install numpy=1.23.5  # Avoid compatibility issues
-# OR
-pip install numpy==1.23.5
-
-# Install pyPipe3D
-git clone https://gitlab.com/pipe3d/pyPipe3D.git
-cd pyPipe3D
-pip install . --user
-cd ..
-
 # Install LVM-DAP
 git clone https://github.com/sdss/lvmdap.git
 cd lvmdap
@@ -49,7 +38,7 @@ Download and store the required fitting data from:
 [Download LVM fitting data](https://tinyurl.com/mudr6yw7)
 
 ### Environmental Variables
-Define the following environment variables:
+Define the following environment variables (RECOMENDED!):
 ```bash
 export LVM_DAP="/path/to/lvmdap"  # LVM-DAP installation directory
 export LVM_DAP_CFG="$LVM_DAP/_legacy"  # Configuration files directory
@@ -75,36 +64,41 @@ After a successful installation, the directory should be structured as follows:
 ---
 ## Running Tests
 
-### Test 1: Running the notebook lvm-dap-conf.ipynb located in the notebook
+### Test 1: Running DAP main script on a FITS File
+
+1. Download the example FITS file:
+   - [Download example FITS](https://tinyurl.com/mudr6yw7)
+
+2. Place it inside `_examples/data/`
+
+3. Run the following command:
+```bash
+
+lvm-dap-conf _examples/data/lvmSFrame-example.fits.gz dap-4-example _legacy/lvm-dap_fast.yaml
+
+
+### Test 2: Running the notebook lvm-dap-conf.ipynb located in the notebook
 director.
 
 1. Download the example FITS file:
    - [Download example FITS](https://tinyurl.com/mudr6yw7)
+
 2. Place it inside a local directory
+
 3. Copy the notebook into that directory.
+
 4: Copy the file: _examples/data/lvmSFrame-example.fits.gz dap-4-example _legacy/lvm-dap_fast.yaml
     into that directory
+
 3. Edit the notebook and change the 'lvm_file', 'label' and 'yaml_path' variables.
+
 4. Run the notebook cell by cell
 
 
-### Test 2: Running Example Script (deprecated, just for testing)
-```bash
-cd _examples/
-chmod +x fit_6109_strong.sh
-./fit_6109_strong.sh
-```
-
-### Test 3: Running DAP on a FITS File
-1. Download the example FITS file:
-   - [Download example FITS](https://tinyurl.com/mudr6yw7)
-2. Place it inside `_examples/data/`
-3. Run the following command:
-```bash
-lvm-dap-conf _examples/data/lvmSFrame-example.fits.gz dap-4-example _legacy/lvm-dap_fast.yaml
 ```
 ---
 ## Usage
+
 ### `lvm-dap-conf` Command
 
 #### Example YAML Configuration
