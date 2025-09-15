@@ -71,14 +71,19 @@ After a successful installation, the directory should be structured as follows:
 
 2. Place it inside `_examples/data/`
 
-3. Run the following command:
+3. Edit the file '_legacy/lvm-dap_fast.yaml' chaning the local directories to match the ones in your computer
+
+4. Run the following command:
+
 ```bash
 
 lvm-dap-conf _examples/data/lvmSFrame-example.fits.gz dap-4-example _legacy/lvm-dap_fast.yaml
 
+```
 
 ### Test 2: Running the notebook lvm-dap-conf.ipynb located in the notebook
 director.
+
 
 1. Download the example FITS file:
    - [Download example FITS](https://tinyurl.com/mudr6yw7)
@@ -95,7 +100,7 @@ director.
 4. Run the notebook cell by cell
 
 
-```
+
 ---
 ## Usage
 
