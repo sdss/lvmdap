@@ -435,12 +435,12 @@ class SSPModels(object):
                 _age = _age[:-3]
             else:
                 mult = 1  # Gyr
-            age = mult*np.float(_age)
+            age = mult*np.float64(_age)
             _Z = name_read_split[1].split('.')[0]
-            Z = np.float(_Z.replace('z', '0.'))
+            Z = np.float64(_Z.replace('z', '0.'))
             ages[i] = age
             Zs[i] = Z
-            mtol[i] = 1/np.float(self._header[f'NORM{i}'])
+            mtol[i] = 1/np.float64(self._header[f'NORM{i}'])
             self.write_tZ_header(i, age, Z)
         return ages, Zs, mtol
 
@@ -1032,7 +1032,7 @@ class StPopSynt(object):
     def correct_elines_mask(self, redshift, window_size=None, update_nl_range=False):
         if self.elines_mask_file is not None:
             print_verbose(f'[correct_elines_mask]: input redshift: {redshift:.8f}', verbose=self.verbose)
-            e_masks = np.empty((self.e_w.size, 2), dtype=np.float)
+            e_masks = np.empty((self.e_w.size, 2), dtype=np.float64)
             z_fact = 1 + redshift
             window_size = __mask_elines_window__ if window_size is None else window_size
             if self.sigma_inst is not None:
@@ -1070,7 +1070,7 @@ class StPopSynt(object):
             self.nl_wl_range = [nl_w_min, nl_w_max]
             print_verbose(f'- New wavelength range: [{w_min:.2f}, {w_max:.2f}] - Non-linear analysis: [{nl_w_min:.2f}, {nl_w_max:.2f}]', verbose=self.verbose)
         if self.e_w is not None:
-            e_masks = np.empty((self.e_w.size, 2), dtype=np.float)
+            e_masks = np.empty((self.e_w.size, 2), dtype=np.float64)
             eline_half_range *= 1 if self.sigma_inst is None else (self.sigma_inst if self.sigma_mean is None else self.sigma_mean)
             if eline_half_range < 4:
                 eline_half_range = 4
@@ -1387,10 +1387,10 @@ class StPopSynt(object):
               extinction for each SSP model.
         """
         # ready to work with a different AV for each SSP.
-        self.AV_arr = np.array([self.config.AV]*self.ssp.n_models, dtype=np.float)
-        self.ini_AV_arr = np.array([self.config.AV]*self.ssp_nl_fit.n_models, dtype=np.float)
-        self.delta_AV_arr = np.array([self.config.AV]*self.ssp.n_models, dtype=np.float)
-        self.ini_delta_AV_arr = np.array([self.config.AV]*self.ssp_nl_fit.n_models, dtype=np.float)
+        self.AV_arr = np.array([self.config.AV]*self.ssp.n_models, dtype=np.float64)
+        self.ini_AV_arr = np.array([self.config.AV]*self.ssp_nl_fit.n_models, dtype=np.float64)
+        self.delta_AV_arr = np.array([self.config.AV]*self.ssp.n_models, dtype=np.float64)
+        self.ini_delta_AV_arr = np.array([self.config.AV]*self.ssp_nl_fit.n_models, dtype=np.float64)
 
     def _load_ssp_fits(self):
         """

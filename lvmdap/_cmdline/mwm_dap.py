@@ -47,30 +47,30 @@ def _main(cmd_args=sys.argv[1:]):
         help=f"the normalization windows in wavelength. The processed fluxes (and errors) will be normalized using the median within this range. Defaults to {WAVELENGTH_NORM}",
         nargs=2,
         default=WAVELENGTH_NORM,
-        type=np.float
+        type=np.float64
     )
     parser.add_argument(
-        "--w-range", metavar=("wmin","wmax"), type=np.float, nargs=2,
+        "--w-range", metavar=("wmin","wmax"), type=np.float64, nargs=2,
         help="the wavelength range for the fitting procedure",
         default=[-np.inf, np.inf]
     )
     parser.add_argument(
-        "--w-range-nl", metavar=("wmin2","wmax2"), type=np.float, nargs=2,
+        "--w-range-nl", metavar=("wmin2","wmax2"), type=np.float64, nargs=2,
         help="the wavelength range for the *non-linear* fitting procedure"
     )
 
     parser.add_argument(
-        "--redshift", metavar=("input_redshift","delta_redshift","min_redshift","max_redshift"), type=np.float, nargs=4,
+        "--redshift", metavar=("input_redshift","delta_redshift","min_redshift","max_redshift"), type=np.float64, nargs=4,
         help="the guess, step, minimum and maximum value for the redshift during the fitting",
         default=(0.00, 0.00005, -35.14/3e5, 42.54/3e5)
     )
     parser.add_argument(
-        "--sigma", metavar=("input_sigma","delta_sigma","min_sigma","max_sigma"), type=np.float, nargs=4,
+        "--sigma", metavar=("input_sigma","delta_sigma","min_sigma","max_sigma"), type=np.float64, nargs=4,
         help="same as the redshift, but for the line-of-sight velocity dispersion",
         default=(0, 0, 0, 450)
     )
     parser.add_argument(
-        "--AV", metavar=("input_AV","delta_AV","min_AV","max_AV"), type=np.float, nargs=4,
+        "--AV", metavar=("input_AV","delta_AV","min_AV","max_AV"), type=np.float64, nargs=4,
         help="same as the redshift, but for the dust extinction in the V-band",
         default=(0.0, 0.1, 0.0, 3.0)
     )
@@ -80,7 +80,7 @@ def _main(cmd_args=sys.argv[1:]):
         choices=EXT_CHOICES, default=EXT_CURVE
     )
     parser.add_argument(
-        "--RV", type=np.float,
+        "--RV", type=np.float64,
         help=f"total to selective extinction defined as: A_V / E(B-V). Default to {EXT_RV}",
         default=EXT_RV
     )

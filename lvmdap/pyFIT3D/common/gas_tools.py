@@ -175,10 +175,10 @@ class ConfigEmissionModel(object):
                         fname=f,
                         max_rows=n_pars,
                         dtype=np.dtype([
-                            ("guess", np.float),
+                            ("guess", np.float64),
                             ("to_fit", np.bool),
-                            ("pars_0", np.float),
-                            ("pars_1", np.float),
+                            ("pars_0", float64),
+                            ("pars_1", float64),
                             ("links", np.int64)
                         ]),
                         unpack=True
@@ -256,10 +256,10 @@ class ConfigEmissionModel(object):
                     fname=f,
                     max_rows=__n_models_params__,
                     dtype=np.dtype([
-                        ("guess", np.float),
+                        ("guess", np.float64),
                         ("to_fit", np.bool),
-                        ("pars_0", np.float),
-                        ("pars_1", np.float),
+                        ("pars_0", np.float64),
+                        ("pars_1", np.float64),
                         ("links", np.int64)
                     ]),
                     unpack=True
@@ -732,10 +732,10 @@ def create_ConfigEmissionModel(wave_guess_list, flux_guess_list,
     if sort_by_flux:
         iS = np.argsort(_fl, kind='stable')[::-1]
     for i, wave_guess, flux_guess, sigma_guess, v0_guess in zip(iS, _wl[iS], _fl[iS], _sl[iS], _vl[iS]):
-        guess = np.zeros((__n_models_params__), dtype=np.float)
-        pars_0 = np.zeros((__n_models_params__), dtype=np.float)
-        pars_1 = np.zeros((__n_models_params__), dtype=np.float)
-        links = -1*np.ones((__n_models_params__), dtype=np.int)
+        guess = np.zeros((__n_models_params__), dtype=np.float64)
+        pars_0 = np.zeros((__n_models_params__), dtype=np.float64)
+        pars_1 = np.zeros((__n_models_params__), dtype=np.float64)
+        links = -1*np.ones((__n_models_params__), dtype=np.int64)
         to_fit = np.zeros((__n_models_params__), dtype=np.bool)
         guess[i_wave] = wave_guess
         guess[i_flux] = flux_guess
@@ -763,10 +763,10 @@ def create_ConfigEmissionModel(wave_guess_list, flux_guess_list,
 
     if polynomial_order is not None:
         n = polynomial_order + 1
-        guess = np.zeros((__n_models_params__), dtype=np.float)
-        pars_0 = np.zeros((__n_models_params__), dtype=np.float)
-        pars_1 = np.zeros((__n_models_params__), dtype=np.float)
-        links = -1*np.ones((__n_models_params__), dtype=np.int)
+        guess = np.zeros((__n_models_params__), dtype=np.float64)
+        pars_0 = np.zeros((__n_models_params__), dtype=np.float64)
+        pars_1 = np.zeros((__n_models_params__), dtype=np.float64)
+        links = -1*np.ones((__n_models_params__), dtype=np.int64)
         to_fit = np.zeros((__n_models_params__), dtype=np.bool)
 
         _poly_coeff_guess = np.zeros(shape=(n), dtype=float)

@@ -280,19 +280,19 @@ def _main(cmd_args=sys.argv[1:]):
   )
   
   parser.add_argument(
-    "-f_st", metavar = 'f_scale_st', type=np.float,
+    "-f_st", metavar = 'f_scale_st', type=np.float64,
     help="Scaling factor applied to the stellar population spectra (~S/N level). Default = 1.0",
     default=10.0
   )
   
   parser.add_argument(
-    "-f_el", metavar = 'f_scale_el', type=np.float,
+    "-f_el", metavar = 'f_scale_el', type=np.float64,
     help="Scaling factor applied to the emission lines with respect to the reference. Default = 1.0",
     default=1.0
   )
 
   parser.add_argument(
-    "-dap_fwhm", metavar = 'dap_fwhm', type=np.float,
+    "-dap_fwhm", metavar = 'dap_fwhm', type=np.float64,
     help="Scaling factor applied to input DAP non-parametric dispersion for the emission lines to transform to the sigma of a Gaussian. Default = 2.354",
     default=2.354
   )
@@ -356,7 +356,7 @@ def _main(cmd_args=sys.argv[1:]):
   #
 
   parser.add_argument(
-    "--flux-scale", metavar=("min","max"), type=np.float, nargs=2,
+    "--flux-scale", metavar=("min","max"), type=np.float64, nargs=2,
     help="scale of the flux in the input spectrum",
     default=[-1, +1]
   )

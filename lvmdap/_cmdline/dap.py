@@ -250,7 +250,7 @@ def _main(cmd_args=sys.argv[1:]):
         help="the resolved stellar population basis"
     )
     parser.add_argument(
-        "sigma_inst", metavar="sigma-inst", type=np.float,
+        "sigma_inst", metavar="sigma-inst", type=np.float64,
         help="the standard deviation in wavelength of the Gaussian kernel to downgrade the resolution of the models to match the observed spectrum. This is: sigma_inst^2 = sigma_obs^2 - sigma_mod^2"
     )
     parser.add_argument(
@@ -279,7 +279,7 @@ def _main(cmd_args=sys.argv[1:]):
         help="the file listing the wavelength ranges to exclude during the fitting"
     )
     parser.add_argument(
-        "--sigma-gas", type=np.float,
+        "--sigma-gas", type=np.float64,
         help="the guess velocity dispersion of the gas"
     )
     parser.add_argument(
@@ -302,32 +302,32 @@ def _main(cmd_args=sys.argv[1:]):
         default=0
     )
     parser.add_argument(
-        "--flux-scale", metavar=("min","max"), type=np.float, nargs=2,
+        "--flux-scale", metavar=("min","max"), type=np.float64, nargs=2,
         help="scale of the flux in the input spectrum",
         default=[-1,1]
     )
     parser.add_argument(
-        "--w-range", metavar=("wmin","wmax"), type=np.float, nargs=2,
+        "--w-range", metavar=("wmin","wmax"), type=np.float64, nargs=2,
         help="the wavelength range for the fitting procedure",
         default=[-np.inf, np.inf]
     )
     parser.add_argument(
-        "--w-range-nl", metavar=("wmin2","wmax2"), type=np.float, nargs=2,
+        "--w-range-nl", metavar=("wmin2","wmax2"), type=np.float64, nargs=2,
         help="the wavelength range for the *non-linear* fitting procedure"
     )
 
     parser.add_argument(
-        "--redshift", metavar=("input_redshift","delta_redshift","min_redshift","max_redshift"), type=np.float, nargs=4,
+        "--redshift", metavar=("input_redshift","delta_redshift","min_redshift","max_redshift"), type=np.float64, nargs=4,
         help="the guess, step, minimum and maximum value for the redshift during the fitting",
         default=(0.00, 0.01, 0.00, 0.30)
     )
     parser.add_argument(
-        "--sigma", metavar=("input_sigma","delta_sigma","min_sigma","max_sigma"), type=np.float, nargs=4,
+        "--sigma", metavar=("input_sigma","delta_sigma","min_sigma","max_sigma"), type=np.float64, nargs=4,
         help="same as the redshift, but for the line-of-sight velocity dispersion",
         default=(0, 10, 0, 450)
     )
     parser.add_argument(
-        "--AV", metavar=("input_AV","delta_AV","min_AV","max_AV"), type=np.float, nargs=4,
+        "--AV", metavar=("input_AV","delta_AV","min_AV","max_AV"), type=np.float64, nargs=4,
         help="same as the redshift, but for the dust extinction in the V-band",
         default=(0.0, 0.1, 0.0, 3.0)
     )
@@ -337,7 +337,7 @@ def _main(cmd_args=sys.argv[1:]):
         choices=EXT_CHOICES, default=EXT_CURVE
     )
     parser.add_argument(
-        "--RV", type=np.float,
+        "--RV", type=np.float64,
         help=f"total to selective extinction defined as: A_V / E(B-V). Default to {EXT_RV}",
         default=EXT_RV
     )
@@ -606,7 +606,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
 
     parser.add_argument(
-        "--flux-scale", metavar=("min","max"), type=np.float, nargs=2,
+        "--flux-scale", metavar=("min","max"), type=np.float64, nargs=2,
         help="scale of the flux in the input spectrum",
         default=[-1, +1]
     )
