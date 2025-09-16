@@ -77,12 +77,14 @@ def WLS_invmat(y_obs, y_mod__m, dy=None):
     # problem inverting the matrix using pinv which computes
     # the (Moore-Penrose) pseudo-inverse of a matrix
     if dy is not None:
-        AwAT = np.dot(A, np.diag(dy).dot(A.T))
+#        AwAT = np.dot(A, np.diag(dy).dot(A.T))
+        AwAT = np.dot(A, A.T*dy[:,None])
         try:
             AwAT_inv = np.linalg.inv(AwAT)
         except np.linalg.LinAlgError:
             AwAT_inv = np.linalg.pinv(AwAT)
-        AwB = A.dot(np.diag(dy).dot(B))
+#        AwB = A.dot(np.diag(dy).dot(B))
+        AwB = A.dot(B*dy)
         p = np.dot(AwAT_inv, AwB)
     else:
         AAT = A.dot(A.T)
@@ -205,7 +207,9 @@ def convolve_sigma(flux, sigma, side_box=None):
     kernel = np.array(list(map(kernel_function, np.arange(N))))
     norm = kernel.sum()
     kernel = kernel/norm
-    return convolve1d(flux, kernel, mode='nearest')
+    flux_pad = np.pad(flux, len(kernel), mode='edge')
+    return np.convolve(flux_pad, kernel, mode='same')[len(kernel):-len(kernel)]
+    #return convolve1d(flux, kernel, mode='nearest')
 
 def shift_convolve(wave_obs, wave_in, flux_in, redshift, sigma, sigma_inst=None):
     """

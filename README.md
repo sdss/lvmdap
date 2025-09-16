@@ -27,10 +27,19 @@ It is recommended to install **LVM-DAP** in a virtual environment to avoid depen
 conda create --name lvmdap python=3.11
 conda activate lvmdap
 
+# In some cases it is needed to install the following version of 
+# matplotlib
+pip install matplotlib==3.7.3
+
+
 # Install LVM-DAP
 git clone https://github.com/sdss/lvmdap.git
 cd lvmdap
 pip install . --user
+
+
+
+
 ```
 
 ### Additional Data
