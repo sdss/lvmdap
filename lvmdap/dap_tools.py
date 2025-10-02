@@ -1093,8 +1093,14 @@ def read_file(file_ID, mjd, whichone = 'ha', wl_shift_vel = 0., nobad=False):
 
     if (pa == None):
         pa = 0.0
-        hdr['POSCIPA'] = pa            
-    ra_fib, dec_fib = make_radec(tab['xpmm'][sci], tab['ypmm'][sci], racen, deccen, pa)
+        hdr['POSCIPA'] = pa
+
+    if 'fib_ra' in tab.colnames and 'fib_dec' in tab.colnames:
+        ra_fib = tab['fib_ra'][sci]
+        dec_fib = tab['fib_dec'][sci]
+    else:
+        ra_fib, dec_fib = make_radec(tab['xpmm'][sci], tab['ypmm'][sci], racen, deccen, pa)
+    #ra_fib, dec_fib = make_radec(tab['xpmm'][sci], tab['ypmm'][sci], racen, deccen, pa)
 
     line_flux = make_line(wave, r1,sci, wl_shift_vel, whichone)
 
@@ -1237,7 +1243,12 @@ def read_PT(fitsfile, agcam_coadd, nobad=False, ny_range=None):
         ra_fib = tab['ra']
         dec_fib = tab['dec']
     else:
-        ra_fib, dec_fib = make_radec(tab['xpmm'][sci], tab['ypmm'][sci], racen, deccen, pa)
+        if 'fib_ra' in tab.colnames and 'fib_dec' in tab.colnames:
+            ra_fib = tab['fib_ra'][sci]
+            dec_fib = tab['fib_dec'][sci]
+        else:
+            ra_fib, dec_fib = make_radec(tab['xpmm'][sci], tab['ypmm'][sci], racen, deccen, pa)
+#        ra_fib, dec_fib = make_radec(tab['xpmm'][sci], tab['ypmm'][sci], racen, deccen, pa)
     fiberid=tab['fiberid'][sci]
     exp_fib=[]
     for fibID in fiberid:
