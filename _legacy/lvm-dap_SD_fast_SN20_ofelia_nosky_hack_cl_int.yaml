@@ -1,76 +1,231 @@
 ---
- output_path: "/disk-a/sanchez/LVM/LVM/ver_231113/output_dap_v1.0.3_tests"
+# lvmdap_dir : Directory where it is located the installation of the LVM-DAP
+#              in your local computer. It should contain the "_legacy" sub-directory
+#              The DAP will sustitute "../" entries in the YAML file by
+#              this directory (see below)
+#
  lvmdap_dir: "/home/sanchez/sda2/code/python/lvmdap"
-# rsp-file: "/disk-a/sanchez/LVM/LVM/ver_231113/mstar-stlib-cl-108.fits.gz"
- rsp-file: "/disk-a/sanchez/LVM/LVM/ver_231113/mstar-stlib-cl-4.fits.gz"
-# rsp-file: "/home/sanchez/ana_lvm/my_templates/mstar-stlib-cl-36.fits.gz"
+#
+#
+#
+#
+# output_path : Directory where the output of the analysis will be stored
+#
+ output_path:  "/home/sanchez/sda2/articulos/LVM/M20/analysis/output_dap/"
+#
+# rsp-file: RSP template used for the full analysis of the underlying stellar population
+#
+ rsp-file: "/disk-a/sanchez/LVM/LVM/ver_231113/mstar-stlib-cl-108.fits.gz"
+#
+# rsp-nl-file: RSP template used to derive the non-linear parameters of the stellar
+#              population (vel_*, sigma_*, Av_*)
+#
+ rsp-nl-file: "/disk-a/sanchez/LVM/LVM/ver_231113/mstar-stlib-cl-12.fits.gz"
+#
+# sigma-inst: Average instrumental resolution sigma adopted during the fitting process (in AA)
+# 
  sigma-inst: 1
- rsp-nl-file: "/disk-a/sanchez/LVM/LVM/ver_231113/mstar-stlib-cl-4.fits.gz"
+#
+# input-fmt: Default input format (rss == LVMSFrame)
+#
  input-fmt: rss
- # Auto_z derivation (-0.003,0.005,1e-05) :0.0009700000000000099
+#
+# redshift: Guess redshift, offset, minimum and maximum value
+#           adopted during the exploration of the redshift for
+#           the stellar populations when fitting using the RSP template
+#           defined in the rsp-nl-file to derive z_* (i.e., vel_*)
+#            
  redshift:
   -  0.0
   -  0.00005
-#  -  -0.001
-#  -  0.002
   -  -0.0003
   -  0.0003
+# sigma: Guess velocity dispersion, offset, minimum and maximum value
+#           adopted during the exploration of the stellar velocity 
+#           dispersion when fitting using the RSP template
+#           defined in the rsp-nl-file to derive sigma_* (km/s)
+#
  sigma:
   - 1
-  - 5
-  - 5
-  - 30
+  - 2
+  - 0
+  - 50
+# AV: Guess dust attenuation in the V-band, offset, minimum and maximum value
+#           adopted during the exploration of the stellar dust
+#           attenuation when fitting using the RSP template
+#           defined in the rsp-nl-file to derive AV_* (km/s)
+#
  AV:
   - 0
   - 0.3
   - 0.0
   - 2.5 
-# emission-lines-file: ../_legacy/emission_lines_strong.LVM
- emission-lines-file: ../_legacy/emission_lines_long_list_OII.LVM
- emission-lines-file-long: ../_legacy/emission_lines_long_list_OII.LVM
+#
+# emission-line-file: List of emission lines that will be masked during the
+#                     first analysis of the stellar populations, prior
+#                     to fit any emission line with a Gaussian function.
+#
+ emission-lines-file: ../_legacy/emission_lines_strong.LVM
+#
+# emission-line-file-long: List of emission lines that will be masked during the
+#                     first analysis of the stellar populations, prior
+#                     to fit any emission line with a Gaussian function.
+# 
+ emission-lines-file-long: ../_legacy/emission_lines_long_list.LVM
+#
+# emission-line-file-sky: List of emission sky emission lines to be masked during 
+#                         the fitting process
+#
  emission-lines-file-sky: ../_legacy/emission_lines_sky.LVM
-# emission-lines-file-long: ../_legacy/emission_lines_strong.LVM
+#
+# w-range: Wavelength range adopted for fitting the stellar population component
+#          for the full decomposition (i.e., using the RSP defined in the rsp-file)
+#
  w-range:
   - 3700
   - 6900
- ask-file: ../_legacy/mask_bands_LVM.txt
-# config-file: ../_legacy/auto_ssp_LVM_few.config
+#
+# mask-file: File including a set of wavelength ranges that would be masked during
+#            the fitting process.
+#
+ mask-file: ../_legacy/mask_bands_LVM.txt
+#
+# config-file: Configuration file including the set of emission line systems
+#              fitted during the two parametric analysis (i.e., emission line fitted
+#              with Gaussian functions). It is deeply described in pyPipe3D documentation.
+#
  config-file: ../_legacy/auto_ssp_LVM.config
+#
+# clear_outputs: Flag indicating if all previous output files matching the "label" entry
+#                are removed prior to any analysis.
+#
  clear_outputs: True
+#
+# w-range-nl: Wavelength range adopted for fitting the stellar velocity and velocity
+#             dispersion, when spectra are fitted using the RSP defined by the rsp-nl-file
+#
  w-range-nl:
   - 3890
-  - 3950
+  - 4050 
+#
+# bin-nl: Possible binning (in spectral pixels) when deriving the stellar velocity and velocity
+#         dispersion
+#
  bin-nl: 1
+#
+# bin-AV: Possible binning (in spectral pixels) when deriving the stellar dust attenuation
+#
  bin-AV: 50
+#
+# mask_file: A file comprising a set of wavelength ranges that are masked
+#
  mask_file: none
+#
+# ignore_gas: Flag indicating whether to fit the emission lines (False) or not (True)
+#
  ignore_gas: False
+#
+# single-gas-fit: Flag indicating whether
+#
  single-gas-fit: True
-# single-gas-fit: False
+#
+# sigma-gas: Guess of the velocity dispersion in AA for the analysis
+#            of the emission lines using the non-parametric procedure
+#
  sigma-gas: 0.8
+#
+# flux-scale-org: Range of fluxes shown in the figures (min and max).
+#                 When set to (-1,1) the program looks for the optimal ones.
+#
  flux-scale-org:
   - -1
   - 1
+#
+# single_rsp: Flag indicating whether not perform a full decomposition of the stellar population
+#             using the RSP template but rather look for the single RSP that match better
+#             with each spectrum. It is a much faster analysis.
+#
  single_rsp: False
+#
+# do_plots: Flag indicating whether to create the final summary plots (1) or not (0)
+#
+#
  do_plots: 1
+#
+# ny_range: Range of fibers to be fitted, from zero the the maximum number included in the analyzed
+#           RSS file. When not set, the full RSS is analyzed. If set, the data will be try to
+#           contain just the spectra within the two defined values.
+#
 # ny_range:
 #  - 500
 #  - 510
+#
+# nx_range: Range of spectral pixels analyzed during the fitting process. If set, the data will be trim
+#           to contain just the spectral pixels within the two defined values. When not set, no
+#           action is performed.
+#
 # nx_range:
 #  - 100
 #  - 5000
+#
+# out-plot-format: Format of the output summary plots (pdf/png)
+#
  out-plot-format: "pdf"
 # out-plot-format: "png"
+#
+# only-integrated: Flag indicating whether the analysis is restricted to just the integrated spectrum (True) 
+#                  or to each spectrum within the RSS (False).
 # only-integrated: False
  only-integrated: True
+#
+# auto-redshift: Flag indicating whether the program looks of average redshift based on the Ha+[NII] wavelength
+#                detected in the integrated spectrum (True), restricting the fitting to a range defined by
+#                the entries in the "redshift" parameter but shifted to the new estimated redshift, or
+#                it just adopt the values included in the "redshift" parameter (FALSE), described before.
+#
  auto-redshift: True
+#
+# auto_z_min,max,del: Range of values adopted in the automatic estimation 
+#           	      of the redshift for the cross-correlation with the Ha+[NII]
+#           	      emission lines for the integrated spectrum across
+#           	      the entire analyzed frame. The redshift will be explored within
+#                     a box [auto_z_min,auto_z_max] using the step "auto_z_del".
+
  auto_z_min: -0.005
  auto_z_max: 0.01
  auto_z_del: 0.0001
+#
+# auto_z_bg: Flag indicating whether the background/underlying spectrum is estimated for the integrated
+#            spectrum, using a procedure similar to the one used to define the continuum component of the
+#            sky by the DRP.
+#
  auto_z_bg: True
+#
+# auto_z_sc: Flag indicating whether the continuum estimated before is subtracted to the integrated
+#            spectro prior to look for the average redshift of the analyzed target.
+#
  auto_z_sc: True
- #auto_z_del: 0.00001
- # auto-redshift: False
+#
+# sky-hack: Flag indicating where the DAP performs a re-analysis of the sky, based on a procedure
+#           formerly developed for the DRP. For version above 1.1.* of the DRP this hack is
+#           deprecated and should not be used.
+#
  sky-hack: False
+ #
+ # SN_CUT: Minumum S/N in the continuum at the average wavelength range (defined by the w-range parameter)
+ #         above which it is performed a full RSP decomposition. Below this value the code will
+ #         perform a "single" exploration (as described before): it will just look for the single RSP
+ #         template which shape match with that of the "noisy" continuum.
+ #         NOTE*** : It is important to note that in this case all coefficients in the stellar decomposition
+ #         will be set to 0 appart from the one that match better with the observed spectrum (set to 1).
+ #         Furthermore, all errors in the decomposition are set to 0.
+ #
  SN_CUT: 20
+ #
+ # SN_CUT_INT: Minimum S/N of the integrated spectrum below which no stellar component is considered in the
+ #             analysis. 
+ #
  SN_CUT_INT: 0.1
- 
+ #
+ # The optical limits for SN_CUT and SN_CUT_INT should be deeply discussed based on feedback!
+ #
