@@ -1832,7 +1832,9 @@ class StPopSynt(object):
                     #                                                     sel_wavelengths=s['sel_nl_wl'])
                     print_verbose(f'found min chi_sq ]=-------- ' , verbose=self.verbose)
                     print_verbose(f'update best chi_sq ]=------ {chi_sq}' , verbose=self.verbose)
-                    self.best_chi_sq_redshift = chi_sq
+                    # YGK suggested
+#                    self.best_chi_sq_redshift = chi_sq
+                    self.best_chi_sq_redshift = fb
                     print_verbose(f'updating best coeffs ]=---- {coeffs_now}', verbose=self.verbose)
                     self.best_coeffs_redshift = coeffs_now
                     print_verbose(f'updating best redshift ]=-- {_red}', verbose=self.verbose)
@@ -2350,14 +2352,14 @@ class StPopSynt(object):
                 self.best_AV = AV
             if len(self.chi_sq_AV_chain) > 2:
                 fa, fb, fc = self.chi_sq_AV_chain[-3:]
-                if (fb < fa) & (fb < fa) & (fb <= self.best_chi_sq_AV):
+                if (fb < fa) & (fb < fc) & (fb <= self.best_chi_sq_AV):
                     _AV, _e_AV = hyperbolic_fit_par(self.AV_chain, self.chi_sq_AV_chain, verbose=self.verbose)
-                    # print(f'found best: {_AV} chi_sq: {chi_sq}', end=' ')
+                    # print<(f'found best: {_AV} chi_sq: {chi_sq}', end=' ')
                     # coeffs_now, chi_sq, msk_model_now = self.fit_WLS_invmat(ssp=ssp, AV=_AV, sel_wavelengths=s['sel_AV'])
                     print_verbose(f'found min chi_sq ]=-------- ' , verbose=self.verbose)
                     print_verbose(f'update best chi_sq ]=------ {chi_sq}' , verbose=self.verbose)
                     # print(f' new chi_sq: {chi_sq}')
-                    self.best_chi_sq_AV = chi_sq
+                    self.best_chi_sq_AV = fb
                     print_verbose(f'updating best coeffs ]=---- {coeffs_now}', verbose=self.verbose)
                     self.best_coeffs_AV = coeffs_now
                     print_verbose(f'updating best AV ]=-------- {_AV}', verbose=self.verbose)
