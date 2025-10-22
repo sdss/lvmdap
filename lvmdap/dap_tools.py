@@ -3130,3 +3130,139 @@ def find_closest_indices_different(array, target_value):
     # Get indices within the filtered array
     closest_mask = diff == min_diff
     return original_indices[closest_mask]
+
+
+def DAP_extract_coeffs(tab_C_ord): 
+    '''
+    This routine extract the original coeffs table from a DAP table.
+    To be used for plotting the PDFs of the stellar population parameters.
+    '''
+    # Extract unique RSP IDs from column names
+    rsp_ids = [col.split('_')[-1] for col in tab_C_ord.colnames if col.startswith('Teff_rsp_')]
+    rsp_ids = list(set(rsp_ids))  # Get unique RSP IDs
+
+    # Initialize an empty list to store individual tables
+    tables = []
+
+    for I,rsp_id in enumerate(rsp_ids):
+        # Extract columns for the current RSP ID
+        cols_to_extract = ['id'] + [col for col in tab_C_ord.colnames if col.endswith(f'_{rsp_id}')]
+        tab_tmp = tab_C_ord[cols_to_extract]
+
+        # Rename columns to remove the RSP ID suffix
+        for col in tab_tmp.colnames:
+            if col != 'id':
+                tab_tmp.rename_column(col, col.replace(f'_{rsp_id}', ''))
+
+        # Add the RSP ID as a column
+        tab_tmp['id_rsp'] = rsp_id
+        #tab_tmp['id_fib'] = I
+        # Append the table to the list
+        tables.append(tab_tmp)
+
+        # Combine all tables into a single table
+    tab_COEFFS = vstack_table(tables)    
+    tab_COEFFS['id_fib'] = [int(rsp.split(".")[1]) for rsp in tab_COEFFS['id']]
+    tab_COEFFS['id_rsp'] = tab_COEFFS['id_rsp'].astype(int)
+    tab_COEFFS.rename_column('id_rsp', 'rsp')
+    tab_COEFFS.rename_column('Teff_rsp', 'TEFF')
+    tab_COEFFS.rename_column('Log_g_rsp', 'LOGG')
+    tab_COEFFS.rename_column('Fe_rsp', 'META')
+    tab_COEFFS.rename_column('alpha_rsp', 'ALPHAM')
+    tab_COEFFS.rename_column('W_rsp', 'COEFF')
+    tab_COEFFS.rename_column('min_W_rsp', 'Min.Coeff')
+    tab_COEFFS.rename_column('log_ML_rsp', 'log(M/L)')
+    tab_COEFFS.rename_column('Av_rsp', 'AV')
+    tab_COEFFS.rename_column('n_W_rsp', 'N.Coeff')
+    tab_COEFFS.rename_column('e_W_rsp', 'Err.Coeff')
+
+    tab_COEFFS.sort('rsp', reverse=False)
+    #tab_COEFFS.sort('id_fib', reverse=False)
+    return tab_COEFFS
+
+
+
+
+
+def get_den_levels(den_map=None,conts=[0.99,0.65,0.40,0.0]):    
+    vals=[]
+    levels=[]
+    den_map_p = den_map/np.max(den_map)
+    for idx,cuts in enumerate(np.arange(0.00,1.0,0.01)):
+        mask_now= den_map_p>cuts
+        levels.append(cuts)
+        vals.append(den_map_p[mask_now].sum()/den_map_p.sum())
+    vals_cont=np.array(conts)
+    levels_cont=np.interp(vals_cont,np.array(levels),np.array(vals))
+    return levels_cont,den_map_p
+
+
+def PDF_plot(ax=None,hdu_now=None,xlabel=None,ylabel=None,\
+             n_fib=None,tab_coeffs=None,\
+             conts=[0.99,0.65,0.40,0.0],color_PDF='tomato'):
+    (nz,ny,nx)=hdu_now.data.shape
+    xLims=(hdu_now.header['CRVAL1']-0.5*hdu_now.header['CDELT1'],\
+           hdu_now.header['CRVAL1']-0.5*hdu_now.header['CDELT1']+nx*hdu_now.header['CDELT1'])
+    yLims=(hdu_now.header['CRVAL2']-0.5*hdu_now.header['CDELT2'],\
+           hdu_now.header['CRVAL2']-0.5*hdu_now.header['CDELT2']+ny*hdu_now.header['CDELT2'])
+    extent=(xLims[0], xLims[1], yLims[0], yLims[1])
+    mask_fib = (tab_coeffs['id_fib']==n_fib)
+    tab_now=tab_coeffs[mask_fib]
+    den_map=np.average(hdu_now.data,axis=0)
+    den_map_few=np.average(hdu_now.data,weights=tab_now['COEFF'],axis=0)
+
+    ax.imshow(den_map,extent=extent,cmap='Greys',origin='lower', aspect='auto')
+    levels_cont,den_map_p=get_den_levels(den_map=den_map) 
+    p_cont=ax.contour(den_map_p,levels_cont,colors='k',origin='lower', extent=extent)
+
+    levels_cont,den_map_p=get_den_levels(den_map=den_map_few) 
+    p_cont_few=ax.contour(den_map_p,levels_cont, colors=color_PDF,origin='lower', extent=extent)
+    p_cont_few=ax.contourf(den_map_p,levels_cont, colors=color_PDF,origin='lower', extent=extent,alpha=0.3)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    return den_map_few
+
+
+def PDF_get(ax=None,hdu_now=None,xlabel=None,ylabel=None,\
+             n_fib=None,tab_coeffs=None,\
+             conts=[0.99,0.65,0.40,0.0],color_PDF='tomato'):
+    (nz,ny,nx)=hdu_now.data.shape
+    xLims=(hdu_now.header['CRVAL1'],hdu_now.header['CRVAL1']+nx*hdu_now.header['CDELT1'])
+    yLims=(hdu_now.header['CRVAL2'],hdu_now.header['CRVAL2']+ny*hdu_now.header['CDELT2'])
+    extent=(xLims[0], xLims[1], yLims[0], yLims[1])
+    mask_fib = (tab_coeffs['id_fib']==n_fib)
+    tab_now=tab_coeffs[mask_fib]
+    den_map=np.average(hdu_now.data,axis=0)
+    den_map_few=np.average(hdu_now.data,weights=tab_now['COEFF'],axis=0)
+    return den_map_few
+
+
+
+def PDF_plot_cl(ax=None,hdu_now=None,xlabel=None,ylabel=None,\
+             n_fibs=None,\
+             conts=[0.99,0.65,0.40,0.0],cmap='Spectral',c_cut=0.8):
+    (nz,ny,nx)=hdu_now.data.shape
+    xLims=(hdu_now.header['CRVAL1'],hdu_now.header['CRVAL1']+nx*hdu_now.header['CDELT1'])
+    yLims=(hdu_now.header['CRVAL2'],hdu_now.header['CRVAL2']+ny*hdu_now.header['CDELT2'])
+    extent=(xLims[0], xLims[1], yLims[0], yLims[1])
+    
+
+    den_map=np.average(hdu_now.data,axis=0)
+
+    
+    ax.imshow(den_map,extent=extent,cmap='Greys',origin='lower', aspect='auto')
+    levels_cont,den_map_p=get_den_levels(den_map=den_map) 
+    p_cont=ax.contour(den_map_p,levels_cont,colors='k',origin='lower', extent=extent)
+
+
+    cmap_class = mpl.colormaps[cmap]
+    colors = cmap_class(np.linspace(0, c_cut, len(n_fibs)))
+    for I,n_fib in enumerate(n_fibs):
+        den_map_few=hdu_now.data[n_fib,:,:]
+        levels_cont,den_map_p=get_den_levels(den_map=den_map_few) 
+        p_cont_few=ax.contour(den_map_p,levels_cont, colors=colors[I],origin='lower', extent=extent, label=f'\#{n_fib}')
+        color_now = mpl.colors.to_hex(colors[I], keep_alpha=True)
+#        print(I,colors[I])
+        p_cont_few=ax.contourf(den_map_p,levels_cont, colors=color_now,origin='lower', extent=extent, alpha=0.3)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
