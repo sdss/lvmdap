@@ -3199,7 +3199,8 @@ def get_den_levels(den_map=None,conts=[0.99,0.65,0.40,0.0]):
 
 def PDF_plot(ax=None,hdu_now=None,xlabel=None,ylabel=None,\
              n_fib=None,tab_coeffs=None,\
-             conts=[0.99,0.65,0.40,0.0],color_PDF='tomato'):
+             conts=[0.99,0.65,0.40,0.0],color_PDF='tomato',\
+             pXhist = False, pYhist = False):
     (nz,ny,nx)=hdu_now.data.shape
     xLims=(hdu_now.header['CRVAL1']-0.5*hdu_now.header['CDELT1'],\
            hdu_now.header['CRVAL1']-0.5*hdu_now.header['CDELT1']+nx*hdu_now.header['CDELT1'])
@@ -3220,6 +3221,25 @@ def PDF_plot(ax=None,hdu_now=None,xlabel=None,ylabel=None,\
     p_cont_few=ax.contourf(den_map_p,levels_cont, colors=color_PDF,origin='lower', extent=extent,alpha=0.3)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
+
+    xhist = den_map_few.sum(axis=0)
+    yhist = den_map_few.sum(axis=1)
+    divider = make_axes_locatable(ax)
+    if (pXhist):
+        axLSX = divider.append_axes("top", 0.35, pad=0.0, sharex=ax)
+        axLSX.plot(np.linspace(xLims[0], xLims[1], len(xhist)), xhist, color=color_PDF)
+        axLSX.axis('off')  # Remove the labels and the borders of the axis           
+        axLSX.set_xlim(ax.get_xlim())
+        axLSX.tick_params(labelbottom=False)
+        axLSX.set_ylim(0.001*np.max(xhist),1.01*np.max(xhist))
+    if (pYhist):
+        axLSY = divider.append_axes("right", 0.35, pad=0.0, sharey=ax)
+        axLSY.plot(yhist,np.linspace(yLims[0],yLims[1],len(yhist)),color=color_PDF)
+        axLSY.set_ylim(ax.get_ylim())  
+        axLSY.axis('off') 
+        axLSY.set_xlim(0.001*np.max(yhist),1.01*np.max(yhist))
+
+
     return den_map_few
 
 
