@@ -1531,11 +1531,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print(f'# END:  Ord. ELINES table ###')
     print("####################")
     w_Ha= a_wl.flat[np.abs(a_wl - 6562.68).argmin()]
-    #
-    # Patch 25.12.02
-    #
-    if (np.abs(w_Ha-6562.85)>3):
-      w_Ha = 6562.85
     print(f'# WAVELENGTH Ha : {w_Ha}')
     
 

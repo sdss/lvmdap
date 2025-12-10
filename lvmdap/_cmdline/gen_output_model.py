@@ -257,7 +257,7 @@ def _main(cmd_args=sys.argv[1:]):
   crval1 = wave[0]
   cdelt1 = wave[1]-wave[0]
   (ny,nx)=hdu_org['FLUX'].data.shape
-  model_spectra = np.zeros((9,ny,nx))
+  model_spectra = np.zeros((9,ny,nx), dtype=np.float32)
   model_spectra[0,:,:]=hdu_org['FLUX'].data
   hdr_out = fits.Header()
   hdr_out['CRPIX1'] = crpix1
