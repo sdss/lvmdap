@@ -1793,7 +1793,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     hdr_out['NAME7'] = 'pe_mod_spec'
     hdr_out['NAME8'] = 'pk_mod_spec'
 
-    model_spectra_out = np.zeros((9,ny,nx))
+    model_spectra_out = np.zeros((9,ny,nx), dtype=np.float32)
     model_spectra_out[0]=model_spectra[0]
     model_spectra_out[1]=model_spectra[1]
     model_spectra_out[2]=model_spectra[2]
