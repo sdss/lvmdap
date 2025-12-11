@@ -293,7 +293,7 @@ def _main(cmd_args=sys.argv[1:]):
   spec2D_elines=0.0*hdu_org['FLUX'].data
   for i,spec2D_now in enumerate(spec2D_elines):
     for j,(pe_now,w_now) in enumerate(zip(pe_e,w_e)):        
-      F=np.abs(tab_DAP[f'flux_{pe_now}'][i])
+      F=tab_DAP[f'flux_{pe_now}'][i]
       D=tab_DAP[f'disp_{pe_now}'][i]
       V=tab_DAP[f'vel_{pe_now}'][i]
       spec_eline = eline(wave,w_now,F,D,V,dap_fwhm=dap_fwhm)
@@ -321,7 +321,7 @@ def _main(cmd_args=sys.argv[1:]):
   spec2D_elines=0.0*hdu_org['FLUX'].data
   for i,spec2D_now in enumerate(spec2D_elines):
     for j,(pe_now,w_now) in enumerate(zip(pe_e,w_e)):        
-      F=np.abs(tab_DAP[f'flux_{pe_now}'][i])
+      F=tab_DAP[f'flux_{pe_now}'][i]
       D=tab_DAP[f'disp_{pe_now}'][i]
       V=tab_DAP[f'vel_{pe_now}'][i]
       spec_eline = eline(wave,w_now,F,D,V,dap_fwhm=dap_fwhm)
