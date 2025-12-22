@@ -3286,3 +3286,13 @@ def PDF_plot_cl(ax=None,hdu_now=None,xlabel=None,ylabel=None,\
         p_cont_few=ax.contourf(den_map_p,levels_cont, colors=color_now,origin='lower', extent=extent, alpha=0.3)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
+
+
+def get_X_sq_out_mod(wave,data,wmin,wmax):
+    wave_mask = (wave>wmin) & (wave<wmax)
+    n_p = len(data[4,:][wave_mask])
+    chi_sq_org = np.sum(((data[0,:])[wave_mask])**2/np.abs((data[0,:])[wave_mask]))/(n_p-3-1)
+    chi_sq = np.sum(((data[0,:]-data[8,:])[wave_mask])**2/np.abs((data[0,:])[wave_mask]))/(n_p-3-1)
+    chi_sq_np = np.sum(((data[0,:]-(data[6,:]+data[1,:]))[wave_mask])**2/np.abs((data[0,:])[wave_mask]))/(n_p-3-1)
+
+    return np.array((chi_sq_org, chi_sq, chi_sq_np))

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import sys, os
-import wave
 os.environ["OMP_NUM_THREADS"] = "1" # export OMP_NUM_THREADS=1
 os.environ["OPENBLAS_NUM_THREADS"] = "1" # export OPENBLAS_NUM_THREADS=1
 os.environ["MKL_NUM_THREADS"] = "1" # export MKL_NUM_THREADS=1
@@ -71,8 +70,7 @@ from collections import Counter
 from lvmdap.dap_tools import list_columns,read_DAP_file,map_plot_DAP,nanaverage,find_closest_indices
 
 from lvmdap.pyFIT3D.common.io import array_to_fits, trim_waves, sel_waves, print_verbose, write_img_header
-from lvmdap.dap_tools import eline, get_X_sq_out_mod
-
+from lvmdap.dap_tools import eline
 #
 # Just for tests
 # import matplotlib.pyplot as plt
@@ -750,7 +748,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     try:
       n_leg = args.n_leg
     except:
-      n_leg = 11
+      n_leg = 51
 
 
 
@@ -1773,7 +1771,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     ########################################################
     # Dump the final model
     ########################################################
-    model_spectra_rsp=np.array(model_spectra[1])
+
 
     crpix1 = 1
     crval1 = wl__w[0]
@@ -1795,85 +1793,75 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     hdr_out['NAME7'] = 'pe_mod_spec'
     hdr_out['NAME8'] = 'pk_mod_spec'
 
-    model_spectra = np.zeros((9,ny,nx), dtype=np.float32)
-    model_spectra[0,:,:]=np.copy(rss_flux)
-    #
-    # 18.12.2025
-    # Model equal to gen-mod
-    #
+    model_spectra_out = np.zeros((9,ny,nx), dtype=np.float32)
+    model_spectra_out[0]=model_spectra[0]
+    model_spectra_out[1]=model_spectra[1]
+    model_spectra_out[2]=model_spectra[2]
+    model_spectra_out[3]=model_spectra[3]
+    model_spectra_out[4]=model_spectra[4]
 
     pe_e=[]
-    w_e=[]
+    w_e = []
     for td_col in tab_DAP.columns:
-      if ((td_col.find("_pe_")==-1) & (td_col.find("_pek_")==-1) &  (td_col.find("e_flux_")>-1)):
-        l_name = td_col.replace('e_flux_','')
-        w_name = float(l_name.split("_")[-1])
-        pe_e.append(l_name)
-        w_e.append(w_name)
+      if ((td_col.find("_pe_") == -1) & (td_col.find("_pek_") == -1) & (td_col.find("e_flux_") > -1)):
+          l_name = td_col.replace('e_flux_', '')
+          w_name = float(l_name.split("_")[-1])
+          pe_e.append(l_name)
+          w_e.append(w_name)
     print(f'# Number of emission lines in the model: {len(pe_e)}')
     #
-    # Create emission lines!
+    # Create emission lines!  
     #
     print("##############################################")
     print('# Creating NP the emission line models\n')
-    spec2D_elines=np.copy(0.0*rss_flux)
-    for i,spec2D_now in enumerate(spec2D_elines):
-      for j,(pe_now,w_now) in enumerate(zip(pe_e,w_e)):        
-        F=tab_DAP[f'flux_{pe_now}'][i]
-        D=tab_DAP[f'disp_{pe_now}'][i]
-        V=tab_DAP[f'vel_{pe_now}'][i]
-        spec_eline = eline(wl__w,w_now,F,D,V,dap_fwhm=dap_fwhm)
-        spec2D_now += spec_eline
-      
+    spec2D_elines = 0.0 * rss_flux
+    for i, spec2D_now in enumerate(spec2D_elines):
+       for j, (pe_now, w_now) in enumerate(zip(pe_e, w_e)):
+          F = tab_DAP[f'flux_{pe_now}'][i]
+          D = tab_DAP[f'disp_{pe_now}'][i]
+          V = tab_DAP[f'vel_{pe_now}'][i]
+          spec_eline = eline(wl__w, w_now, F, D, V, dap_fwhm=dap_fwhm)
+          spec2D_now += spec_eline
+
     print("# Done...")
     print("##############################################")
-    model_spectra[6,:,:]=np.copy(spec2D_elines)
+    model_spectra_out[6, :, :] = np.copy(spec2D_elines)
 
-
-    pe_e=[]
-    w_e=[]
+    pe_e = []
+    w_e = []
     for td_col in tab_DAP.columns:
-      if ((td_col.find("_pe_")>-1) & (td_col.find("_pek_")==-1) &  (td_col.find("e_flux_")>-1)):
-        l_name = td_col.replace('e_flux_','')
-        w_name = float(l_name.split("_")[-1])
-        pe_e.append(l_name)
-        w_e.append(w_name)
+      if ((td_col.find("_pe_") > -1) & (td_col.find("_pek_") == -1) & (td_col.find("e_flux_") > -1)):
+         l_name = td_col.replace('e_flux_', '')
+         w_name = float(l_name.split("_")[-1])
+         pe_e.append(l_name)
+         w_e.append(w_name)
     print(f'# Number of emission lines in the model: {len(pe_e)}')
     #
-    # Create emission lines!
+    # Create emission lines!  
     #
     print("##############################################")
     print('# Creating the emission line models\n')
-    spec2D_elines=np.copy(0.0*rss_flux)
-    for i,spec2D_now in enumerate(spec2D_elines):
-      for j,(pe_now,w_now) in enumerate(zip(pe_e,w_e)):        
-        F=tab_DAP[f'flux_{pe_now}'][i]
-        D=tab_DAP[f'disp_{pe_now}'][i]
-        V=tab_DAP[f'vel_{pe_now}'][i]
-        spec_eline = eline(wl__w,w_now,F,D,V,dap_fwhm=dap_fwhm)
-        spec2D_now += spec_eline      
+    spec2D_elines = 0.0 * rss_flux
+    for i, spec2D_now in enumerate(spec2D_elines):
+      for j, (pe_now, w_now) in enumerate(zip(pe_e, w_e)):
+         F = tab_DAP[f'flux_{pe_now}'][i]
+         D = tab_DAP[f'disp_{pe_now}'][i]
+         V = tab_DAP[f'vel_{pe_now}'][i]
+         spec_eline = eline(wl__w, w_now, F, D, V, dap_fwhm=dap_fwhm)
+         spec2D_now += spec_eline
+
     print("# Done...")
     print("##############################################")
-    model_spectra[7,:,:]=np.copy(spec2D_elines)
-    model_spectra[1]=model_spectra_rsp
-    res_spectra = model_spectra[0,:,:] - model_spectra[1,:,:] - model_spectra[6,:,:]
-    l_smooth_spectra = res_spectra*0.0
-    print(f'# smooth_size, n_legrendre : {smooth_size},{n_leg}')
-    for idx,res in enumerate(res_spectra): 
-      smooth = median_filter(res, size=smooth_size)
-      l_smooth = fit_legendre_polynomial(wl__w, smooth, n_leg)
-      l_smooth_spectra[idx] = l_smooth
-    model_spectra[2,:,:] = model_spectra[1,:,:] + model_spectra[6,:,:] + l_smooth_spectra
-    model_spectra[3,:,:] = model_spectra[0,:,:] - (model_spectra[1,:,:] + l_smooth_spectra)
-    model_spectra[4,:,:] = model_spectra[0,:,:] - model_spectra[2,:,:]
-    model_spectra[5,:,:] = model_spectra[0,:,:] - model_spectra[6,:,:]
-    model_spectra[8,:,:] = model_spectra[1,:,:] + model_spectra[7,:,:] + l_smooth_spectra
-    gas_spectra = model_spectra[0,:,:] - model_spectra[1,:,:] - l_smooth_spectra
-    fits_name = out_file_fit if out_file_fit.endswith(".gz") else out_file_fit+".gz"
+    model_spectra_out[7, :, :] = np.copy(spec2D_elines)
+    model_spectra_out[5,:,:] = model_spectra_out[0,:,:] - model_spectra_out[6,:,:]
+    model_spectra_out[8,:,:] = model_spectra_out[1,:,:] + model_spectra_out[7,:,:] + l_smooth_spectra
+    gas_spectra = model_spectra_out[0,:,:] - model_spectra_out[1,:,:] - l_smooth_spectra
+    #fits_name = out_file_fit if out_file_fit.endswith(".gz") else out_file_fit+".gz"
+       # hdr = fits.Header()
     h = {}
     h['CRPIX1'] = 1
-    h['CRVAL1'] = wl__w[0]
-    h['CDELT1'] = wl__w[1] - wl__w[0]
+    h['CRVAL1'] = crval1
+    h['CDELT1'] = cdelt1
     h['NAME0'] = 'org_spec'
     h['NAME1'] = 'model_spec'
     h['NAME2'] = 'mod_joint_spec'
@@ -1883,9 +1871,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     h['NAME6'] = 'gas_model_NP'
     h['NAME7'] = 'gas_model_PEK'
     h['NAME8'] = 'mod_joint_spec_PEK'
-    h["FILENAME"] = fits_name
-    #model_spectra_out = model_spectra.astype(np.float32)
-    
+    h["FILENAME"] = out_file_fit
+
+
 
     ##########################################################
     # Estimating the X_sq of the emission line model
@@ -1899,19 +1887,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     n_rsp = len(np.unique(tab_coeffs['rsp']))
     n_free_st = nx-n_rsp-3-1
     n_free_el = nx-3-1
-    error_map = np.abs(rss_eflux.copy())+np.nanmedian(np.abs(rss_eflux))#+np.sqrt(np.abs(model_spectra[1,:,:]+model_spectra[6,:,:]))*np.sqrt(20)
-    #error_map = error_map_all.copy()
-    #error_map = np.abs(rss_eflux.copy())+np.sqrt(np.abs(model_spectra[1,:,:]+model_spectra[6,:,:]))*np.sqrt(20)
-    #error_map = np.abs(rss_eflux.copy())+np.abs(np.nanmedian(model_spectra[1,:,:]))+\
-    #  np.sqrt(np.abs(model_spectra[1,:,:]))    
-#    error_map = np.sqrt(((np.abs(rss_eflux.copy()))**2 + (np.abs(model_spectra[0,:,:])))/2)
-#    error_map = np.sqrt(((np.abs(rss_eflux.copy()))**2 + (np.abs(model_spectra[0,:,:])))/2)
-#    error_map = np.abs(rss_eflux.copy())+np.abs(np.nanmedian(model_spectra[4,:,:]))+\
-#      np.sqrt(np.abs(model_spectra[0,:,:]))
+    error_map = np.sqrt(((np.abs(rss_eflux.copy()))**2 + (np.abs(model_spectra_out[0,:,:])))/2)
 
-    X_sq_st = (1/n_free_st) * np.nansum(((model_spectra[0,:,:] - model_spectra[1,:,:])**2/((error_map**2))),axis=1)
-    X_sq_st_np = (1/n_free_el) * np.nansum(((model_spectra[4,:,:])**2/((error_map**2))),axis=1)
-    X_sq_st_pek = (1/n_free_el) * np.nansum(((model_spectra[8,:,:])**2/((error_map**2))),axis=1)
+    X_sq_st = (1/n_free_st) * np.nansum(((model_spectra_out[0,:,:] - model_spectra_out[1,:,:])**2/((error_map**2))),axis=1)
+    X_sq_st_np = (1/n_free_el) * np.nansum(((model_spectra_out[4,:,:])**2/((error_map**2))),axis=1)
+    X_sq_st_pek = (1/n_free_el) * np.nansum(((model_spectra_out[8,:,:])**2/((error_map**2))),axis=1)
 
     tab_sig_kms['X_sq_st'] = X_sq_st
     tab_sig_kms['X_sq_st_np'] = X_sq_st_np
@@ -1923,58 +1903,25 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print(f"mean_X_sq_st_np = {np.nanmean(X_sq_st_np):.2f} (n_free_el = {n_free_el})")
     print(f"mean_X_sq_st_pek = {np.nanmean(X_sq_st_pek):.2f} (n_free_el = {n_free_el})")
 
-    w_range_fe=10*int(np.nanmedian(tab_el_chi['inst_disp']))
-    #0.75*w_range_FE
-    if (w_range_fe<6):
-      w_range_fe=6.0
+    w_range_fe=0.5*w_range_FE
     a_X_sq = []
-    a_fr = []
-    zz = args.redshift[0]
     for name,wave_now,inst_disp in tab_el_chi['name','wave', 'inst_disp']:
-      mask_wl = (wl__w > (wave_now* (1+zz) - w_range_fe)) & (wl__w < (wave_now* (1+zz) + w_range_fe)) 
+      mask_wl = (wl__w > (wave_now-w_range_fe)) & (wl__w < (wave_now+w_range_fe)) 
       mask_2d = np.tile(mask_wl, (ny, 1))
-      weight = np.ones_like(model_spectra[0,:,:])
+      weight = np.ones_like(model_spectra_out[0,:,:])
       weight[~mask_2d] = 0.0
-      fa_now = np.nansum(np.abs(gas_spectra)*weight,axis=1)
-      #error_map = error_map_all.copy()+np.sqrt(np.nanmax((model_spectra[1,:,:]+model_spectra[6,:,:])*weight))
       if (name.find('pe') != -1):
         if (name.find('pek') != -1):
-            rat_set = ((gas_spectra-model_spectra[7,:,:])**2/((error_map**2)))*weight
-            fr_set = ((np.abs(gas_spectra-model_spectra[7,:,:]))*weight)/fa_now[:, np.newaxis]
+            rat_set = ((gas_spectra-model_spectra_out[7,:,:])**2/((error_map**2)))*weight
         else:
-            rat_set = ((model_spectra[4,:,:])**2/((error_map**2)))*weight
-            fr_set = ((np.abs(model_spectra[4,:,:]))*weight)/fa_now[:, np.newaxis]
+            rat_set = ((model_spectra_out[4,:,:])**2/((error_map**2)))*weight
       else:
-        rat_set = ((gas_spectra-model_spectra[6,:,:])**2/((error_map**2)))*weight
-        fr_set = ((np.abs(gas_spectra-model_spectra[6,:,:]))*weight)/fa_now[:, np.newaxis]
+        rat_set = ((gas_spectra-model_spectra_out[6,:,:])**2/((error_map**2)))*weight
       n_free = len(wl__w[mask_wl])-3-1
-      X_sq_now = (1/n_free) * np.nansum(rat_set*weight,axis=1)
+      X_sq_now = (1/n_free) * np.nansum(rat_set,axis=1)
       tab_sig_kms[f'X_sq_{name}'] = X_sq_now
-      fr_now = np.nansum(fr_set,axis=1)
-      tab_sig_kms[f'fr_{name}'] = fr_now
       a_X_sq.append(np.nanmedian(X_sq_now))
-      a_fr.append(np.nanmedian(fr_now))
     tab_el_chi['X_sq'] = np.array(a_X_sq)
-    tab_el_chi['fr'] = np.array(a_fr)
-
-    ###############################################
-    # Additional X-sq analysis
-    avg_model_spectra = np.nanmean(model_spectra,axis=1)
-    a_X_sq_org = []
-    a_X_sq_pek = []
-    a_X_sq_np = []
-    for name,wave_now in tab_el_chi['name','wave']:
-      wmin_X = (wave_now* (1+zz) - w_range_fe)
-      wmax_X = (wave_now* (1+zz) + w_range_fe)
-      print(f'# Analyzing line: {name} at {wave_now} A (wmin_X, wmax_X)=({wmin_X},{wmax_X})')
-      a_X_now = get_X_sq_out_mod(wl__w,avg_model_spectra,wmin_X,wmax_X)
-      print(f'# X_sq_org: {a_X_now[0]:.2f}, X_sq_pek: {a_X_now[1]:.2f}, X_sq_np: {a_X_now[2]:.2f}')
-      a_X_sq_org.append(a_X_now[0])
-      a_X_sq_pek.append(a_X_now[1])
-      a_X_sq_np.append(a_X_now[2])
-    tab_el_chi['X_sq_avg_org'] = np.array(a_X_sq_org)
-    tab_el_chi['X_sq_avg_pek'] = np.array(a_X_sq_pek)
-    tab_el_chi['X_sq_avg_np'] = np.array(a_X_sq_np)
 
 
     #####################################################
@@ -1993,7 +1940,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #hdr_0['dap_ver']='1.1.0.241127'
     #hdr_0['dap_ver']='1.1.0.250322'
     #hdr_0['dap_ver']='1.1.0.250507'
-    hdr_0['dap_ver']='1.2.0.251218'
+    hdr_0['dap_ver']='1.1.0.251027'
     #for key in dict_param.keys():
     #  val=dict_param[key]
     #  hdr_0[key]=val
@@ -2058,7 +2005,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     if (dump_model==True):
       print("###################################################");
       print(f"# Start: Dumping the final model: {out_file_fit}                                                      #");
-      array_to_fits(out_file_fit, model_spectra/f_scale, overwrite=True)
+      array_to_fits(out_file_fit, model_spectra_out/f_scale, overwrite=True)
       write_img_header(out_file_fit, list(h.keys()), list(h.values()))
       #dump_rss_output(out_file_fit=out_file_fit, wavelength=wl__w, model_spectra=model_spectra)
       print("# End: Dumping the final model                                                                               #");
