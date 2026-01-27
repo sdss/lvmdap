@@ -412,6 +412,29 @@ def _main(cmd_args=sys.argv[1:]):
   model_spectra[5,:,:] = model_spectra[0,:,:] - model_spectra[6,:,:]
   model_spectra[8,:,:] = model_spectra[1,:,:] + model_spectra[7,:,:] + l_smooth_spectra
 
+  #################################################################################
+  # Model Patch
+  #################################################################################
+
+
+  res_spec = model_spectra[0,:,:]-(model_spectra[8,:,:])
+  s_res_spec = res_spec.copy()
+  smooth_spec = res_spec.copy()
+  smooth_size = 21
+  for idx,res in enumerate(res_spec): 
+    smooth = median_filter(res, size=smooth_size)
+    smooth_spec[idx] = smooth
+    s_res_spec[idx] = res-smooth
+  mask_NP_neg = model_spectra[6,:,:]<0
+  NP_neg = model_spectra[6,:,:].copy()
+  NP_neg[~mask_NP_neg] = 0  
+  NP_pos = model_spectra[6,:,:].copy()
+  NP_pos[mask_NP_neg] = 0
+  model_spectra[1,:,:] = model_spectra[8,:,:]-model_spectra[7,:,:]+smooth_spec+NP_neg
+  model_spectra[2,:,:] = model_spectra[8,:,:]+smooth_spec+NP_neg
+  model_spectra[3,:,:] = model_spectra[0,:,:]-model_spectra[1,:,:]
+  model_spectra[6,:,:] = NP_pos
+
 
   ##################################################################################
   # Writting the result
