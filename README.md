@@ -47,12 +47,7 @@ Download and store the required fitting data from:
 [Download LVM fitting data](https://tinyurl.com/mudr6yw7)
 
 ### Environmental Variables
-Define the following environment variables (RECOMENDED!):
-```bash
-export LVM_DAP="/path/to/lvmdap"  # LVM-DAP installation directory
-export LVM_DAP_CFG="$LVM_DAP/_legacy"  # Configuration files directory
-export LVM_DAP_RSP="_fitting_data"  # Stellar templates directory
-```
+Not needed
 
 ### Directory Structure
 After a successful installation, the directory should be structured as follows:
