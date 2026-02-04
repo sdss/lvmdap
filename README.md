@@ -32,8 +32,14 @@ conda activate lvmdap
 pip install matplotlib==3.7.3
 
 
-# Install LVM-DAP
+# Clone LVM-DAP
+# For users who only need to run the pipeline:
 git clone https://github.com/sdss/lvmdap.git
+
+# For developers who will push changes back to the repository:
+git clone git@github.com:sdss/lvmdap.git
+
+# Install LVM-DAP
 cd lvmdap
 pip install . --user
 
