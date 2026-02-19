@@ -864,9 +864,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       SN_peak=np.nanmax(spec_now[mask_c]/e_spec_now[mask_c])
       SN_map.append(SN_peak)
     SN_map = np.array(SN_map)
-    mask_SN = (SN_map>3)
+    SN_CUT_spec = SN_CUT/2
+    mask_SN = (SN_map>SN_CUT_spec)
     N_SN_3 = len(SN_map[mask_SN])
-    print(f'# N.fibers with SN>3 [{w0},{w1}] : {N_SN_3}')
+    print(f'# N.fibers with SN>{SN_CUT_spec} [{w0},{w1}] : {N_SN_3}')
     #
     # Averaging weighting by the error may not
     # 
