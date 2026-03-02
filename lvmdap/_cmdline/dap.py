@@ -811,7 +811,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       hdu_LSF = fits.open(args.lvm_file)
       LSF_mean = np.nanmedian(hdu_LSF['LSF'].data,axis=0)/2.354
     except:
-      LSF_mean =  args.sigma_gas * np.ones(rss_flux.shape[1])
+      LSF_mean =  args.sigma_gas * np.ones(rss_flux_org.shape[1])
 
     if (mask_to_val==True):
       print("# Modifying masked regions with dummy values")

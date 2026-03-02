@@ -52,6 +52,9 @@ mwm-dap="lvmdap._cmdline.mwm_dap:_main"
 lvm-dap-conf="lvmdap._cmdline.dap:_dap_yaml"
 lvm-dap-sim="lvmdap._cmdline.sim_spec_rsp:_main"
 lvm-dap-gen-out-mod="lvmdap._cmdline.gen_output_model:_main"
+lvm-dap-yaml-edit="lvmdap._cmdline.additional_tools:_yaml_edit"
+lvm-dap-clean-st-mw="lvmdap._cmdline.additional_tools:_gaia_find_stars_cli"
+
 
 [tool.dephell.main]
 from = {format = "poetry", path = "pyproject.toml"}

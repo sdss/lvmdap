@@ -847,7 +847,7 @@ def load_LVMSIM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, nx_range=No
 #
 # Load an standard LVM RSS file
 #
-def load_in_rss(lvm_file, nHDU=0, m2a=1, flux_scale=1, ny_range=None, nx_range=None):
+def load_in_rss(lvm_file, nHDU=0, m2a=1, flux_scale=1e16, ny_range=None, nx_range=None):
     """Return the RSS from the given and LVM filename in the parsed command line arguments"""
     hdu = fits.open(lvm_file, memmap=False)
     rss_0_hdr = hdu[0].header
