@@ -377,7 +377,7 @@ def _gaia_find_stars_cli(cmd_args=sys.argv[1:]) -> int:
           - star_sep_arcsec (float)
         """
         if "star_id" not in tab_PT.colnames:
-            tab_PT["star_id"] = np.full(len(tab_PT), None, dtype=object)
+            tab_PT["star_id"] = np.full(len(tab_PT), 0, dtype=int)
         if "star_sep_arcsec" not in tab_PT.colnames:
             tab_PT["star_sep_arcsec"] = np.full(len(tab_PT), np.nan, dtype=float)
     
@@ -675,6 +675,7 @@ def _gaia_find_stars_cli(cmd_args=sys.argv[1:]) -> int:
     hdu_sel = fits.ImageHDU(data=wave.astype(np.float32), name='WAVE')
     hdu_list_sel.append(hdu_sel)
     hdu_sel = fits.BinTableHDU(data=tab_PT,name='PT')
+    hdu_list_sel.append(hdu_sel)
     hdu_list = fits.HDUList(hdu_list_sel)
     hdu_list.writeto(outputfile, overwrite=True)
     
