@@ -15,6 +15,11 @@ This is the Sphinx documentation for the SDSS Python product lvmdap
 
    intro
    Installation
+   InputFormat
+   YAMLConfig
+   PipelineWorkflow
+   GenOutputModel
+   SimSpecRSP
    DirectoryStructure
    Overview
    CHANGELOG
