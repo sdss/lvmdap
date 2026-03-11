@@ -1,0 +1,7 @@
+# Sphinx documentation dependencies for lvmdap
+
+# Core packages
+conda install -c conda-forge sphinx
+conda install conda-forge::sphinx_bootstrap_theme
+conda install -c conda-forge recommonmark
+conda install -c conda-forge packaging
