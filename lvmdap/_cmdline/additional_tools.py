@@ -674,7 +674,8 @@ def _gaia_find_stars_cli(cmd_args=sys.argv[1:]) -> int:
     # Subtract neighbor median from background-clean spectra for star fibers
     spec2D_full_clean = spec2D_bg_clean.copy()
     for i_fib in np.where(mask_st)[0]:
-        spec2D_full_clean[i_fib, :] = spec2D_bg_clean[i_fib, :] - median_specs.get(int(i_fib), np.full_like(wave, np.nan))
+        spec_star_i_fib = cube[1, i_fib, :] -  median_specs.get(int(i_fib), np.full_like(wave, np.nan))
+        spec2D_full_clean[i_fib, :] = spec2D_bg_clean[i_fib, :] - spec_star_i_fib #- median_specs.get(int(i_fib), np.full_like(wave, np.nan))
     
     print("Writing output FITS...")
     # Error estimate (running std) from abs(residual plane 4), matching notebook
