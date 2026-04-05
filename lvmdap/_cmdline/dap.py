@@ -1472,11 +1472,14 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #
     gas_spectra = model_spectra[0,:,:] - model_spectra[1,:,:]
     l_smooth_spectra = gas_spectra*0.0
-    for idx,gas in enumerate(gas_spectra): 
-      smooth = median_filter(gas, size=smooth_size, mode='reflect')
-      l_smooth = fit_legendre_polynomial(wl__w, smooth,n_leg)
-      l_smooth_spectra[idx,:] = l_smooth
-      
+    try:
+      for idx,gas in enumerate(gas_spectra): 
+        smooth = median_filter(gas, size=smooth_size, mode='reflect')
+        l_smooth = fit_legendre_polynomial(wl__w, smooth,n_leg)
+        l_smooth_spectra[idx,:] = l_smooth
+    except:
+      print("# Warning: something went wrong with the smoothing of the gas spectra, no smooth applied")
+      l_smooth_spectra = gas_spectra*0.0
     model_spectra[2,:,:] = model_spectra[2,:,:] + l_smooth_spectra
     model_spectra[3,:,:] = model_spectra[0,:,:] - (model_spectra[1,:,:] + l_smooth_spectra)
     model_spectra[4,:,:] = model_spectra[0,:,:] - model_spectra[2,:,:]
@@ -1617,8 +1620,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # We use as guide the non-parametric derivation
     # vel_map = np.array(tab_PE_ord[f'vel_{w_Ha}'])
     vel_map = np.array(tab_fe[f'vel_Halpha_{w_Ha}'])
-    vel_hr = 3*np.nanstd(vel_map)
-    vel_min = vel_mean - vel_hr
+    vel_hr = 5*np.nanstd(vel_map)
+    vel_min = vel_mean - vel_hr 
     vel_max = vel_mean + vel_hr
 
     vel_mask_map = None
@@ -1650,8 +1653,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       # sigma
       elcf.guess[0][_MODELS_ELINE_PAR['sigma']] = disp_mean
       elcf.to_fit[0][_MODELS_ELINE_PAR['sigma']] = 1
-      elcf.pars_0[0][_MODELS_ELINE_PAR['sigma']] = disp_mean-1.5*disp_sigma
-      elcf.pars_1[0][_MODELS_ELINE_PAR['sigma']] = disp_mean+1.5*disp_sigma
+      elcf.pars_0[0][_MODELS_ELINE_PAR['sigma']] = disp_mean-0.5*disp_sigma
+      elcf.pars_1[0][_MODELS_ELINE_PAR['sigma']] = disp_mean+2.5*disp_sigma
       elcf.links[0][_MODELS_ELINE_PAR['sigma']] = -1
       sel_wl_range = trim_waves(wl__w, [w_min_corr, w_max_corr])
       #out_file_kel = os.path.join(args.output_path, f"{args.label}.kel_{i_s}")
@@ -1668,7 +1671,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       kin_rss_elines_main(wl__w[sel_wl_range], \
                           sec_flux,\
                           elcf, out_file=out_file_kel, \
-                          rss_eflux=sec_eflux, run_mode='BOTH', guided=True, memo=False, \
+                          rss_eflux=sec_eflux, run_mode='BOTH', guided=False, memo=False, \
                           vel_map=vel_map, vel_mask_map=None, vel_fixed=kin_fixed,\
                           sigma_map=sigma_map, sigma_fixed=kin_fixed, \
                           n_MC=N_MC, n_loops=n_loops, scale_ini=0.15, \
@@ -1861,9 +1864,14 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     l_smooth_spectra = res_spectra*0.0
     print(f'# smooth_size, n_legrendre : {smooth_size},{n_leg}')
     for idx,res in enumerate(res_spectra): 
-      smooth = median_filter(res, size=smooth_size)
-      l_smooth = fit_legendre_polynomial(wl__w, smooth, n_leg)
-      l_smooth_spectra[idx] = l_smooth
+      try:
+        smooth = median_filter(res, size=smooth_size)
+        l_smooth = fit_legendre_polynomial(wl__w, smooth, n_leg)
+        l_smooth_spectra[idx] = l_smooth
+      except:
+        print("# Warning: something went wrong with the smoothing of the residual spectra, no smooth applied")
+    print("# Done ...")
+    print("##############################################")
     model_spectra[2,:,:] = model_spectra[1,:,:] + model_spectra[6,:,:] + l_smooth_spectra
     model_spectra[3,:,:] = model_spectra[0,:,:] - (model_spectra[1,:,:] + l_smooth_spectra)
     model_spectra[4,:,:] = model_spectra[0,:,:] - model_spectra[2,:,:]

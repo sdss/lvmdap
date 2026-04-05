@@ -516,6 +516,11 @@ def _gaia_find_stars_cli(cmd_args=sys.argv[1:]) -> int:
         "n_spec", type=int,
         help="Maximum number of Gaia stars to query (brightest first).",
     )
+    parser.add_argument(
+        "SN_spec", type=float,
+        help="Minimum S/N of the continuum spectra of the LV galaxy to estimate the MW ISM.",
+    )
+
     
     parser.add_argument(
         "--use-cache",
@@ -524,6 +529,30 @@ def _gaia_find_stars_cli(cmd_args=sys.argv[1:]) -> int:
         help="If set, reuse Gaia cached query (<gaia_cache>/<expnum>_ids.ecsv) when present.",
         default=False,
     )
+
+    parser.add_argument(
+        "--avg-spec",
+        dest="avg_spec",
+        default=False,
+        help="Average spectrum instead of interpolation",
+    )
+
+    parser.add_argument(
+        "--mask-dist",
+        dest="mask_dist",
+        type=float,
+        default=0.2,
+        help="Minimum distance from field center to consider a fiber as background.",
+    )
+
+    parser.add_argument(
+        "--n-bg-spec",
+        dest="n_bg_spec",
+        type=int,
+        default=10,
+        help="Minimum number of background spectra to use.",
+    )
+
     parser.add_argument(
         "--DIR_DAP",
         dest="DIR_DAP",
@@ -570,6 +599,7 @@ def _gaia_find_stars_cli(cmd_args=sys.argv[1:]) -> int:
     print(f"  gaia_cache   = {gaia_cache_dir} (use_cache={args.use_cache})")
     print(f"  m_lim        = {args.m_lim}")
     print(f"  n_spec       = {args.n_spec}")
+    print(f"  SN_spec      = {args.SN_spec}")
     print("##############################################")
     
     print("Reading DAP out-model cube...")
@@ -600,17 +630,22 @@ def _gaia_find_stars_cli(cmd_args=sys.argv[1:]) -> int:
     noise = np.nanstd(np.abs(cube[4, :, i1:i2]), axis=-1)
     SN_c = flux_c / noise
     
-    mask_SN_c = SN_c > 1.5
+    print(SN_c)
+    mask_SN_c = SN_c > args.SN_spec
     
     map_dist = np.sqrt((np.asarray(tab_PT["ra"]) - ra_c) ** 2 + (np.asarray(tab_PT["dec"]) - dec_c) ** 2)
-    mask_dist = map_dist > 0.2
+    mask_dist = map_dist > args.mask_dist
     
     mask_bg = (~mask_SN_c) & mask_dist
-    if np.count_nonzero(mask_bg) < 10:
+    if np.count_nonzero(mask_bg) < args.n_bg_spec:
         mask_bg = mask_dist
-    
+
+    print(f'{np.count_nonzero(mask_bg)} background fibers selected (SN_c > {args.SN_spec} & dist > 0.2 deg)')    
     # Build and subtract interpolated ISM background
-    spec2D_gas_interp = build_gas_background_interp(cube, mask_bg=mask_bg)
+    if (args.avg_spec):
+        spec2D_gas_interp = np.median(cube[0, :, :][mask_bg], axis=0)
+    else:
+        spec2D_gas_interp = build_gas_background_interp(cube, mask_bg=mask_bg)
     spec2D_bg_clean = cube[0, :, :] - spec2D_gas_interp
     
     # Query Gaia stars and match to fibers
