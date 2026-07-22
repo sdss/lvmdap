@@ -61,14 +61,14 @@ __selected_extlaw__ = 'CCM'
 __selected_R_V__ = 3.1
 
 __selected_half_range_wl_auto_ssp__ = 50
-__selected_half_range_sysvel_auto_ssp__ = 100
+__selected_half_range_sysvel_auto_ssp__ = 120
 
 # Cosmological parameters
 __Hubble_constant__ = 71  # km/(s Mpc)
 __Omega_matter__ = 0.27
 __Omega_Lambda__ = 0.73
 
-__Ha_central_wl__ = 6562.68
+__Ha_central_wl__ = 6562.85
 
 __indices__ = {
     'Hd':     [4083.500, 4122.250, 4041.600, 4079.750, 4128.500, 4161.000],

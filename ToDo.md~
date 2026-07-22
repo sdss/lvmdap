@@ -1,0 +1,10 @@
+# ToDo list
+
+## Priorities
+
+- ** Target selected redshift **: introduce a yaml variable
+- ** Modify the smoothing residual procedure **
+- ** Modify the stellar velocity analysis **
+- ** Better emission line masking **
+- ** Fitting all emission lines with Gaussian functions **
+- ** Improved stellar library **
