@@ -26,7 +26,6 @@ from lvmdap.pyFIT3D.common.constants import __Hubble_constant__, __Omega_matter_
 from lvmdap.pyFIT3D.common.constants import __solar_luminosity__, __solar_metallicity__, _figsize_default
 from lvmdap.pyFIT3D.common.tools import peak_finder
 
-
 from astropy.table import Table,join
 from astropy.table import vstack as vstack_table
 from lvmdap.cmaps_CLC import vel_map_CLC
@@ -45,6 +44,458 @@ from astropy.convolution import convolve
 #from scipy.ndimage import generic_filter
 
 from numpy.polynomial.legendre import Legendre
+
+from scipy.interpolate import UnivariateSpline
+
+from scipy.optimize import linear_sum_assignment
+from dataclasses import dataclass
+from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator,    RBFInterpolator
+
+#from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
+#
+# Fit emission line systems given emission lines
+#
+
+#import numpy as np
+#import matplotlib.pyplot as plt
+
+from pyFIT3D.common.gas_tools import (
+    fit_elines_main,
+    ConfigEmissionModel,
+)
+from pyFIT3D.common.constants import (
+    _MODELS_ELINE_PAR,
+    __n_models_params__,
+    __c__,
+)
+
+
+def fit_emission_line_system(
+    wl,
+    flux,
+    eflux,
+    line_wavelengths,
+    redshift=0.0,
+    velocity_range=200.0,
+    fit_padding=25.0,
+    local_window=50.0,
+    sigma_guess=1.2,
+    sigma_bounds=(0.5, 2.0),
+    error_scale=0.5,
+    tie_kinematics=True,
+    add_background=True,
+    chi_goal=1.0,
+    chi_step=0.05,
+    n_mc=30,
+    n_loops=15,
+    run_mode="both",
+    redefine_max=True,
+    max_factor=2.0,
+    redefine_min=True,
+    min_factor=0.012,
+    fine_search=False,
+    scale_ini=0.15,
+    plot=False,
+    ax=None,
+    bg_order=2,
+):
+    """
+    Fit a system of emission lines using pyFIT3D.
+
+    Parameters
+    ----------
+    wl : array-like
+        Observed wavelength array.
+
+    flux : array-like
+        Flux array. It must have the same shape as ``wl``.
+
+    eflux : array-like
+        One-sigma flux uncertainty. It must have the same shape as ``wl``.
+
+    line_wavelengths : array-like
+        Rest-frame central wavelengths of the lines to fit.
+
+    redshift : float, optional
+        Initial redshift of the emission-line system.
+
+    velocity_range : float, optional
+        Allowed velocity interval around ``redshift * c``, in km/s.
+
+    fit_padding : float, optional
+        Wavelength padding added before the first line and after the last
+        line when defining the fitted interval, in Angstrom.
+
+    local_window : float, optional
+        Half-width of the interval used to estimate the initial flux of
+        each line, in Angstrom.
+
+    sigma_guess : float, optional
+        Initial Gaussian sigma, in Angstrom.
+
+    sigma_bounds : tuple of float, optional
+        Minimum and maximum allowed Gaussian sigma, in Angstrom.
+
+    error_scale : float, optional
+        Multiplicative factor applied to ``eflux``. The original cells
+        used ``0.5 * abs(eflux)``.
+
+    tie_kinematics : bool, optional
+        When True, all lines share the same velocity and sigma.
+
+    add_background : bool, optional
+        Add a first-order polynomial background.
+
+    chi_goal, chi_step : float, optional
+        Parameters passed to ``ConfigEmissionModel``.
+
+    n_mc, n_loops : int, optional
+        Number of Monte Carlo iterations and fitting loops.
+
+    run_mode : {"RND", "LM", "both"}, optional
+        pyFIT3D fitting mode.
+
+    redefine_max, redefine_min : bool, optional
+        Allow pyFIT3D to redefine the line-flux boundaries.
+
+    max_factor, min_factor : float, optional
+        Factors used when redefining the flux boundaries.
+
+    fine_search : bool, optional
+        Activate the pyFIT3D fine search.
+
+    scale_ini : float, optional
+        Initial scale used by the fitting algorithm.
+
+    plot : bool, optional
+        Plot the input spectrum and fitted model.
+
+    ax : matplotlib.axes.Axes, optional
+        Existing axis on which to draw the result.
+
+    Returns
+    -------
+    result : dict
+        Dictionary containing:
+
+        ``fit``
+            Result returned by ``fit_elines_main``.
+
+        ``config``
+            Generated ``ConfigEmissionModel``.
+
+        ``mask``
+            Boolean mask applied to the original arrays.
+
+        ``wavelength``
+            Wavelength array passed to the fit.
+
+        ``flux``
+            Flux array passed to the fit.
+
+        ``eflux``
+            Effective uncertainty passed to the fit.
+
+        ``figure``, ``axis``
+            Matplotlib objects, or None when ``plot=False``.
+    """
+
+    # --------------------------------------------------------------
+    # Validate inputs
+    # --------------------------------------------------------------
+    wl = np.asarray(wl, dtype=float)
+    flux = np.asarray(flux, dtype=float)
+    eflux = np.asarray(eflux, dtype=float)
+    line_wavelengths = np.asarray(line_wavelengths, dtype=float)
+    if (bg_order==0):
+        add_background=False
+    if wl.ndim != 1 or flux.ndim != 1 or eflux.ndim != 1:
+        raise ValueError("wl, flux, and eflux must be one-dimensional arrays.")
+
+    if not (wl.shape == flux.shape == eflux.shape):
+        raise ValueError("wl, flux, and eflux must have the same shape.")
+
+    if line_wavelengths.ndim != 1 or line_wavelengths.size == 0:
+        raise ValueError(
+            "line_wavelengths must contain at least one wavelength."
+        )
+
+    if not np.all(np.isfinite(line_wavelengths)):
+        raise ValueError("line_wavelengths contains non-finite values.")
+
+    if velocity_range <= 0:
+        raise ValueError("velocity_range must be greater than zero.")
+
+    if sigma_bounds[0] <= 0 or sigma_bounds[1] <= sigma_bounds[0]:
+        raise ValueError(
+            "sigma_bounds must satisfy 0 < minimum < maximum."
+        )
+
+    # Sorting is important because linked models refer to the
+    # immediately preceding model.
+    line_wavelengths = np.sort(line_wavelengths)
+
+    # Approximate observed positions, used only to select the data.
+    observed_line_wavelengths = line_wavelengths * (1.0 + redshift)
+
+    w_min = np.min(observed_line_wavelengths) - fit_padding
+    w_max = np.max(observed_line_wavelengths) + fit_padding
+
+    fit_mask = (
+        (wl > w_min)
+        & (wl < w_max)
+        & np.isfinite(wl)
+        & np.isfinite(flux)
+        & np.isfinite(eflux)
+    )
+
+    if np.count_nonzero(fit_mask) < 5:
+        raise ValueError(
+            f"Insufficient valid data between {w_min:.2f} and "
+            f"{w_max:.2f} Angstrom."
+        )
+
+    fit_wl = wl[fit_mask]
+    fit_flux = flux[fit_mask]
+    fit_eflux = error_scale * np.abs(eflux[fit_mask])
+
+    # Replace zero or invalid uncertainties with a representative
+    # positive value.
+    valid_errors = fit_eflux[
+        np.isfinite(fit_eflux) & (fit_eflux > 0)
+    ]
+
+    if valid_errors.size == 0:
+        raise ValueError("eflux does not contain positive uncertainties.")
+
+    representative_error = np.nanmedian(valid_errors)
+
+    fit_eflux = np.where(
+        np.isfinite(fit_eflux) & (fit_eflux > 0),
+        fit_eflux,
+        representative_error,
+    )
+
+    # --------------------------------------------------------------
+    # pyFIT3D parameter indices
+    # --------------------------------------------------------------
+    i_wave = _MODELS_ELINE_PAR["central_wavelength"]
+    i_flux = _MODELS_ELINE_PAR["flux"]
+    i_sigma = _MODELS_ELINE_PAR["sigma"]
+    i_v0 = _MODELS_ELINE_PAR["v0"]
+
+    central_velocity = redshift * __c__
+
+    config_model = ConfigEmissionModel(
+        filename=None,
+        chi_goal=chi_goal,
+        chi_step=chi_step,
+    )
+
+    # --------------------------------------------------------------
+    # Add the emission-line models
+    # --------------------------------------------------------------
+    for line_number, (rest_wl, observed_wl) in enumerate(
+        zip(line_wavelengths, observed_line_wavelengths)
+    ):
+        local_mask = (
+            (wl > observed_wl - local_window)
+            & (wl < observed_wl + local_window)
+            & np.isfinite(flux)
+        )
+
+        local_flux = flux[local_mask]
+
+        if local_flux.size == 0:
+            raise ValueError(
+                f"No valid data around the line at {rest_wl:.2f} Angstrom."
+            )
+
+        local_max = np.nanmax(local_flux)
+        local_min = np.nanmin(local_flux)
+        local_scale = max(
+            np.abs(local_max),
+            np.abs(local_min),
+            np.nanstd(local_flux),
+            np.finfo(float).eps,
+        )
+
+        # Preserve the original boundary prescription where possible,
+        # while ensuring that the interval is valid.
+        flux_bound_0 = local_min
+        flux_bound_1 = 1.5 * local_max
+
+        flux_lower = min(flux_bound_0, flux_bound_1)
+        flux_upper = max(flux_bound_0, flux_bound_1)
+
+        if np.isclose(flux_lower, flux_upper):
+            flux_lower -= local_scale
+            flux_upper += local_scale
+
+        flux_guess = np.clip(
+            local_max,
+            flux_lower,
+            flux_upper,
+        )
+
+        guess = np.zeros(__n_models_params__, dtype=float)
+        pars_0 = np.zeros(__n_models_params__, dtype=float)
+        pars_1 = np.zeros(__n_models_params__, dtype=float)
+        links = -np.ones(__n_models_params__, dtype=int)
+        to_fit = np.zeros(__n_models_params__, dtype=bool)
+
+        # Rest-frame central wavelength remains fixed.
+        guess[i_wave] = rest_wl
+
+        guess[i_flux] = flux_guess
+        pars_0[i_flux] = flux_lower
+        pars_1[i_flux] = flux_upper
+        to_fit[i_flux] = True
+
+        if tie_kinematics and line_number > 0:
+            # Same sigma as the preceding line:
+            # sigma_current = 1 * sigma_previous.
+            guess[i_sigma] = 1.0
+            pars_0[i_sigma] = 1.0
+            pars_1[i_sigma] = 1.0
+            links[i_sigma] = 1
+            to_fit[i_sigma] = True
+
+            # Same velocity as the preceding line:
+            # v_current = 0 + v_previous.
+            guess[i_v0] = 0.0
+            pars_0[i_v0] = 0.0
+            pars_1[i_v0] = 0.0
+            links[i_v0] = 1
+            to_fit[i_v0] = True
+
+        else:
+            guess[i_sigma] = sigma_guess
+            pars_0[i_sigma] = sigma_bounds[0]
+            pars_1[i_sigma] = sigma_bounds[1]
+            to_fit[i_sigma] = True
+
+            guess[i_v0] = central_velocity
+            pars_0[i_v0] = central_velocity - velocity_range
+            pars_1[i_v0] = central_velocity + velocity_range
+            to_fit[i_v0] = True
+
+        config_model.add_model(
+            model_type="eline",
+            guess=guess,
+            to_fit=to_fit,
+            pars_0=pars_0,
+            pars_1=pars_1,
+            links=links,
+        )
+
+    # --------------------------------------------------------------
+    # Add a first-order polynomial background
+    # --------------------------------------------------------------
+    if add_background:
+        guess = np.zeros(__n_models_params__, dtype=float)
+        pars_0 = np.zeros(__n_models_params__, dtype=float)
+        pars_1 = np.zeros(__n_models_params__, dtype=float)
+        links = -np.ones(__n_models_params__, dtype=int)
+        to_fit = np.zeros(__n_models_params__, dtype=bool)
+
+        flux_scale = max(
+            np.abs(np.nanmin(fit_flux)),
+            np.abs(np.nanmax(fit_flux)),
+            np.nanstd(fit_flux),
+            np.finfo(float).eps,
+        )
+
+        mean_wavelength = np.nanmean(fit_wl)
+
+        # Constant coefficient.
+        guess[0] = np.nanmedian(fit_flux)
+        pars_0[0] = -1.5 * flux_scale
+        pars_1[0] = 1.5 * flux_scale
+        to_fit[0] = True
+
+        # Linear coefficient.
+        if (bg_order == 2):
+            guess[1] = 0.0
+            pars_0[1] = -1.5 * flux_scale / mean_wavelength
+            pars_1[1] = 1.5 * flux_scale / mean_wavelength
+            to_fit[1] = True
+
+        config_model.add_model(
+            model_type="poly1d",
+            guess=guess,
+            to_fit=to_fit,
+            pars_0=pars_0,
+            pars_1=pars_1,
+            links=links,
+        )
+
+    # --------------------------------------------------------------
+    # Perform the fit
+    # --------------------------------------------------------------
+    emission_line_fit = fit_elines_main(
+        wavelength=fit_wl,
+        flux=fit_flux,
+        sigma_flux=fit_eflux,
+        config=config_model,
+        plot=0,
+        n_MC=n_mc,
+        n_loops=n_loops,
+        redefine_max=redefine_max,
+        max_factor=max_factor,
+        redefine_min=redefine_min,
+        min_factor=min_factor,
+        run_mode=run_mode,
+        fine_search=fine_search,
+        scale_ini=scale_ini,
+    )
+
+    # --------------------------------------------------------------
+    # Optional plot
+    # --------------------------------------------------------------
+    figure = None
+
+    if plot:
+        if ax is None:
+            figure, ax = plt.subplots(figsize=(16, 5))
+        else:
+            figure = ax.figure
+
+        ax.plot(
+            fit_wl,
+            fit_flux,
+            label="Data",
+        )
+        ax.plot(
+            fit_wl,
+            emission_line_fit.model,
+            label="Model",
+        )
+
+        for observed_wl in observed_line_wavelengths:
+            ax.axvline(
+                observed_wl,
+                linestyle=":",
+                alpha=0.4,
+            )
+
+        ax.set_xlabel("Wavelength")
+        ax.set_ylabel("Flux")
+        ax.legend()
+
+        figure.tight_layout()
+
+    return {
+        "fit": emission_line_fit,
+        "config": config_model,
+        "mask": fit_mask,
+        "wavelength": fit_wl,
+        "flux": fit_flux,
+        "eflux": fit_eflux,
+        "figure": figure,
+        "axis": ax if plot else None,
+    }
+
 
 warnings.simplefilter('ignore', category=VerifyWarning)
 
@@ -3296,3 +3747,1499 @@ def get_X_sq_out_mod(wave,data,wmin,wmax):
     chi_sq_np = np.sum(((data[0,:]-(data[6,:]+data[1,:]))[wave_mask])**2/np.abs((data[0,:])[wave_mask]))/(n_p-3-1)
 
     return np.array((chi_sq_org, chi_sq, chi_sq_np))
+
+
+def median_fit_spectrum(wave, spec, dw, method="legendre", degree=11, spline_k=3, spline_s=0.0, min_points_bin=1, return_nodes=False):
+    """
+    Median-bin a spectrum in wavelength intervals of width `dw`, then fit:
+      - method='legendre' -> Legendre polynomial
+      - method='spline'   -> spline (UnivariateSpline)
+
+    Returns the fitted trend evaluated on the original `wave`.
+    """
+    wave = np.asarray(wave, dtype=float)
+    spec = np.asarray(spec, dtype=float)
+
+    if wave.ndim != 1 or spec.ndim != 1 or wave.size != spec.size:
+        raise ValueError("`wave` and `spec` must be 1D arrays with the same length.")
+    if dw <= 0:
+        raise ValueError("`dw` must be > 0.")
+
+    finite = np.isfinite(wave) & np.isfinite(spec)
+    if finite.sum() < 2:
+        out = np.full_like(wave, np.nan, dtype=float)
+        return (out, np.array([]), np.array([])) if return_nodes else out
+
+    w = wave[finite]
+    s = spec[finite]
+
+    # Sort by wavelength
+    idx = np.argsort(w)
+    w = w[idx]
+    s = s[idx]
+
+    # Build bins and compute median points
+    bins = np.arange(w.min(), w.max() + dw, dw)
+    if bins.size < 2:
+        bins = np.array([w.min(), w.max() + 1e-6])
+
+    x_nodes, y_nodes = [], []
+    for i in range(len(bins) - 1):
+        m = (w >= bins[i]) & (w < bins[i + 1])
+        if np.count_nonzero(m) >= min_points_bin:
+            x_nodes.append(np.nanmedian(w[m]))
+            y_nodes.append(np.nanmedian(s[m]))
+
+    x_nodes = np.asarray(x_nodes, dtype=float)
+    y_nodes = np.asarray(y_nodes, dtype=float)
+
+    if x_nodes.size < 2:
+        out = np.full_like(wave, np.nan, dtype=float)
+        return (out, x_nodes, y_nodes) if return_nodes else out
+
+    # Fit on median nodes and evaluate on original wave
+    if method.lower() == "legendre":
+        deg = int(min(degree, x_nodes.size - 1))
+        x0, x1 = x_nodes.min(), x_nodes.max()
+        x_nodes_n = 2.0 * (x_nodes - x0) / (x1 - x0) - 1.0
+        wave_n = 2.0 * (wave - x0) / (x1 - x0) - 1.0
+        poly = Legendre.fit(x_nodes_n, y_nodes, deg).convert()
+        trend = poly(wave_n)
+
+    elif method.lower() == "spline":
+        k = int(min(spline_k, x_nodes.size - 1))
+        if k < 1:
+            k = 1
+        spl = UnivariateSpline(x_nodes, y_nodes, k=k, s=spline_s)
+        trend = spl(wave)
+
+    else:
+        raise ValueError("`method` must be 'legendre' or 'spline'.")
+
+    return (trend, x_nodes, y_nodes) if return_nodes else trend
+
+
+def stddev_fit_spectrum(wave, spec, dw, method="legendre", degree=11, spline_k=3, spline_s=0.0, min_points_bin=1, return_nodes=False):
+    """
+    Median-bin a spectrum in wavelength intervals of width `dw`, then fit:
+      - method='legendre' -> Legendre polynomial
+      - method='spline'   -> spline (UnivariateSpline)
+
+    Returns the fitted trend evaluated on the original `wave`.
+    """
+    wave = np.asarray(wave, dtype=float)
+    spec = np.asarray(spec, dtype=float)
+
+    if wave.ndim != 1 or spec.ndim != 1 or wave.size != spec.size:
+        raise ValueError("`wave` and `spec` must be 1D arrays with the same length.")
+    if dw <= 0:
+        raise ValueError("`dw` must be > 0.")
+
+    finite = np.isfinite(wave) & np.isfinite(spec)
+    if finite.sum() < 2:
+        out = np.full_like(wave, np.nan, dtype=float)
+        return (out, np.array([]), np.array([])) if return_nodes else out
+
+    w = wave[finite]
+    s = spec[finite]
+
+    # Sort by wavelength
+    idx = np.argsort(w)
+    w = w[idx]
+    s = s[idx]
+
+    # Build bins and compute median points
+    bins = np.arange(w.min(), w.max() + dw, dw)
+    if bins.size < 2:
+        bins = np.array([w.min(), w.max() + 1e-6])
+
+    x_nodes, y_nodes = [], []
+    for i in range(len(bins) - 1):
+        m = (w >= bins[i]) & (w < bins[i + 1])
+        if np.count_nonzero(m) >= min_points_bin:
+            x_nodes.append(np.nanstd(w[m]))
+            y_nodes.append(np.nanstd(s[m]))
+
+    x_nodes = np.asarray(x_nodes, dtype=float)
+    y_nodes = np.asarray(y_nodes, dtype=float)
+
+    if x_nodes.size < 2:
+        out = np.full_like(wave, np.nan, dtype=float)
+        return (out, x_nodes, y_nodes) if return_nodes else out
+
+    # Fit on median nodes and evaluate on original wave
+    if method.lower() == "legendre":
+        deg = int(min(degree, x_nodes.size - 1))
+        x0, x1 = x_nodes.min(), x_nodes.max()
+        x_nodes_n = 2.0 * (x_nodes - x0) / (x1 - x0) - 1.0
+        wave_n = 2.0 * (wave - x0) / (x1 - x0) - 1.0
+        poly = Legendre.fit(x_nodes_n, y_nodes, deg).convert()
+        trend = poly(wave_n)
+
+    elif method.lower() == "spline":
+        k = int(min(spline_k, x_nodes.size - 1))
+        if k < 1:
+            k = 1
+        spl = UnivariateSpline(x_nodes, y_nodes, k=k, s=spline_s)
+        trend = spl(wave)
+
+    else:
+        raise ValueError("`method` must be 'legendre' or 'spline'.")
+
+    return (trend, x_nodes, y_nodes) if return_nodes else trend
+
+
+def decompose_spectrum(
+    wl,
+    int_flux_cw,
+    n_narrow=3,
+    n_medium=5,
+    n_broad=11,
+    *,
+    config=None,
+    n_iter=11,
+    method="spline",
+    degree=11,
+    spline_k=3,
+    spline_s=0.0,
+    min_points_bin=1,
+    fit_func=None,
+):
+    """Split a spectrum into continuum, emission lines and background.
+
+    Parameters
+    ----------
+    wl : array
+        Wavelength array.
+    int_flux_cw : array
+        Integrated flux to decompose.
+    n_narrow, n_medium, n_broad : int
+        Smoothing sizes, in the units ``median_fit_spectrum`` expects.
+        ``n_medium`` sets the trend subtracted to isolate the emission
+        lines, ``n_broad`` the upper envelope that caps the background,
+        and ``n_narrow`` the scale of the iterative background erosion.
+        Typical values: 3, 5, 11.
+    config : dict, optional
+        Kept for drop-in compatibility with the original inline code,
+        which called ``config.get("smooth_size", n_x)``.  **If this dict
+        contains "smooth_size", that single value replaces all three
+        scales** and n_narrow/n_medium/n_broad have no effect; a warning
+        is issued when that happens.  Leave it as None to use the three
+        scales as intended.
+    n_iter : int
+        Number of erosion iterations for the background.  Defaults to 11,
+        as in the original code.  This is unrelated to ``degree``, which
+        also happened to be 11 there.
+    method, degree, spline_k, spline_s, min_points_bin
+        Passed straight through to ``median_fit_spectrum``.  Note
+        ``return_nodes`` is not exposed: every call here consumes the
+        fitted spectrum arithmetically, so it is always False.
+    fit_func : callable, optional
+        Override for ``median_fit_spectrum``, mainly for testing.
+
+    Returns
+    -------
+    dict
+        ``trend_cw`` : medium-scale trend, the pseudo-continuum.
+        ``trend_cw_broad`` : broad-scale trend, used only as an upper
+        bound on the background.
+        ``eline_only`` : emission-line component.  Strictly positive:
+        where the raw residual was negative it is set to the smallest
+        positive residual, not to zero (see Notes).
+        ``st_flux_cw`` : ``int_flux_cw - eline_only``, the line-free
+        spectrum.
+        ``pos_abs_flux_cw`` : ``trend_cw - st_flux_cw``.  This is zero
+        wherever the raw residual was already positive, and positive
+        only where it was clipped, so it isolates the absorption
+        component.
+        ``bg_spec`` : the lower-envelope background.
+        ``res_bg_spec`` : ``int_flux_cw - bg_spec``.
+
+    Notes
+    -----
+    The negative values of ``eline_only`` are replaced by the *minimum
+    positive* value rather than by zero (the commented-out alternative in
+    the original code).  That leaves a small positive pedestal across
+    every absorption region, which then propagates into ``st_flux_cw``.
+    It is preserved here because it is what the original did, but it is
+    worth being deliberate about: if a spectrum has no positive residual
+    at all the original would raise on an empty ``nanmin``; this version
+    falls back to 0.0 and warns instead.
+    """
+    fit = fit_func if fit_func is not None else median_fit_spectrum
+    if fit is None:
+        raise ImportError(
+            "median_fit_spectrum could not be imported from lvmdap.dap_tools; "
+            "pass fit_func= explicitly."
+        )
+
+    wl = np.asarray(wl)
+    int_flux_cw = np.asarray(int_flux_cw, dtype=float)
+    if wl.shape != int_flux_cw.shape:
+        raise ValueError(
+            f"wl and int_flux_cw must have the same shape, got "
+            f"{wl.shape} and {int_flux_cw.shape}."
+        )
+
+    # Reproduce config.get("smooth_size", n_x) exactly: a present key
+    # overrides all three scales at once.
+    s_narrow, s_medium, s_broad = n_narrow, n_medium, n_broad
+    if config is not None and "smooth_size" in config:
+        s = config["smooth_size"]
+        warnings.warn(
+            f"config['smooth_size']={s} overrides n_narrow={n_narrow}, "
+            f"n_medium={n_medium} and n_broad={n_broad}: all three stages "
+            f"will use {s}. Drop 'smooth_size' from config to use the three "
+            f"separate scales.",
+            stacklevel=2,
+        )
+        s_narrow = s_medium = s_broad = s
+
+    def _fit(y, smooth_size):
+        return fit(
+            wl, y, smooth_size,
+            method=method, degree=degree,
+            spline_k=spline_k, spline_s=spline_s,
+            min_points_bin=min_points_bin, return_nodes=False,
+        )
+
+    # --- trends -----------------------------------------------------------
+    trend_cw = _fit(int_flux_cw, s_medium)
+    trend_cw_broad = _fit(int_flux_cw, s_broad)
+
+    # --- emission lines ---------------------------------------------------
+    eline_only = int_flux_cw - trend_cw
+    neg = eline_only < 0
+    if neg.any():
+        pos = eline_only[eline_only > 0]
+        if pos.size:
+            eline_only[neg] = np.nanmin(pos)
+        else:
+            warnings.warn(
+                "No positive residual in int_flux_cw - trend_cw; clipping "
+                "eline_only at 0 instead of the minimum positive value.",
+                stacklevel=2,
+            )
+            eline_only[neg] = 0.0
+
+    st_flux_cw = int_flux_cw - eline_only
+    pos_abs_flux_cw = trend_cw - st_flux_cw
+
+    # --- background: iterative erosion towards the lower envelope ---------
+    bg_spec_0 = np.minimum(trend_cw, int_flux_cw)
+    bg_spec = bg_spec_0                      # guards n_iter == 0
+    for _ in range(int(n_iter)):
+        bg_spec = _fit(bg_spec_0, s_narrow)
+        bg_spec_0 = np.minimum(bg_spec, int_flux_cw)
+
+    bg_spec = np.minimum(bg_spec, trend_cw_broad)
+    bg_spec = np.minimum(bg_spec, int_flux_cw)
+    bg_spec = _fit(bg_spec, s_narrow)
+    res_bg_spec = int_flux_cw - bg_spec
+
+    return {
+        "trend_cw": trend_cw,
+        "trend_cw_broad": trend_cw_broad,
+        "eline_only": eline_only,
+        "st_flux_cw": st_flux_cw,
+        "pos_abs_flux_cw": pos_abs_flux_cw,
+        "bg_spec": bg_spec,
+        "res_bg_spec": res_bg_spec,
+    }
+
+
+#
+# Redshift match emission lines
+#
+
+
+C_KMS = 299792.458
+
+
+@dataclass
+class RedshiftSolution:
+    z: float
+    velocity_kms: float
+    n_matches: int
+    score: float
+    rms_velocity_kms: float
+    matches: list
+
+
+def redshift_to_velocity(z, relativistic=True):
+    """
+    Convert redshift to radial velocity.
+
+    For small z:
+        v = c*z
+
+    Relativistic Doppler interpretation:
+        beta = ((1+z)^2 - 1) / ((1+z)^2 + 1)
+
+    Note: for cosmological redshifts this velocity should not generally be
+    interpreted as the recession velocity.
+    """
+    if relativistic:
+        x = (1.0 + z) ** 2
+        beta = (x - 1.0) / (x + 1.0)
+        return beta * C_KMS
+
+    return z * C_KMS
+
+
+def velocity_residual(obs_wave, predicted_wave):
+    """
+    Velocity difference between an observed line and the predicted
+    wavelength at a given redshift.
+    """
+    return C_KMS * (obs_wave / predicted_wave - 1.0)
+
+
+def match_lines(
+    z,
+    rest_waves,
+    obs_waves,
+    rest_names=None,
+    velocity_tolerance=200.0,
+):
+    """
+    Find the optimal one-to-one matching between reference and observed
+    emission lines for a given redshift.
+
+    Missing reference lines and spurious observed lines are allowed.
+    """
+
+    rest_waves = np.asarray(rest_waves, dtype=float)
+    obs_waves = np.asarray(obs_waves, dtype=float)
+
+    if rest_names is None:
+        rest_names = [f"line_{i}" for i in range(len(rest_waves))]
+
+    predicted = rest_waves * (1.0 + z)
+
+    nobs = len(obs_waves)
+    nref = len(rest_waves)
+
+    # -----------------------------------------------------------
+    # Cost matrix
+    #
+    # Columns 0:nref correspond to real reference lines.
+    # Additional columns allow every observed line to remain unmatched.
+    # -----------------------------------------------------------
+
+    UNMATCHED_COST = 1.0
+    INVALID_COST = 1000.0
+
+    cost = np.full((nobs, nref + nobs), INVALID_COST)
+
+    velocity_matrix = np.zeros((nobs, nref))
+
+    for i, obs in enumerate(obs_waves):
+        for j, pred in enumerate(predicted):
+
+            dv = velocity_residual(obs, pred)
+            velocity_matrix[i, j] = dv
+
+            if abs(dv) <= velocity_tolerance:
+
+                # Keep valid matches much cheaper than leaving
+                # a detection unmatched.
+                #
+                # Number of matches therefore dominates the score,
+                # while residual velocity breaks ties.
+                cost[i, j] = 0.1 * (
+                    abs(dv) / velocity_tolerance
+                ) ** 2
+
+        # Dummy column corresponding to this observation being false/spurious
+        cost[i, nref + i] = UNMATCHED_COST
+
+    rows, cols = linear_sum_assignment(cost)
+
+    matches = []
+
+    for i, j in zip(rows, cols):
+
+        if j < nref and cost[i, j] < UNMATCHED_COST:
+
+            obs = obs_waves[i]
+            rest = rest_waves[j]
+            pred = predicted[j]
+
+            dv = velocity_matrix[i, j]
+
+            matches.append(
+                {
+                    "name": rest_names[j],
+                    "rest_wave": rest,
+                    "observed_wave": obs,
+                    "predicted_wave": pred,
+                    "dv_kms": dv,
+                    "z_line": obs / rest - 1.0,
+                }
+            )
+
+    return matches
+
+
+def refine_redshift(
+    z,
+    rest_waves,
+    obs_waves,
+    rest_names=None,
+    velocity_tolerance=200.0,
+    max_iterations=10,
+):
+    """
+    Iteratively refine a redshift solution using the median redshift
+    of matched lines.
+    """
+
+    current_z = z
+
+    for _ in range(max_iterations):
+
+        matches = match_lines(
+            current_z,
+            rest_waves,
+            obs_waves,
+            rest_names,
+            velocity_tolerance,
+        )
+
+        if len(matches) == 0:
+            break
+
+        individual_z = np.array(
+            [m["z_line"] for m in matches]
+        )
+
+        new_z = np.median(individual_z)
+
+        if abs(new_z - current_z) < 1e-10:
+            current_z = new_z
+            break
+
+        current_z = new_z
+
+    final_matches = match_lines(
+        current_z,
+        rest_waves,
+        obs_waves,
+        rest_names,
+        velocity_tolerance,
+    )
+
+    return current_z, final_matches
+
+
+def find_redshift_elines(
+    rest_waves,
+    obs_waves,
+    rest_names=None,
+    zmin=-0.01,
+    zmax=2.0,
+    velocity_tolerance=200.0,
+    min_matches=2,
+    relativistic_velocity=True,
+    merge_velocity=50.0,
+):
+    """
+    Determine the most likely redshift(s).
+
+    Parameters
+    ----------
+    rest_waves : array
+        Rest-frame wavelengths.
+
+    obs_waves : array
+        Detected observed-frame wavelengths.
+        The list may be incomplete and may contain false detections.
+
+    rest_names : list, optional
+        Names of reference lines.
+
+    zmin, zmax : float
+        Allowed redshift interval.
+
+    velocity_tolerance : float
+        Maximum residual velocity for accepting a line match.
+
+    min_matches : int
+        Minimum number of matched lines required.
+
+    merge_velocity : float
+        Solutions closer than this velocity are considered duplicates.
+
+    Returns
+    -------
+    solutions : list of RedshiftSolution
+        Sorted best-first.
+    """
+
+    rest_waves = np.asarray(rest_waves, dtype=float)
+    obs_waves = np.asarray(obs_waves, dtype=float)
+
+    if rest_names is None:
+        rest_names = [
+            f"{w:.2f}" for w in rest_waves
+        ]
+
+    # ============================================================
+    # STEP 1
+    #
+    # Every observed/reference pair defines a possible redshift.
+    # ============================================================
+
+    candidates = []
+
+    for obs in obs_waves:
+        z_values = obs / rest_waves - 1.0
+
+        valid = (z_values >= zmin) & (z_values <= zmax)
+
+        candidates.extend(z_values[valid])
+
+    candidates = np.asarray(candidates)
+
+    # ============================================================
+    # STEP 2
+    #
+    # Evaluate and refine every hypothesis.
+    # ============================================================
+
+    raw_solutions = []
+
+    for z0 in candidates:
+
+        z, matches = refine_redshift(
+            z0,
+            rest_waves,
+            obs_waves,
+            rest_names,
+            velocity_tolerance,
+        )
+
+        nmatch = len(matches)
+
+        if nmatch < min_matches:
+            continue
+
+        dvs = np.array([m["dv_kms"] for m in matches])
+
+        rms = np.sqrt(np.mean(dvs**2))
+
+        # -----------------------------------------------
+        # Ranking score
+        #
+        # Matching another line is much more important
+        # than slightly improving the residual.
+        # -----------------------------------------------
+
+        residual_penalty = np.mean(
+            (dvs / velocity_tolerance) ** 2
+        )
+
+        score = nmatch - 0.25 * residual_penalty
+
+        velocity = redshift_to_velocity(
+            z,
+            relativistic=relativistic_velocity,
+        )
+
+        raw_solutions.append(
+            RedshiftSolution(
+                z=z,
+                velocity_kms=velocity,
+                n_matches=nmatch,
+                score=score,
+                rms_velocity_kms=rms,
+                matches=matches,
+            )
+        )
+
+    # ============================================================
+    # STEP 3
+    #
+    # Sort and eliminate duplicate solutions.
+    # ============================================================
+
+    raw_solutions.sort(
+        key=lambda x: (
+            -x.n_matches,
+            x.rms_velocity_kms,
+            -x.score,
+        )
+    )
+
+    unique = []
+
+    for sol in raw_solutions:
+
+        duplicate = False
+
+        for existing in unique:
+
+            # Approximate redshift separation expressed as velocity
+            dz = abs(sol.z - existing.z)
+
+            dv = C_KMS * dz / (1.0 + existing.z)
+
+            if dv < merge_velocity:
+                duplicate = True
+                break
+
+        if not duplicate:
+            unique.append(sol)
+
+    return unique
+
+
+def print_solution(solution, rank=1):
+
+    print()
+    print("=" * 75)
+    print(f"SOLUTION {rank}")
+    print("=" * 75)
+
+    print(f"z                  = {solution.z:.8f}")
+    print(
+        f"velocity           = {solution.velocity_kms:.2f} km/s"
+    )
+    print(f"matched lines      = {solution.n_matches}")
+    print(
+        f"velocity RMS       = "
+        f"{solution.rms_velocity_kms:.2f} km/s"
+    )
+    print(f"score              = {solution.score:.3f}")
+
+    print()
+    print(
+        f"{'Line':12s} "
+        f"{'Rest':>10s} "
+        f"{'Observed':>12s} "
+        f"{'Predicted':>12s} "
+        f"{'dv km/s':>10s}"
+    )
+
+    print("-" * 75)
+
+    for m in solution.matches:
+
+        print(
+            f"{m['name']:12s} "
+            f"{m['rest_wave']:10.2f} "
+            f"{m['observed_wave']:12.2f} "
+            f"{m['predicted_wave']:12.2f} "
+            f"{m['dv_kms']:10.2f}"
+        )
+
+
+
+def find_redshift_weights(
+    rest_waves,
+    obs_waves,
+    rest_names=None,
+    line_weights=None,
+    line_groups=None,
+    zmin=-0.01,
+    zmax=2.0,
+    velocity_tolerance=200.0,
+    min_matches=2,
+    relativistic_velocity=True,
+    merge_velocity=50.0,
+    residual_weight=0.5,
+):
+    """
+    Determine the most likely redshift(s) from an incomplete and potentially
+    contaminated list of observed emission lines.
+
+    This version includes:
+
+      1. Individual weights for each reference emission line.
+      2. Extra bonuses when characteristic line complexes are identified.
+      3. A penalty based on the velocity residuals of the matched lines.
+      4. Missing reference lines are NOT penalized.
+      5. Spurious observed lines are allowed and can remain unmatched.
+      6. Each observed/reference line can be matched at most once.
+      7. Candidate redshifts are refined from the matched lines.
+      8. Duplicate redshift solutions are merged.
+
+    Parameters
+    ----------
+    rest_waves : array-like
+        Rest-frame wavelengths of the bona-fide reference emission lines.
+
+    obs_waves : array-like
+        Observed wavelengths of detected emission-line candidates. This
+        list may be incomplete and may contain false detections.
+
+    rest_names : list of str, optional
+        Names corresponding to rest_waves.
+
+    line_weights : dict, optional
+        Dictionary assigning a weight to each emission line.
+        Example:
+            {"Halpha": 3.0, "[OIII]5007": 3.0}
+
+        Lines absent from the dictionary receive weight=1.0.
+
+    line_groups : list, optional
+        List of physically meaningful line groups. Each element should be:
+
+            (group_name, [member1, member2, ...], bonus)
+
+        Example:
+            ("OIII_doublet",
+             ["[OIII]4959", "[OIII]5007"],
+             3.0)
+
+    zmin, zmax : float
+        Allowed redshift interval.
+
+    velocity_tolerance : float
+        Maximum allowed velocity residual, in km/s, for considering an
+        observed/reference pair a valid match.
+
+    min_matches : int
+        Minimum number of matched reference lines required for accepting
+        a candidate solution.
+
+    relativistic_velocity : bool
+        If True, convert z to velocity using the relativistic Doppler
+        formula. Otherwise use v = c*z.
+
+    merge_velocity : float
+        Solutions separated by less than this velocity, in km/s, are
+        considered duplicates.
+
+    residual_weight : float
+        Strength of the penalty associated with velocity residuals.
+
+    Returns
+    -------
+    solutions : list of RedshiftSolution
+        Solutions sorted from best to worst.
+    """
+
+    rest_waves = np.asarray(rest_waves, dtype=float)
+    obs_waves = np.asarray(obs_waves, dtype=float)
+
+    # ------------------------------------------------------------
+    # Line names
+    # ------------------------------------------------------------
+
+    if rest_names is None:
+        rest_names = [
+            f"{w:.2f}" for w in rest_waves
+        ]
+
+    if len(rest_names) != len(rest_waves):
+        raise ValueError(
+            "rest_names and rest_waves must have the same length."
+        )
+
+    # ------------------------------------------------------------
+    # Default individual weights
+    # ------------------------------------------------------------
+
+    if line_weights is None:
+        line_weights = {
+            name: 1.0
+            for name in rest_names
+        }
+
+    # ------------------------------------------------------------
+    # Default line groups
+    # ------------------------------------------------------------
+
+    if line_groups is None:
+        line_groups = []
+
+    # ============================================================
+    # STEP 1
+    #
+    # Generate all possible candidate redshifts.
+    #
+    # Every observed/reference pair defines:
+    #
+    #     z = lambda_obs/lambda_rest - 1
+    #
+    # False lines generate random candidates. The correct redshift
+    # should generate several mutually consistent matches.
+    # ============================================================
+
+    candidates = []
+
+    for obs in obs_waves:
+
+        z_values = obs / rest_waves - 1.0
+
+        valid = (
+            (z_values >= zmin)
+            & (z_values <= zmax)
+        )
+
+        candidates.extend(z_values[valid])
+
+    candidates = np.asarray(candidates, dtype=float)
+
+    if len(candidates) == 0:
+        return []
+
+    # ============================================================
+    # STEP 2
+    #
+    # Evaluate every candidate.
+    # ============================================================
+
+    raw_solutions = []
+
+    for z0 in candidates:
+
+        # --------------------------------------------------------
+        # Refine z iteratively using all lines that match this
+        # candidate.
+        # --------------------------------------------------------
+
+        z, matches = refine_redshift(
+            z0,
+            rest_waves,
+            obs_waves,
+            rest_names,
+            velocity_tolerance,
+        )
+
+        nmatch = len(matches)
+
+        if nmatch < min_matches:
+            continue
+
+        # --------------------------------------------------------
+        # Names of uniquely matched reference lines
+        # --------------------------------------------------------
+
+        matched_names = {
+            m["name"]
+            for m in matches
+        }
+
+        # ========================================================
+        # INDIVIDUAL LINE WEIGHTS
+        # ========================================================
+
+        matched_weight = sum(
+            line_weights.get(name, 1.0)
+            for name in matched_names
+        )
+
+        # ========================================================
+        # LINE COMPLEX / DOUBLET / TRIPLET BONUSES
+        # ========================================================
+
+        group_bonus = 0.0
+
+        detected_groups = []
+
+        for group_name, members, bonus in line_groups:
+
+            if all(
+                member in matched_names
+                for member in members
+            ):
+                group_bonus += bonus
+
+                detected_groups.append(
+                    group_name
+                )
+
+        # ========================================================
+        # VELOCITY RESIDUAL PENALTY
+        # ========================================================
+
+        dvs = np.array(
+            [
+                m["dv_kms"]
+                for m in matches
+            ],
+            dtype=float,
+        )
+
+        rms = np.sqrt(
+            np.mean(dvs**2)
+        )
+
+        residual_penalty = np.mean(
+            (
+                dvs /
+                velocity_tolerance
+            ) ** 2
+        )
+
+        # ========================================================
+        # FINAL SCORE
+        #
+        # Positive contributions:
+        #
+        #     individual lines
+        #     characteristic groups
+        #
+        # Negative contribution:
+        #
+        #     wavelength/velocity mismatch
+        #
+        # Missing expected lines have NO penalty.
+        #
+        # False observed lines have NO penalty unless they are
+        # incorrectly matched.
+        # ========================================================
+
+        score = (
+            matched_weight
+            + group_bonus
+            - residual_weight * residual_penalty
+        )
+
+        # --------------------------------------------------------
+        # Convert z to velocity
+        # --------------------------------------------------------
+
+        velocity = redshift_to_velocity(
+            z,
+            relativistic=relativistic_velocity,
+        )
+
+        solution = RedshiftSolution(
+            z=z,
+            velocity_kms=velocity,
+            n_matches=nmatch,
+            score=score,
+            rms_velocity_kms=rms,
+            matches=matches,
+        )
+
+        # Optional extra information
+        #
+        # Dataclasses without slots allow us to attach these
+        # attributes dynamically.
+        solution.matched_weight = matched_weight
+        solution.group_bonus = group_bonus
+        solution.detected_groups = detected_groups
+        solution.residual_penalty = residual_penalty
+
+        raw_solutions.append(solution)
+
+    # ============================================================
+    # STEP 3
+    #
+    # Sort solutions.
+    #
+    # The weighted score is now the primary ranking criterion.
+    #
+    # For equal scores:
+    #     - prefer more matched lines
+    #     - prefer smaller velocity RMS
+    # ============================================================
+
+    raw_solutions.sort(
+        key=lambda x: (
+            -x.score,
+            -x.n_matches,
+            x.rms_velocity_kms,
+        )
+    )
+
+    # ============================================================
+    # STEP 4
+    #
+    # Remove duplicate solutions corresponding to essentially
+    # the same redshift.
+    # ============================================================
+
+    unique = []
+
+    for sol in raw_solutions:
+
+        duplicate = False
+
+        for existing in unique:
+
+            # Redshift difference converted approximately to
+            # rest-frame velocity difference.
+            dv = (
+                C_KMS
+                * abs(sol.z - existing.z)
+                / (1.0 + existing.z)
+            )
+
+            if dv < merge_velocity:
+                duplicate = True
+                break
+
+        if not duplicate:
+            unique.append(sol)
+
+    return unique
+
+
+
+def running_std_spec(wave, flux, width, mode="wavelength", ddof=1):
+    """
+    Calculate the running standard deviation of a spectrum.
+
+    Parameters
+    ----------
+    wave : array-like
+        Wavelength array.
+
+    flux : array-like
+        Flux array.
+
+    width : float or int
+        Width of the running window.
+
+        If mode="wavelength":
+            width is expressed in the same units as wave
+            (e.g. Angstrom).
+
+        If mode="pixels":
+            width is the number of spectral pixels.
+
+    mode : {"wavelength", "pixels"}
+        Defines how the running window is specified.
+
+    ddof : int
+        Delta degrees of freedom for np.nanstd.
+        ddof=1 gives the sample standard deviation.
+        ddof=0 gives the population standard deviation.
+
+    Returns
+    -------
+    std : ndarray
+        Running standard deviation evaluated at each wavelength.
+    """
+
+    wave = np.asarray(wave, dtype=float)
+    flux = np.asarray(flux, dtype=float)
+
+    if wave.shape != flux.shape:
+        raise ValueError("wave and flux must have the same shape")
+
+    std = np.full_like(flux, np.nan)
+
+    # ----------------------------------------------------------
+    # Fixed wavelength interval
+    # ----------------------------------------------------------
+
+    if mode == "wavelength":
+
+        half_width = width / 2.0
+
+        for i, w in enumerate(wave):
+
+            mask = (
+                (wave >= w - half_width)
+                & (wave <= w + half_width)
+                & np.isfinite(flux)
+            )
+
+            if np.sum(mask) > ddof:
+                std[i] = np.nanstd(
+                    flux[mask],
+                    ddof=ddof
+                )
+
+    # ----------------------------------------------------------
+    # Fixed number of pixels
+    # ----------------------------------------------------------
+
+    elif mode == "pixels":
+
+        width = int(width)
+
+        if width < 2:
+            raise ValueError("width must be >= 2 pixels")
+
+        half = width // 2
+
+        for i in range(len(flux)):
+
+            i0 = max(0, i - half)
+            i1 = min(len(flux), i + half + 1)
+
+            values = flux[i0:i1]
+
+            if np.sum(np.isfinite(values)) > ddof:
+                std[i] = np.nanstd(
+                    values,
+                    ddof=ddof
+                )
+
+    else:
+        raise ValueError(
+            "mode must be 'wavelength' or 'pixels'"
+        )
+
+    return std
+
+
+
+
+
+
+
+def interp2d_scattered_linear(
+    X, Y, val,
+    X_new, Y_new,
+    method="linear"
+):
+    """
+    Interpolate scattered values val(X,Y) onto new points (X_new,Y_new).
+
+    Parameters
+    ----------
+    X, Y : array-like
+        Coordinates of the input points.
+
+    val : array-like
+        Values at the input points.
+
+    X_new, Y_new : array-like
+        Coordinates where the values are required.
+
+    method : {"linear", "nearest"}
+        Interpolation method.
+
+        "linear":
+            Linear interpolation inside the convex hull.
+            Nearest-neighbour extrapolation outside the hull.
+
+        "nearest":
+            Nearest-neighbour interpolation/extrapolation everywhere.
+
+    Returns
+    -------
+    val_new : ndarray
+        Interpolated values, with the same shape as X_new/Y_new.
+    """
+
+    X = np.asarray(X, dtype=float)
+    Y = np.asarray(Y, dtype=float)
+    val = np.asarray(val, dtype=float)
+
+    X_new = np.asarray(X_new, dtype=float)
+    Y_new = np.asarray(Y_new, dtype=float)
+
+    if not (X.shape == Y.shape == val.shape):
+        raise ValueError("X, Y and val must have the same shape")
+
+    if X_new.shape != Y_new.shape:
+        raise ValueError("X_new and Y_new must have the same shape")
+
+    # Remove invalid input data
+    good = (
+        np.isfinite(X)
+        & np.isfinite(Y)
+        & np.isfinite(val)
+    )
+
+    points = np.column_stack((X[good], Y[good]))
+    new_points = np.column_stack(
+        (X_new.ravel(), Y_new.ravel())
+    )
+
+    # ---------------------------------------------------------
+    # Nearest neighbour
+    # ---------------------------------------------------------
+
+    nearest = NearestNDInterpolator(
+        points,
+        val[good]
+    )
+
+    if method == "nearest":
+
+        result = nearest(new_points)
+
+    # ---------------------------------------------------------
+    # Linear interpolation + nearest extrapolation
+    # ---------------------------------------------------------
+
+    elif method == "linear":
+
+        linear = LinearNDInterpolator(
+            points,
+            val[good],
+            fill_value=np.nan
+        )
+
+        result = linear(new_points)
+
+        # Outside the convex hull LinearNDInterpolator returns NaN.
+        # Replace these values with nearest-neighbour extrapolation.
+        outside = ~np.isfinite(result)
+
+        if np.any(outside):
+            result[outside] = nearest(
+                new_points[outside]
+            )
+
+    else:
+        raise ValueError(
+            "method must be 'linear' or 'nearest'"
+        )
+
+    return np.asarray(result).reshape(X_new.shape)
+
+
+
+def interp2d_scattered_array(
+    X, Y, val,
+    X_new, Y_new,
+    method="linear"
+):
+    """
+    Interpolate scalar or vector values defined at scattered (X,Y) points.
+
+    Parameters
+    ----------
+    X, Y : array-like, shape (N,)
+        Coordinates of the input points.
+
+    val : array-like, shape (N,) or (N, M) or (N, ...)
+        Value(s) associated with each input point.
+
+    X_new, Y_new : array-like
+        Coordinates of the target points.
+
+    method : {"linear", "nearest"}
+
+    Returns
+    -------
+    result : ndarray
+        If val.shape == (N,), result.shape == X_new.shape
+
+        If val.shape == (N, M), result.shape == X_new.shape + (M,)
+    """
+
+    X = np.asarray(X, dtype=float).ravel()
+    Y = np.asarray(Y, dtype=float).ravel()
+    val = np.asarray(val)
+
+    X_new = np.asarray(X_new, dtype=float)
+    Y_new = np.asarray(Y_new, dtype=float)
+
+    if len(X) != len(Y):
+        raise ValueError("X and Y must have the same length")
+
+    if val.shape[0] != len(X):
+        raise ValueError(
+            "The first dimension of val must match len(X) and len(Y)"
+        )
+
+    if X_new.shape != Y_new.shape:
+        raise ValueError(
+            "X_new and Y_new must have the same shape"
+        )
+
+    # Valid spatial coordinates
+    good = np.isfinite(X) & np.isfinite(Y)
+
+    X = X[good]
+    Y = Y[good]
+    val = val[good]
+
+    points = np.column_stack((X, Y))
+
+    new_points = np.column_stack(
+        (X_new.ravel(), Y_new.ravel())
+    )
+
+    nearest = NearestNDInterpolator(
+        points,
+        val
+    )
+
+    if method == "nearest":
+
+        result = nearest(new_points)
+
+    elif method == "linear":
+
+        linear = LinearNDInterpolator(
+            points,
+            val,
+            fill_value=np.nan
+        )
+
+        result = linear(new_points)
+
+        # For vector-valued val, result may have shape (Nnew, M)
+        # so determine which TARGET POINTS failed.
+        if result.ndim == 1:
+            outside = ~np.isfinite(result)
+        else:
+            outside = ~np.all(np.isfinite(result), axis=tuple(range(1, result.ndim)))
+
+        if np.any(outside):
+            result[outside] = nearest(
+                new_points[outside]
+            )
+
+    else:
+        raise ValueError(
+            "method must be 'linear' or 'nearest'"
+        )
+
+    output_shape = X_new.shape + val.shape[1:]
+
+    return np.asarray(result).reshape(output_shape)
+
+
+
+
+
+def interp2d_scattered(
+    X, Y, val,
+    X_new, Y_new,
+    method="linear",
+    smoothing=0.0,
+):
+    """
+    Interpolate/extrapolate scattered 2D data.
+
+    Parameters
+    ----------
+    X, Y : array-like
+        Coordinates of original scattered points.
+
+    val : array-like
+        Values associated with the original points.
+
+    X_new, Y_new : array-like
+        Coordinates of target points.
+
+    method : {"nearest", "linear", "spline", "rbf"}
+        nearest :
+            Nearest-neighbour interpolation/extrapolation.
+
+        linear :
+            Linear interpolation inside the convex hull and
+            nearest-neighbour extrapolation outside.
+
+        spline / rbf :
+            Smooth RBF interpolation with natural extrapolation.
+
+    smoothing : float
+        RBF smoothing parameter.
+        0 gives exact interpolation.
+
+    Returns
+    -------
+    result : ndarray
+        Interpolated/extrapolated values with shape X_new.shape.
+    """
+
+    X = np.asarray(X, dtype=float).ravel()
+    Y = np.asarray(Y, dtype=float).ravel()
+    val = np.asarray(val, dtype=float).ravel()
+
+    X_new = np.asarray(X_new, dtype=float)
+    Y_new = np.asarray(Y_new, dtype=float)
+
+    if not (len(X) == len(Y) == len(val)):
+        raise ValueError("X, Y and val must have the same length")
+
+    if X_new.shape != Y_new.shape:
+        raise ValueError(
+            "X_new and Y_new must have the same shape"
+        )
+
+    # Remove invalid points
+    good = (
+        np.isfinite(X)
+        & np.isfinite(Y)
+        & np.isfinite(val)
+    )
+
+    points = np.column_stack(
+        (X[good], Y[good])
+    )
+
+    values = val[good]
+
+    new_points = np.column_stack(
+        (
+            X_new.ravel(),
+            Y_new.ravel()
+        )
+    )
+
+    # ---------------------------------------------------------
+    # Nearest neighbour
+    # ---------------------------------------------------------
+
+    if method == "nearest":
+
+        interp = NearestNDInterpolator(
+            points,
+            values
+        )
+
+        result = interp(new_points)
+
+    # ---------------------------------------------------------
+    # Linear + nearest extrapolation
+    # ---------------------------------------------------------
+
+    elif method == "linear":
+
+        linear = LinearNDInterpolator(
+            points,
+            values,
+            fill_value=np.nan
+        )
+
+        result = linear(new_points)
+
+        outside = ~np.isfinite(result)
+
+        if np.any(outside):
+
+            nearest = NearestNDInterpolator(
+                points,
+                values
+            )
+
+            result[outside] = nearest(
+                new_points[outside]
+            )
+
+    # ---------------------------------------------------------
+    # Smooth spline-like interpolation/extrapolation
+    # ---------------------------------------------------------
+
+    elif method in ("spline", "rbf"):
+
+        interp = RBFInterpolator(
+            points,
+            values,
+            kernel="thin_plate_spline",
+            smoothing=smoothing,
+        )
+
+        result = interp(new_points)
+
+    else:
+
+        raise ValueError(
+            "method must be "
+            "'nearest', 'linear', 'spline', or 'rbf'"
+        )
+
+    return np.asarray(result).reshape(
+        X_new.shape
+    )
+
+
+

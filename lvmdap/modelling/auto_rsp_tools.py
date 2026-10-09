@@ -19,7 +19,7 @@ from lvmdap.pyFIT3D.common.constants import __selected_half_range_sysvel_auto_ss
 from lvmdap.pyFIT3D.common.constants import __sigma_to_FWHM__, __selected_half_range_wl_auto_ssp__
 
 from lvmdap.pyFIT3D.common.stats import pdl_stats, _STATS_POS, WLS_invmat, median_box, median_filter
-
+from lvmdap.modelling.synthesis import StellarSynthesis
 from copy import deepcopy
 
 __verbose__ = True
@@ -161,6 +161,7 @@ def auto_rsp_elines_single_main(
 
     verbose = __verbose__ if verbose is None else verbose
     redshift_set = [input_redshift, delta_redshift, min_redshift, max_redshift]
+    print(f'# redshift_set: {redshift_set}')
     sigma_set = [input_sigma, delta_sigma, min_sigma, max_sigma]
     AV_set = [input_AV, delta_AV, min_AV, max_AV]
     if plot:
@@ -242,8 +243,11 @@ def auto_rsp_elines_single_main(
         SPS._multi_AV()
         SPS._fitting_init()
         SPS.ssp_init()
-        
-        
+
+    
+
+
+    print(f'# redshift_set CF: {cf.redshift_set}')    
     msg_cut = f' - cut value: {cf.CUT_MEDIAN_FLUX:6.4f}'
     if cf.CUT_MEDIAN_FLUX == 0:
         msg_cut = ' - Warning: no cut (CUT_MEDIAN_FLUX = 0)'
@@ -264,7 +268,18 @@ def auto_rsp_elines_single_main(
     print(f'-> MED_FLUX : {SPS.med_flux} +- {SPS.rms} SN:{SPS.SN_norm_window}')
  
    
-
+    SPS.config.redshift = cf.redshift_set[0]
+    SPS.config.delta_redshift = cf.redshift_set[1]
+    SPS.config.min_redshift = cf.redshift_set[2]
+    SPS.config.max_redshift = cf.redshift_set[3]
+    SPS.config.sigma = cf.sigma_set[0]
+    SPS.config.delta_sigma = cf.sigma_set[1]
+    SPS.config.min_sigma = cf.sigma_set[2]
+    SPS.config.max_sigma = cf.sigma_set[3]
+    SPS.config.AV = cf.AV_set[0]
+    SPS.config.delta_AV = cf.AV_set[1]
+    SPS.config.min_AV = cf.AV_set[2]
+    SPS.config.max_AV = cf.AV_set[3]
 
     if ((SPS.med_flux<=0) or (SPS.med_flux<0.5*SPS.rms) or (SPS.SN_norm_window<SN_CUT)):
         SPS.valid_flux=0
@@ -274,18 +289,10 @@ def auto_rsp_elines_single_main(
         SPS_AV = deepcopy(SPS)
         try:
             print('-> NL kin fitting')
-#            print('##### non_linear_fit_kin')
-#            fit_sigma_rnd=False
-#            print(f'sigma_inst = {SPS.sigma_inst} {fit_sigma_rnd}')
-#            print(f'{SPS.config.sigma_inst}')
+
             SPS.non_linear_fit_kin(is_guided_sigma, fit_sigma_rnd=fit_sigma_rnd,
                                    sigma_rnd_medres_merit=losvd_rnd_medres_merit)
 
-#            print('##### non_linear_fit')
-#            SPS.config.delta_AV = 0
-#            SPS.non_linear_fit_rsp(is_guided_sigma, fit_sigma_rnd=fit_sigma_rnd,
-#                                   sigma_rnd_medres_merit=losvd_rnd_medres_merit)
-#            SPS.config.delta_AV = SPS_AV.config.delta_AV
             
         except:
             print('-> NL kin not fitted')
@@ -1037,3 +1044,48 @@ def auto_ssp_elines_rnd_rss(
     time_end = print_time(print_seed=False)
     time_total = time_end - time_ini_run
     print(f'# SECONDS = {time_total}')
+
+
+
+
+
+###############################################################
+# RSP version of the auto_ssp_elines_rnd from lvmdap.pyFIT3D  #
+###############################################################
+def auto_rsp_elines_rnd(
+    wl__w, f__w, ef__w, ssp_file, spaxel_id, config_file=None, plot=None,
+    ssp_nl_fit_file=None, sigma_inst=None, mask_list=None,
+    min=None, max=None, w_min=None, w_max=None,
+    nl_w_min=None, nl_w_max=None, elines_mask_file=None, fit_gas=True, refine_gas=True,
+    input_redshift=None, delta_redshift=None, min_redshift=None, max_redshift=None,
+    input_sigma=None, delta_sigma=None, min_sigma=None, max_sigma=None, sigma_gas=None,
+    input_AV=None, delta_AV=None, min_AV=None, max_AV=None, ratio=True, y_ratio=None,
+    fit_sigma_rnd=True, out_path=None, SPS_master=None, SN_CUT=2, verbose=False):
+
+    ssp_nl_fit_file = ssp_file if ssp_nl_fit_file is None else ssp_nl_fit_file
+    cc_redshift_boundaries = [min_redshift, max_redshift]
+
+    print("# Using predefined configuration file for the emission lines");
+    #
+    # The spectrum is fitted for the 1st time in here
+    #
+    print("##############################");
+    print(f"# START: fitting the continuum+emission lines, fit_gas:{fit_gas} ...")
+    cf, SPS = auto_rsp_elines_single_main(
+        wl__w, f__w, ef__w, ssp_file,
+        config_file=config_file,
+        ssp_nl_fit_file=ssp_nl_fit_file, sigma_inst=sigma_inst, out_file="NOT_USED",
+        mask_list=mask_list, elines_mask_file=elines_mask_file, fit_gas=fit_gas,
+        min=min, max=max, w_min=w_min, w_max=w_max, nl_w_min=nl_w_min, nl_w_max=nl_w_max,
+        input_redshift=input_redshift, delta_redshift=delta_redshift,
+        min_redshift=min_redshift, max_redshift=max_redshift,
+        input_sigma=input_sigma, delta_sigma=delta_sigma, min_sigma=min_sigma, max_sigma=max_sigma,
+        input_AV=input_AV, delta_AV=delta_AV, min_AV=min_AV, max_AV=max_AV,
+        plot=plot, single_ssp=False, ratio=ratio, y_ratio=y_ratio, fit_sigma_rnd=fit_sigma_rnd,
+        sps_class=StellarSynthesis, SPS_master=SPS_master , SN_CUT=  SN_CUT, verbose = verbose 
+    )
+    print(f"# END: fitting the continuum+emission lines, fit_gas:{fit_gas} ...");
+    print("##############################");
+    print("# END RSP fitting...")
+    print("########################################")
+    return cf, SPS

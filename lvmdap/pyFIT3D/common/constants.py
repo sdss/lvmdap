@@ -37,6 +37,9 @@ _EL_MODELS = {
     # 'poly1d': None,
 }
 
+
+
+
 __shift_convolve_lnwl_frac__ = 5  # a.k.a. f_fine in shift_convolve
 
 __mask_elines_window__ = 4  # AA

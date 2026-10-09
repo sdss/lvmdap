@@ -30,3 +30,8 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Large Notebooks
+#
+notebooks/lvm-dap-conf-tests.ipynb
+notebooks/lvm-dap-conf-tests2.ipynbnotebooks/lvm-dap-conf-tests2.ipynb

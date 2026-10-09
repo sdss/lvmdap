@@ -272,12 +272,17 @@ def shift_convolve(wave_obs, wave_in, flux_in, redshift, sigma, sigma_inst=None)
         rsigma = sigma/dpix_ini
         return conv_interp(wave_obs, wave_in_of, flux_in, rsigma, int(3*rsigma))
 
-    dpix = dpix_ini/(1 + np.random.rand())
-    # dpix = dpix_ini
+    #dpix = dpix_ini/(1 + np.random.rand())
+    dpix = dpix_ini
     # interpolate flux_in to the new wavelenghts.
+    # SFS 260827
+    # Added dpix offset to avoid edge effects in the convolution
     w_min = wave_in_of.min()
     w_max = wave_in_of.max()
     N_sub = (w_max - w_min)/dpix
+    #
+    # SFS: Modified to avoid dpix offset in all velocities
+    #     wave = w_min  + dpix*np.arange(N_sub)
     wave = w_min + dpix*np.arange(N_sub)
     # resample wave in ln(wavelenght)
     ln_wave = np.log(wave)

@@ -1,4 +1,5 @@
 
+from fileinput import filename
 import io
 from astropy.table import Table
 import os
@@ -425,7 +426,11 @@ class StellarSynthesis(StPopSynt):
         # smooth model_ssp_min (not tested)
         ratio = np.divide(s['raw_flux_no_gas'], model_ssp_min, where=model_ssp_min!=0)
         ratio = np.where(np.isfinite(ratio), ratio, 0)
-        ratio = np.where(model_ssp_min == 0, 0, ratio)
+        ratio = np.where(model_ssp_min == 0, 0, ratio)        
+        if self.sigma_inst is None:
+            self.sigma_mean = self.best_sigma
+        else:
+            self.sigma_mean = np.sqrt(self.sigma_inst**2 + (5000*self.best_sigma/__c__)**2)
         sm_rat = smooth_ratio(ratio, int(self.sigma_mean))
         model_ssp_min *= sm_rat
         model_joint = model_ssp_min + s['raw_model_elines']
@@ -609,7 +614,7 @@ class StellarSynthesis(StPopSynt):
             tbl_row.append(self.ssp.teff_models[i])
             tbl_row.append(self.ssp.logg_models[i])
             tbl_row.append(self.ssp.meta_models[i])
-            tbl_row.append(self.ssp.alph_models[i])
+            tbl_row.append(self.ssp.alph_models[i]) 
             tbl_row.append(_coeffs_norm[i])  # a_coeffs_N
             tbl_row.append(_min_coeffs_norm[i])  # a_min_coeffs
             tbl_row.append(np.log10(self.ssp.mass_to_light[i]))
@@ -625,6 +630,68 @@ class StellarSynthesis(StPopSynt):
 
         if not isinstance(filename, io.TextIOWrapper):
             f_out_coeffs.close()
+
+    def output_coeffs_MC_return(self):
+        """
+        Outputs the SSP coefficients table to the screen and to the output file `filename`.
+
+        Parameters
+        ----------
+        filename : str
+            The output filename to the coefficients table.
+        """
+
+
+        cols = 'ID,TEFF,LOGG,META,ALPHAM,COEFF,Min.Coeff,log(M/L),AV,N.Coeff,Err.Coeff'
+        fmt_cols = '| {0:^4} | {1:^7} | {2:^7} | {3:^7} | {4:^7} | {5:^6} | {6:^9} | {7:^8} | {8:^4} | {9:^7} | {10:^9} |'
+        fmt_numbers = '| {:=04d} | {:=7.4f} | {:=7.4f} | {:=7.4f} | {:=7.4f} | {:=6.4f} | {:=9.4f} | {:=8.4f} | {:=4.2f} | {:=7.4f} | {:=9.4f} | {:=6.4f} | {:=6.4f}'
+        fmt_numbers_out_coeffs = ' {:=04d}  {:=7.4f}  {:=7.4f}  {:=7.4f}  {:=7.4f}  {:=6.4f}  {:=9.4f}  {:=8.4f}  {:=4.2f}  {:=7.4f}  {:=9.4f}'
+
+        cols_split = cols.split(',')
+        tbl_title = fmt_cols.format(*cols_split)
+        ntbl = len(tbl_title)
+        tbl_border = ntbl*'-'
+
+        # output coeffs table
+        coeffs_input_zero = self.coeffs_input_MC
+        coeffs_rms = self.coeffs_input_MC_rms
+        _coeffs = self.coeffs_ssp_MC
+        _sigma = self.coeffs_ssp_MC_rms
+        _min_coeffs = self.orig_best_coeffs
+        norm = _coeffs.sum()
+        if norm == 0:
+            norm = 1
+        _coeffs_norm = _coeffs/norm
+        _min_coeffs_norm = _min_coeffs/norm
+        # _sigma_norm = np.divide(_sigma*_coeffs_norm, _coeffs, where=_coeffs > 0.0, out=np.zeros_like(_coeffs))
+
+        # if not ((_coeffs == 0).all() or ((np.isfinite(_coeffs)).sum() == 0)):
+        for i in range(self.ssp.n_models):
+            try:
+                C = _coeffs[i]
+            except (IndexError,TypeError):
+                C = 0
+            if np.isnan(C):
+                C = 0
+        # for i, C in enumerate(_coeffs):
+            tbl_row = []
+            tbl_row.append(i)
+            tbl_row.append(self.ssp.teff_models[i])
+            tbl_row.append(self.ssp.logg_models[i])
+            tbl_row.append(self.ssp.meta_models[i])
+            tbl_row.append(self.ssp.alph_models[i])
+            tbl_row.append(_coeffs_norm[i])  # a_coeffs_N
+            tbl_row.append(_min_coeffs_norm[i])  # a_min_coeffs
+            tbl_row.append(np.log10(self.ssp.mass_to_light[i]))
+            tbl_row.append(self.best_AV)
+            tbl_row.append(C)  # a_coeffs
+            tbl_row.append(_sigma[i])  # a_e_coeffs
+            a_tbl_row = np.array(tbl_row, dtype='float')
+            if i == 0:
+                a_tbl = a_tbl_row
+            else:
+                a_tbl = np.vstack((a_tbl, a_tbl_row))
+        return cols,a_tbl                        
 
     def _print_header(self, filename):
         """
@@ -798,6 +865,63 @@ class StellarSynthesis(StPopSynt):
         if not isinstance(filename, io.TextIOWrapper):
             f_outfile.close()
 
+    def output_return(self):
+        """
+        Summaries the run in a csv file.
+
+        Parameters
+        ----------
+        filename : str
+            Output filename.
+        """
+        cf = self.config
+        ssp = self.ssp
+        s = self.spectra
+        model_joint = s['model_joint']
+        res_joint = s['res_joint']
+        # if chi_sq_msk > 0:
+        #     delta_chi = np.abs()
+        spectra_list = [
+            s['orig_flux_ratio'],
+            s['model_ssp_min'],
+            s['model_joint'],
+            s['orig_flux_ratio'] - s['model_ssp_min_uncorr'],
+            s['res_joint'],
+            s['orig_flux_ratio'] - (s['res_ssp'] - s['res_joint']),
+        ]
+
+        # chi joint
+        _chi = np.nansum((model_joint[s['sel_wl']] - s['msk_flux'])**2/s['msk_eflux']**2)
+        n_wave_orig = len(s['sel_wl'])
+        # print(f'n_wave_orig:{n_wave_orig}')
+        # print(f'ssp.flux_models_obsframe_dust.shape[0]:{ssp.flux_models_obsframe_dust.shape[0]}')
+        # print(f'self.n_models_elines:{self.n_models_elines}')
+        chi_joint = _chi/(n_wave_orig-ssp.n_models-self.n_models_elines-1)
+        rms = res_joint[s['sel_norm_window']].std()
+        med_flux = np.median(s['raw_flux_no_gas'][s['sel_norm_window']])
+        if (med_flux<0):
+            med_flux=np.abs(med_flux)
+        FLUX = s['orig_flux'][s['sel_wl']].sum()
+
+        mass = self.mass_to_light*med_flux*3600
+        if mass > 0:
+            lmass = np.log10(mass)
+            lml = np.log10(self.mass_to_light/3600)
+        else:
+            lmass = 0
+            lml = 0
+        rsp_cols = 'MIN_CHISQ,Teff,e_Teff,Log_g,e_Log_g,Fe,e_Fe,alpha,e_alpha,Av,e_Av,z,e_z,disp,e_disp,flux,redshift,med_flux,e_med_flux,Teff_MW,e_Teff_MW,Log_g_MW,e_Log_g_MW,Fe_MW,e_Fe_MW,alpha_MW,e_alpha_MW,sys_vel,log_ML,log_Mass'
+        outbuf = f'{chi_joint},'
+        outbuf = f'{outbuf}{self.teff_min},{self.e_teff_min},{self.logg_min},{self.e_logg_min},{self.meta_min},'
+        outbuf = f'{outbuf}{self.e_meta_min},{self.alph_min},{self.e_alph_min},'
+        outbuf = f'{outbuf}{self.AV_min},{self.e_AV_min},{self.best_redshift},{self.e_redshift},'
+        outbuf = f'{outbuf}{self.best_sigma},{self.e_sigma},{FLUX},{self.best_redshift},'
+        outbuf = f'{outbuf}{med_flux},{rms},{self.teff_min_mass},{self.e_teff_min_mass},{self.logg_min_mass},{self.e_logg_min_mass},'
+        outbuf = f'{outbuf}{self.meta_min_mass},{self.e_meta_min_mass},{self.alph_min_mass},{self.e_alph_min_mass},{self.systemic_velocity},'
+        outbuf = f'{outbuf}{lml},{lmass}'
+        a_outbuf = np.array(outbuf.split(','))
+        return rsp_cols, a_outbuf
+
         
     def non_linear_fit_rsp(self, guide_sigma=False, fit_sigma_rnd=True,
                        sigma_rnd_medres_merit=False, correct_wl_ranges=False):
@@ -843,10 +967,15 @@ class StellarSynthesis(StPopSynt):
             # self.best_chi_sq_redshift = self.get_last_chi_sq_redshift()
             # self.best_coeffs_redshift = self.get_last_coeffs_redshift()
             msg_cut = f' - cut value: {cf.CUT_MEDIAN_FLUX}'
+            print_verbose(msg_cut, verbose=True)
+#            print_verbose(f' - redshift range: {cf.min_redshift} to {cf.max_redshift} with step {cf.delta_redshift}, delta={cf.delta_redshift}', verbose=True)
             if cf.delta_redshift > 0:
                 self._fit_redshift(correct_wl_ranges=correct_wl_ranges,ssp=ssp)
                 self.best_chi_sq_nl_fit = self.get_last_chi_sq_redshift()
                 self.best_coeffs_nl_fit = self.get_last_coeffs_redshift()
+            else:
+                self.best_redshift=cf.redshift_set[0]
+                self.e_redshift=0.0
             print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
             # self.correct_elines_mask(redshift=self.best_redshift)
             self.redshift_correct_masks(redshift=self.best_redshift, correct_wl_ranges=correct_wl_ranges)
@@ -862,6 +991,9 @@ class StellarSynthesis(StPopSynt):
                 # self._fit_sigma(guided_sigma)
                 self.best_chi_sq_nl_fit = self.get_last_chi_sq_sigma()
                 self.best_coeffs_nl_fit = self.get_last_coeffs_sigma()
+            else:
+                self.best_sigma=cf.losvd_set[0]
+                self.e_sigma=0.0               
             print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
             if self.sigma_inst is None:
                 self.sigma_mean = self.best_sigma
@@ -871,6 +1003,9 @@ class StellarSynthesis(StPopSynt):
                 self._fit_AV()
                 self.best_chi_sq_nl_fit = self.get_last_chi_sq_AV()
                 self.best_coeffs_nl_fit = self.get_last_coeffs_AV()
+            else:
+                self.best_AV=cf.AV_set[0]
+                self.e_AV=0.0               
             print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=True)
 #            print(f'Deriving redshift, sigma, AV... DONE!')
         self.best_chi_sq_nl_fit = chi_sq
@@ -895,6 +1030,7 @@ class StellarSynthesis(StPopSynt):
         nl_w_min=self.nl_w_min
         nl_w_max=self.nl_w_max
         guess_redshift = cf.redshift_set[0]
+        cf.redshift = cf.redshift_set[0]
 
         SPS_kin=deepcopy(self)
         mask_w = (self.wavelength>nl_w_min*(1+guess_redshift)) & (self.wavelength<nl_w_max*(1+guess_redshift))
@@ -949,17 +1085,19 @@ class StellarSynthesis(StPopSynt):
             else:
                 self.sigma_mean = np.sqrt(self.sigma_inst**2 + (5000*self.best_sigma/__c__)**2)
         else:
-#            print(f'Deriving redshift sigma...')
-            # self.update_redshift_params(coeffs=coeffs_now, chi_sq=chi_sq, redshift=self.best_redshift)
-            # self.best_chi_sq_redshift = self.get_last_chi_sq_redshift()
-            # self.best_coeffs_redshift = self.get_last_coeffs_redshift()
             msg_cut = f' - cut value: {cf.CUT_MEDIAN_FLUX}'
             if cf.delta_redshift > 0:
                 SPS_kin._fit_redshift(correct_wl_ranges=correct_wl_ranges,ssp=ssp)
+                #
+                # The best redshift is the last, not the best! CHECK!!!!
+                #
                 self.best_redshift=SPS_kin.best_redshift
                 self.e_redshift=SPS_kin.e_redshift
                 self.best_chi_sq_nl_fit = self.get_last_chi_sq_redshift()
                 self.best_coeffs_nl_fit = self.get_last_coeffs_redshift()
+            else:
+                self.best_redshift=cf.redshift_set[0]
+                self.e_redshift=0.0
             print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
             # self.correct_elines_mask(redshift=self.best_redshift)
             SPS_kin.redshift_correct_masks(redshift=SPS_kin.best_redshift, correct_wl_ranges=correct_wl_ranges)
@@ -978,6 +1116,9 @@ class StellarSynthesis(StPopSynt):
                 self.e_sigma=SPS_kin.e_sigma
                 self.best_chi_sq_nl_fit = self.get_last_chi_sq_sigma()
                 self.best_coeffs_nl_fit = self.get_last_coeffs_sigma()
+            else:
+                self.best_sigma=cf.losvd_set[0]
+                self.e_sigma=0.0               
             print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
             if self.sigma_inst is None:
                 self.sigma_mean = self.best_sigma

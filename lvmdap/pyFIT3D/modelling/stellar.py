@@ -552,6 +552,9 @@ class SSPModels(object):
             created `self.flux_models_obsframe` will be a 2D array
             ``(n_positive_coeffs, n_wavelength)``.
         """
+        delta_wavelengths = np.min(np.diff(wavelength))
+        redshift = redshift+delta_wavelengths/np.nanmean(wavelength)
+
         if coeffs is None:
             flux_models_obsframe = np.asarray([
                 shift_convolve(wavelength, self.wavelength, self.flux_models[i], redshift,
@@ -637,6 +640,9 @@ class SSPModels(object):
         #     redshift = config.redshift
         # if AV is None:
         #     AV = config.AV
+
+
+
         coeffs = np.array(coeffs)
         coeffs[~np.isfinite(coeffs)] = 0
         if (coeffs == 0).all():
@@ -1465,10 +1471,22 @@ class StPopSynt(object):
         msk_sigma_flux = self.spectra['raw_sigma_flux'][sel_wavelengths]
         msk_flux = self.spectra['raw_flux'][sel_wavelengths]
         # SSP models at observed frame
-        ssp.to_observed(self.spectra['raw_wave'], sigma_inst=sigma_inst, sigma=sigma, redshift=redshift)
 
+        
+
+        #
+        # Patch to correct the offset between RSP and elines!
+        #
+        delta_wavelengths = np.min(np.diff(self.spectra['raw_wave']))
+        my_wavelengths = self.spectra['raw_wave'] 
+#        redshift = redshift+delta_wavelengths/np.nanmean(self.spectra['raw_wave'])
+#        my_wavelengths = self.spectra['raw_wave'] - delta_wavelengths 
+#        print(f'-> min delta wavelength = {delta_wavelengths:.4f} - my_wavelengths[0] = {my_wavelengths[0]:.4f}')
+    
+        ssp.to_observed(my_wavelengths, sigma_inst=sigma_inst, sigma=sigma, redshift=redshift)
+#        print("TO OBSERVED... finished")
         # SSP models at observed frame with considered dust
-        ssp.apply_dust_to_flux_models_obsframe(self.spectra['raw_wave']/(1 + redshift), AV, R_V=self.R_V, extlaw=self.extlaw)
+        ssp.apply_dust_to_flux_models_obsframe(my_wavelengths/(1 + redshift), AV, R_V=self.R_V, extlaw=self.extlaw)
         # SSP models at observed frame with considered dust and masked
         ssp_flux_models_obsframe_dust = ssp.flux_models_obsframe_dust[:, sel_wavelengths]
         coeffs_now, chi_sq, msk_model_now = _fit_WLS_invmat(flux=msk_flux,
@@ -1543,9 +1561,18 @@ class StPopSynt(object):
         s = self.spectra
 
         # SSP models at observed frame
-        ssp.to_observed(s['raw_wave'], sigma_inst=sigma_inst, sigma=sigma, redshift=redshift)
+        #
+        # Patch to correct the offset between RSP and elines!
+        #
+        delta_wavelengths = np.min(np.diff(self.spectra['raw_wave']))
+        my_wavelengths = self.spectra['raw_wave'] 
+#        redshift = redshift+delta_wavelengths/np.nanmean(self.spectra['raw_wave'])
+
+    
+        ssp.to_observed(my_wavelengths, sigma_inst=sigma_inst, sigma=sigma, redshift=redshift)
+        #ssp.to_observed(s['raw_wave'], sigma_inst=sigma_inst, sigma=sigma, redshift=redshift)
         # SSP models at observed frame with considered dust
-        ssp.apply_dust_to_flux_models_obsframe(s['raw_wave']/(1 + redshift), AV, R_V=self.R_V, extlaw=self.extlaw)
+        ssp.apply_dust_to_flux_models_obsframe(my_wavelengths/(1 + redshift), AV, R_V=self.R_V, extlaw=self.extlaw)
         # SSP models at observed frame with considered dust and masked
         ssp_flux_models_obsframe_dust = ssp.flux_models_obsframe_dust[:, sel_wavelengths]
 
@@ -1746,6 +1773,8 @@ class StPopSynt(object):
                                                                     sel_wavelengths=s['sel_nl_wl'])
             self.update_redshift_params(coeffs=coeffs_now, chi_sq=chi_sq, redshift=red)
             model_now = np.dot(coeffs_now, ssp.flux_models_obsframe_dust)
+            #print(f'redshift test: {red}, chi_sq: {chi_sq}, best_red : {self.best_redshift}, best_chi_sq: {self.best_chi_sq_redshift}')
+
             # model_now = ssp.get_model_from_coeffs(
             #     coeffs=coeffs_now, wavelength=s['raw_wave'],
             #     redshift=red, sigma=self.best_sigma, AV=self.best_AV, sigma_inst=self.sigma_inst,
@@ -2609,7 +2638,13 @@ class StPopSynt(object):
         # median_ratio = median_filter(7*sigma_mean*__sigma_to_FWHM__, copy(ratio))
         # np.savetxt('array_python.txt', [ratio, median_ratio])
         # sys.exit(1)
+        if (self.sigma_mean is None) or (sigma_mean is None):
+            self.sigma_mean = 1
+            sigma_mean = 1
+#        print('----------------------------------------')
+#        print(f'sigma_mean = {sigma_mean}, __sigma_to_FWHM__ = {__sigma_to_FWHM__}')
         median_ratio = median_filter(int(7*__sigma_to_FWHM__*sigma_mean), ratio)
+#        print('----------------------------------------')
         # median_ratio = smooth_ratio(ratio, sigma_mean, kernel_size_factor=8*sigma_mean)
         median_sigma = int(1.5*sigma_mean)
         if median_sigma < 3:
@@ -3353,6 +3388,17 @@ class StPopSynt(object):
                                             parameters=[np.zeros_like(x) for x in elcf.guess],
                                             e_parameters=[np.zeros_like(x) for x in elcf.guess],
                                             spec_id=spec_id, append_output=append)
+    def output_gas_emission_return(self, filename, spec_id=None, append=True):
+        if self.fit_gas:
+            for system, elcf in zip(self.config.systems, self.config.systems_config):
+                EL = system['EL']
+                if EL is not None:
+                    EL.output(filename_output=filename, spec_id=spec_id, append_output=append)
+                else:
+                    output_config_final_fit(elcf, filename, chi_sq=np.nan,
+                                            parameters=[np.zeros_like(x) for x in elcf.guess],
+                                            e_parameters=[np.zeros_like(x) for x in elcf.guess],
+                                            spec_id=spec_id, append_output=append)
 
     def output_coeffs_MC_to_screen(self):
         cols = 'ID,AGE,MET,COEFF,Min.Coeff,log(M/L),AV,N.Coeff,Err.Coeff'
@@ -3435,6 +3481,47 @@ class StPopSynt(object):
 
         if not isinstance(filename, io.TextIOWrapper):
             f_out_coeffs.close()
+
+    def output_coeffs_MC_return_test(self):
+        """
+        Outputs the SSP coefficients table to the screen and to the output file `filename`.
+
+        Parameters
+        ----------
+        filename : str
+            The output filename to the coefficients table.
+        """
+
+
+        cols = 'ID,AGE,MET,COEFF,Min.Coeff,log(M/L),AV,N.Coeff,Err.Coeff'
+        cols_out_coeffs = cols.replace(',', '\t')
+        fmt_numbers_out_coeffs = '{:=04d}\t{:=7.4f}\t{:=6.4f}\t{:=6.4f}\t{:=9.4f}\t{:=8.4f}\t{:=4.2f}\t{:=7.4f}\t{:=9.4f}'
+
+
+        for i in range(self.ssp.n_models):
+            try:
+                C = self.coeffs_ssp_MC[i]
+            except (IndexError,TypeError):
+                C = 0
+            if np.isnan(C):
+                C = 0
+        # for i, C in enumerate(_coeffs):
+            tbl_row = []
+            tbl_row.append(i)
+            tbl_row.append(self.ssp.age_models[i])
+            tbl_row.append(self.ssp.metallicity_models[i])
+            tbl_row.append(self.coeffs_norm[i])  # a_coeffs_N
+            tbl_row.append(self.min_coeffs_norm[i])  # a_min_coeffs
+            tbl_row.append(np.log10(self.ssp.mass_to_light[i]))
+            tbl_row.append(self.best_AV)
+            tbl_row.append(C)  # a_coeffs
+            tbl_row.append(self.coeffs_ssp_MC_rms[i])  # a_e_coeffs
+            a_tbl_row = np.array(tbl_row, dtype='float')
+            if i == 0:
+                a_tbl = a_tbl_row
+            else:
+                a_tbl = np.vstack((a_tbl, a_tbl_row))
+        return a_tbl                        
 
     def output_fits(self, filename):
         """
