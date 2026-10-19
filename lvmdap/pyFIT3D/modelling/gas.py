@@ -15,7 +15,7 @@ from lvmdap.pyFIT3D.common.io import output_spectra, plot_spectra_ax
 from lvmdap.pyFIT3D.common.stats import _STATS_POS, pdl_stats, WLS_invmat, calc_chi_sq
 from lvmdap.pyFIT3D.common.constants import _MODELS_ELINE_PAR, _EL_MODELS
 from lvmdap.pyFIT3D.common.constants import __c__, __sigma_to_FWHM__, __ELRND_fine_search_option__
-
+from lvmdap.pyFIT3D.common.io import print_verbose
 latex_ppi = 72.0
 latex_column_width_pt = 240.0
 latex_column_width = latex_column_width_pt/latex_ppi
@@ -60,7 +60,7 @@ def output_config_final_fit(config, filename_output, chi_sq,
     sys_str = 'system'
     if config.n_models > 1:
         sys_str += 's'
-    print(f'{int(np.min(waves))}-{int(np.max(waves))} wavelength range: Saving {config.n_models} EML {sys_str} to file {_fname}')
+    #print(f'{int(np.min(waves))}-{int(np.max(waves))} wavelength range: Saving {config.n_models} EML {sys_str} to file {_fname}')
     n_pars = len(parameters[0])
     end = (n_pars - 1)*[' '] + ['\n']
     if isinstance(filename_output, io.TextIOWrapper):
@@ -1260,7 +1260,7 @@ class EmissionLinesRND(EmissionLines):
             self.final_chi_sq = np.nan
             self.model = guess_model
         else:
-            print(f'-> real number of loops = {self.n_loops_real}')
+#            print_verbose(f'-> real number of loops = {self.n_loops_real}',self.verbose)
             self.model = model_flux
             self.residuals = self.flux - self.model
             # weighted_residuals = np.divide(self.residuals, self.sigma_flux,

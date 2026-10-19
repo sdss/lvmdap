@@ -1,6 +1,7 @@
 [tool.poetry]
 name = "lvmdap"
-version = "1.2.0.260421"
+version = "2.0.0"
+#version = "1.2.0.260421"
 description = "LVM Data Analisys Pipeline"
 license = "MIT"
 authors = ["Sebastian F. Sanchez <sfsanchez@astro.unam.mx>","Alfredo Mejia-Narvaez <amejia@astro.unam.mx>"]
@@ -32,6 +33,7 @@ pyPipe3D = "^1.1.5"
 emcee = "^3.1.2"
 PyAstronomy = "^0.18.0"
 lmfit = "^1.0.3"
+sphinx = "^8.2.3"
 
 [tool.poetry.dev-dependencies]
 jupyterlab = "*"

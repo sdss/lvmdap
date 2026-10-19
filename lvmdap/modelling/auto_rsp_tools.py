@@ -156,12 +156,12 @@ def auto_rsp_elines_single_main(
         is_guided_sigma=False,
         # guided_sigma=None,
         ratio=True, spec_id=None, y_ratio=None, guided_errors=None, fit_sigma_rnd=True,
-        fit_gas=True, losvd_rnd_medres_merit=False, verbose=None, sps_class=StPopSynt,
+        fit_gas=True, losvd_rnd_medres_merit=False, verbose=False, full_verbose=False, sps_class=StPopSynt,
         SPS_master=None,bin_AV=51,SN_CUT=  2 ):
 
     verbose = __verbose__ if verbose is None else verbose
     redshift_set = [input_redshift, delta_redshift, min_redshift, max_redshift]
-    print(f'# redshift_set: {redshift_set}')
+    print_verbose(f'# redshift_set: {redshift_set}', verbose=full_verbose)
     sigma_set = [input_sigma, delta_sigma, min_sigma, max_sigma]
     AV_set = [input_AV, delta_AV, min_AV, max_AV]
     if plot:
@@ -183,7 +183,7 @@ def auto_rsp_elines_single_main(
                         w_min=w_min, w_max=w_max, nl_w_min=nl_w_min, nl_w_max=nl_w_max,
                         R_V=R_V, extlaw=extlaw, spec_id=spec_id, min=min, max=max,
                         guided_errors=guided_errors, ratio_master=y_ratio,
-                        fit_gas=fit_gas, plot=plot, verbose=verbose)
+                        fit_gas=fit_gas, plot=plot, verbose=verbose, full_verbose=full_verbose)
         SPS.wavelength=wavelength
         SPS.flux=flux
         SPS.eflux=eflux
@@ -205,6 +205,7 @@ def auto_rsp_elines_single_main(
         SPS.ratio_master=y_ratio
         SPS.plot=plot
         SPS.verbose=verbose
+        SPS.full_verbose=full_verbose
         SPS._create_spectra_dict(wavelength, flux, eflux, min, max, y_ratio)
         SPS._multi_AV()
         SPS._fitting_init()
@@ -239,6 +240,7 @@ def auto_rsp_elines_single_main(
         SPS.ratio_master=y_ratio
         SPS.plot=plot
         SPS.verbose=verbose
+        SPS.full_verbose=full_verbose
         SPS._create_spectra_dict(wavelength, flux, eflux, min, max, y_ratio)
         SPS._multi_AV()
         SPS._fitting_init()
@@ -247,11 +249,12 @@ def auto_rsp_elines_single_main(
     
 
 
-    print(f'# redshift_set CF: {cf.redshift_set}')    
+
+    print_verbose(f'# redshift_set CF: {cf.redshift_set}', verbose=full_verbose)
     msg_cut = f' - cut value: {cf.CUT_MEDIAN_FLUX:6.4f}'
     if cf.CUT_MEDIAN_FLUX == 0:
         msg_cut = ' - Warning: no cut (CUT_MEDIAN_FLUX = 0)'
-    print(f'-> median raw flux = {SPS.median_flux:6.4f}{msg_cut}')
+    print_verbose(f'-> median raw flux = {SPS.median_flux:6.4f}{msg_cut}', verbose=verbose)
     SPS.cut = False
     # valid_flux = 2 - everything OK
     # valid_flux = 1 - missing valid flux (flux > 0) inside nl-fit wavelength window.
@@ -265,7 +268,7 @@ def auto_rsp_elines_single_main(
     SPS.calc_SN_norm_window()
     if ((SPS.SN_norm_window==0) and (SPS.med_flux>0) and (SPS.rms>0)):
         SPS.SN_norm_window=SPS.med_flux/SPS.rms    
-    print(f'-> MED_FLUX : {SPS.med_flux} +- {SPS.rms} SN:{SPS.SN_norm_window}')
+    print_verbose(f'-> MED_FLUX : {SPS.med_flux} +- {SPS.rms} SN:{SPS.SN_norm_window}', verbose=verbose)
  
    
     SPS.config.redshift = cf.redshift_set[0]
@@ -288,27 +291,27 @@ def auto_rsp_elines_single_main(
 
         SPS_AV = deepcopy(SPS)
         try:
-            print('-> NL kin fitting')
+            print_verbose('-> NL kin fitting', verbose=verbose)
 
             SPS.non_linear_fit_kin(is_guided_sigma, fit_sigma_rnd=fit_sigma_rnd,
                                    sigma_rnd_medres_merit=losvd_rnd_medres_merit)
 
             
         except:
-            print('-> NL kin not fitted')
+            print_verbose('-> NL kin not fitted', verbose=verbose)
             SPS.best_redshift = cf.redshift
             SPS.e_redshift = 0.0
-            print_verbose(f'- Redshift: {SPS.best_redshift:.8f} +- {SPS.e_redshift:.8f}', verbose=True)
+            print_verbose(f'- Redshift: {SPS.best_redshift:.8f} +- {SPS.e_redshift:.8f}', verbose=verbose)
             SPS.best_sigma = cf.sigma
             SPS.e_sigma = 0.0
-            print_verbose(f'- Sigma:    {SPS.best_sigma:.8f} +- {SPS.e_sigma:.8f}', verbose=True)
+            print_verbose(f'- Sigma:    {SPS.best_sigma:.8f} +- {SPS.e_sigma:.8f}', verbose=verbose)
             
         # SPS.non_linear_fit(guided_sigma)
 
 
         
         if cf.delta_AV > 0:
-            print('# Fitting Av')
+            print_verbose('# Fitting Av', verbose=full_verbose)
             SPS_AV.ssp_nl_fit.flux_models=binArray(SPS.ssp_nl_fit.flux_models, 1, bin_AV, bin_AV, func=np.nanmean)
             nx_new = SPS_AV.ssp_nl_fit.flux_models.shape[1]
             crval=SPS.ssp_nl_fit.wavelength[0]
@@ -336,7 +339,7 @@ def auto_rsp_elines_single_main(
             SPS.best_coeffs_nl_fit = SPS_AV.get_last_coeffs_AV()
             SPS.best_AV=SPS_AV.best_AV
             SPS.e_AV=SPS_AV.e_AV
-        print_verbose(f'- AV:       {SPS.best_AV:.8f} +- {SPS.e_AV:.8f}', verbose=True)
+        print_verbose(f'- AV:       {SPS.best_AV:.8f} +- {SPS.e_AV:.8f}', verbose=verbose)
 
 
 
@@ -344,7 +347,7 @@ def auto_rsp_elines_single_main(
         min_chi_sq = 1e12
         n_iter = 0
         while ((min_chi_sq > cf.MIN_DELTA_CHI_SQ) & (n_iter < cf.MAX_N_ITER)):
-            print(f'# Deriving SFH... attempt {n_iter + 1} of {cf.MAX_N_ITER}')
+            print_verbose(f'# Deriving SFH... attempt {n_iter + 1} of {cf.MAX_N_ITER}', verbose=verbose)
             # This part is repeated in auto_ssp perl script
             # if cf.CUT_MEDIAN_FLUX == 0:
             #     msg_cut = ' - Warning: no cut (CUT_MEDIAN_FLUX = 0)'
@@ -361,15 +364,15 @@ def auto_rsp_elines_single_main(
             else:
                 min_chi_sq_now = SPS.rsp_fit(n_MC=__n_Monte_Carlo__)
             SPS.resume_results()
-            print(f'# Deriving SFH... attempt {n_iter + 1} DONE!')
+            print_verbose(f'# Deriving SFH... attempt {n_iter + 1} DONE!', verbose=verbose)
             if not single_ssp:
-                SPS.output_coeffs_MC_to_screen()
-                #SPS.output_to_screen(block_plot=False)
+                if (verbose == True):
+                    SPS.output_coeffs_MC_to_screen()
             if min_chi_sq_now < min_chi_sq:
                 min_chi_sq = min_chi_sq_now
             n_iter += 1
     else:
-        print(f'-> Single SSP fit ')
+        print_verbose(f'-> Single SSP fit ', verbose=verbose)
         #        print(f'#  SPS.med_flux: {SPS.med_flux}')
         # 24.06.09
         # We force the spectra to have a positive scaling flux
@@ -381,19 +384,19 @@ def auto_rsp_elines_single_main(
         except:
             SPS.best_redshift = cf.redshift
         SPS.e_redshift = 0.0
-        print_verbose(f'- Redshift: {SPS.best_redshift:.8f} +- {SPS.e_redshift:.8f}', verbose=True)
+        print_verbose(f'- Redshift: {SPS.best_redshift:.8f} +- {SPS.e_redshift:.8f}', verbose=verbose)
         try:
             SPS.best_sigma = SPS_master.best_sigma
         except:
             SPS.best_sigma = cf.sigma
         SPS.e_sigma = 0.0
-        print_verbose(f'- Sigma:    {SPS.best_sigma:.8f} +- {SPS.e_sigma:.8f}', verbose=True)
+        print_verbose(f'- Sigma:    {SPS.best_sigma:.8f} +- {SPS.e_sigma:.8f}', verbose=verbose)
         try:
             SPS.best_Av = SPS_master.best_Av
         except:
             SPS.best_Av = cf.AV
         SPS.e_Av = 0.0
-        print_verbose(f'- Av:    {SPS.best_Av:.8f} +- {SPS.e_Av:.8f}', verbose=True)
+        print_verbose(f'- Av:    {SPS.best_Av:.8f} +- {SPS.e_Av:.8f}', verbose=verbose)
         SPS.spectra['orig_flux']=SPS.spectra['orig_flux']#+negative_bias
         SPS.spectra['raw_flux_no_gas']=SPS.spectra['orig_flux']
         min_chi_sq_now = SPS.rsp_single_fit()
@@ -411,8 +414,9 @@ def auto_rsp_elines_single_main(
         SPS.spectra['res_ssp_no_corr'] = SPS.spectra['orig_flux'] - SPS.spectra['model_ssp_min_uncorr']
 
         SPS._MC_averages()
-        SPS.resume_results()
-        SPS.output_coeffs_MC_to_screen()
+        if (verbose == True):
+            SPS.resume_results()        
+            SPS.output_coeffs_MC_to_screen()
 
         
         #print('PASO')
@@ -420,7 +424,7 @@ def auto_rsp_elines_single_main(
         # TODO: What to do when cut ?
         # SPS.output_gas_emission will fail because
         # SPS.config.systems[:]['EL'] it will not be defined.
-        print('-> median flux below cut: unable to perform analysis.')
+        print_verbose('-> median flux below cut: unable to perform analysis.', verbose=verbose)
     return cf, SPS
 
 
@@ -486,6 +490,7 @@ def model_rsp_elines_single_main(
         SPS.ratio_master=y_ratio
         SPS.plot=plot
         SPS.verbose=verbose
+        SPS.full_verbose=full_verbose
         SPS._create_spectra_dict(wavelength, flux, eflux, min, max, y_ratio)
         SPS._multi_AV()
         SPS._fitting_init()
@@ -532,6 +537,7 @@ def model_rsp_elines_single_main(
         SPS.ratio_master=y_ratio
         SPS.plot=plot
         SPS.verbose=verbose
+        SPS.full_verbose=full_verbose
         SPS._create_spectra_dict(wavelength, flux, eflux, min, max, y_ratio)
         SPS._multi_AV()
         SPS._fitting_init()
@@ -541,7 +547,7 @@ def model_rsp_elines_single_main(
     msg_cut = f' - cut value: {cf.CUT_MEDIAN_FLUX:6.4f}'
     if cf.CUT_MEDIAN_FLUX == 0:
         msg_cut = ' - Warning: no cut (CUT_MEDIAN_FLUX = 0)'
-    print(f'-> median raw flux = {SPS.median_flux:6.4f}{msg_cut}')
+    print_verbose(f'-> median raw flux = {SPS.median_flux:6.4f}{msg_cut}', verbose=self.verbose)
     SPS.cut = False
     # valid_flux = 2 - everything OK
     # valid_flux = 1 - missing valid flux (flux > 0) inside nl-fit wavelength window.
@@ -553,17 +559,17 @@ def model_rsp_elines_single_main(
     SPS.med_flux = np.median(nl_flux)
     SPS.rms = np.std(nl_flux)
     SPS.calc_SN_norm_window()
-    print(f'-> MED_FLUX: {SPS.med_flux} +- {SPS.rms} SN:{SPS.SN_norm_window}')
+    print_verbose(f'-> MED_FLUX: {SPS.med_flux} +- {SPS.rms} SN:{SPS.SN_norm_window}')
     SPS.valid_flux=1
     SPS.best_redshift = cf.redshift
     SPS.e_redshift = 0.0
-    print_verbose(f'- Redshift: {SPS.best_redshift:.8f} +- {SPS.e_redshift:.8f}', verbose=True)
+    print_verbose(f'- Redshift: {SPS.best_redshift:.8f} +- {SPS.e_redshift:.8f}', verbose=self.verbose)
     SPS.best_sigma = cf.sigma
     SPS.e_sigma = 0.0
-    print_verbose(f'- Sigma:    {SPS.best_sigma:.8f} +- {SPS.e_sigma:.8f}', verbose=True)
-    SPS.best_Av = cf.AV
+    print_verbose(f'- Sigma:    {SPS.best_sigma:.8f} +- {SPS.e_sigma:.8f}', verbose=self.verbose)
+    SPS.best_Av = cf.Afit_emission_line_systemV
     SPS.e_Av = 0.0
-    print_verbose(f'- Av:    {SPS.best_Av:.8f} +- {SPS.e_Av:.8f}', verbose=True)
+    print_verbose(f'- Av:    {SPS.best_Av:.8f} +- {SPS.e_Av:.8f}', verbose=self.verbose)
     SPS.spectra['raw_flux_no_gas']=SPS.spectra['orig_flux']
     min_chi_sq_now = SPS.rsp_model(coeffs_input)
     model_ssp_min = SPS.spectra['model_ssp_min']
@@ -885,7 +891,7 @@ def auto_ssp_elines_rnd_rss_main(
     input_sigma=None, delta_sigma=None, min_sigma=None, max_sigma=None,
     input_AV=None, delta_AV=None, min_AV=None, max_AV=None,
     R_V=None, extlaw=None, plot=None, is_guided_sigma=False, ratio=True, spec_id=None,
-    input_guided=None, input_guided_errors=None, fit_sigma_rnd=True, sps_class=StPopSynt):
+    input_guided=None, input_guided_errors=None, fit_sigma_rnd=True, verbose = False, sps_class=StPopSynt):
     """Returns the model spectra, results and coefficient the analysis of a RSS.
     Also, returns the maps of the emission lines analysis."""
     elines_out, coeffs_out, summary_out = output_files
@@ -913,7 +919,7 @@ def auto_ssp_elines_rnd_rss_main(
             output_el_models[k] = create_emission_lines_parameters(elcf, ns)
         del _tmpcf
     for i, (f__w, ef__w) in enumerate(zip(rss_flux, rss_eflux)):
-        print(f"\n# ID {i}/{ns - 1} ===============================================\n")
+        print_verbose(f"\n# ID {i}/{ns - 1} ===============================================\n", verbose=verbose)
         if guided_nl:
             input_redshift = input_guided[0][i]
             delta_redshift = 0
@@ -923,10 +929,10 @@ def auto_ssp_elines_rnd_rss_main(
             delta_AV = 0
             # (e_AV, e_sigma, e_redshift)
             guided_errors = (input_guided_errors[0][i], input_guided_errors[1][i], input_guided_errors[2][i])
-            print(f'-> Forcing non-linear fit parameters (input guided):')
-            print(f'-> input_guided_redshift:{input_redshift} e:{guided_errors[0]}')
-            print(f'-> input_guided_sigma:{input_sigma} e:{guided_errors[1]}')
-            print(f'-> input_guided_AV:{input_AV} e:{guided_errors[2]}')
+            print_verbose(f'-> Forcing non-linear fit parameters (input guided):', verbose=verbose)
+            print_verbose(f'-> input_guided_redshift:{input_redshift} e:{guided_errors[0]}', verbose=verbose)
+            print_verbose(f'-> input_guided_sigma:{input_sigma} e:{guided_errors[1]}', verbose=verbose)
+            print_verbose(f'-> input_guided_AV:{input_AV} e:{guided_errors[2]}', verbose=verbose)
         if i > 0 and (not guided_nl and is_guided_sigma):
             if SPS.best_sigma > 0:
                 sigma_seq.append(SPS.best_sigma)
@@ -959,7 +965,7 @@ def auto_ssp_elines_rnd_rss_main(
             # guided_sigma=guided_sigma,
             spec_id=spec_id,
             guided_errors=guided_errors, ratio=ratio, y_ratio=y_ratio,
-            fit_sigma_rnd=fit_sigma_rnd, sps_class=sps_class
+            fit_sigma_rnd=fit_sigma_rnd, verbose=verbose, sps_class=sps_class
         )
         y_ratio = SPS.ratio_master
         if not guided_nl:
@@ -996,7 +1002,7 @@ def auto_ssp_elines_rnd_rss(
     input_redshift=None, delta_redshift=None, min_redshift=None, max_redshift=None,
     input_sigma=None, delta_sigma=None, min_sigma=None, max_sigma=None,
     input_AV=None, delta_AV=None, min_AV=None, max_AV=None, seed=None, is_guided_sigma=False,
-    ratio=None, guided_nl_file=None, sps_class=StPopSynt):
+    ratio=None, guided_nl_file=None, verbose=False, sps_class=StPopSynt):
     ratio = True if ratio is None else ratio
     ssp_nl_fit_file = ssp_file if ssp_nl_fit_file is None else ssp_nl_fit_file
     out_file_elines = 'elines_' + out_file
@@ -1037,7 +1043,7 @@ def auto_ssp_elines_rnd_rss(
             input_sigma=input_sigma, delta_sigma=delta_sigma, min_sigma=min_sigma, max_sigma=max_sigma,
             input_AV=input_AV, delta_AV=delta_AV, min_AV=min_AV, max_AV=max_AV,
             plot=plot, is_guided_sigma=is_guided_sigma, ratio=ratio,
-            input_guided=input_guided, input_guided_errors=input_guided_errors, sps_class=sps_class
+            input_guided=input_guided, input_guided_errors=input_guided_errors, verbose=verbose, sps_class=sps_class
         )
     # write FITS RSS output
     dump_rss_output(out_file_fit=out_file_fit, wavelength=wl__w, model_spectra=model_spectra)
@@ -1060,17 +1066,17 @@ def auto_rsp_elines_rnd(
     input_redshift=None, delta_redshift=None, min_redshift=None, max_redshift=None,
     input_sigma=None, delta_sigma=None, min_sigma=None, max_sigma=None, sigma_gas=None,
     input_AV=None, delta_AV=None, min_AV=None, max_AV=None, ratio=True, y_ratio=None,
-    fit_sigma_rnd=True, out_path=None, SPS_master=None, SN_CUT=2, verbose=False):
+    fit_sigma_rnd=True, out_path=None, SPS_master=None, SN_CUT=2, verbose=False, full_verbose=False):
 
     ssp_nl_fit_file = ssp_file if ssp_nl_fit_file is None else ssp_nl_fit_file
     cc_redshift_boundaries = [min_redshift, max_redshift]
 
-    print("# Using predefined configuration file for the emission lines");
+    print_verbose("# Using predefined configuration file for the emission lines", verbose=verbose);
     #
     # The spectrum is fitted for the 1st time in here
     #
-    print("##############################");
-    print(f"# START: fitting the continuum+emission lines, fit_gas:{fit_gas} ...")
+    print_verbose("##############################", verbose=verbose);
+    print_verbose(f"# START: fitting the continuum+emission lines, fit_gas:{fit_gas} ...", verbose=verbose)
     cf, SPS = auto_rsp_elines_single_main(
         wl__w, f__w, ef__w, ssp_file,
         config_file=config_file,
@@ -1082,10 +1088,10 @@ def auto_rsp_elines_rnd(
         input_sigma=input_sigma, delta_sigma=delta_sigma, min_sigma=min_sigma, max_sigma=max_sigma,
         input_AV=input_AV, delta_AV=delta_AV, min_AV=min_AV, max_AV=max_AV,
         plot=plot, single_ssp=False, ratio=ratio, y_ratio=y_ratio, fit_sigma_rnd=fit_sigma_rnd,
-        sps_class=StellarSynthesis, SPS_master=SPS_master , SN_CUT=  SN_CUT, verbose = verbose 
+        sps_class=StellarSynthesis, SPS_master=SPS_master , SN_CUT=  SN_CUT, verbose = verbose, full_verbose=full_verbose 
     )
-    print(f"# END: fitting the continuum+emission lines, fit_gas:{fit_gas} ...");
-    print("##############################");
-    print("# END RSP fitting...")
-    print("########################################")
+    print_verbose(f"# END: fitting the continuum+emission lines, fit_gas:{fit_gas} ...", verbose=verbose);
+    print_verbose("##############################", verbose=verbose);
+    print_verbose("# END RSP fitting...", verbose=verbose);
+    print_verbose("########################################", verbose=verbose);
     return cf, SPS

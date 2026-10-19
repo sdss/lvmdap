@@ -438,7 +438,7 @@ def auto_ssp_elines_rnd_rss_main(
     input_sigma=None, delta_sigma=None, min_sigma=None, max_sigma=None,
     input_AV=None, delta_AV=None, min_AV=None, max_AV=None,
     R_V=None, extlaw=None, plot=None, is_guided_sigma=False, ratio=True, spec_id=None,
-    input_guided=None, input_guided_errors=None, fit_sigma_rnd=True, sps_class=StPopSynt):
+    input_guided=None, input_guided_errors=None, fit_sigma_rnd=True, verbose=False, sps_class=StPopSynt):
     """Returns the model spectra, results and coefficient the analysis of a RSS.
     Also, returns the maps of the emission lines analysis."""
     elines_out, coeffs_out, summary_out = output_files
@@ -466,7 +466,7 @@ def auto_ssp_elines_rnd_rss_main(
             output_el_models[k] = create_emission_lines_parameters(elcf, ns)
         del _tmpcf
     for i, (f__w, ef__w) in enumerate(zip(rss_flux, rss_eflux)):
-        print(f"\n# ID {i}/{ns - 1} ===============================================\n")
+        print_verbose(f"\n# ID {i}/{ns - 1} ===============================================\n", verbose=verbose)
         if guided_nl:
             input_redshift = input_guided[0][i]
             delta_redshift = 0
@@ -476,10 +476,10 @@ def auto_ssp_elines_rnd_rss_main(
             delta_AV = 0
             # (e_AV, e_sigma, e_redshift)
             guided_errors = (input_guided_errors[0][i], input_guided_errors[1][i], input_guided_errors[2][i])
-            print(f'-> Forcing non-linear fit parameters (input guided):')
-            print(f'-> input_guided_redshift:{input_redshift} e:{guided_errors[0]}')
-            print(f'-> input_guided_sigma:{input_sigma} e:{guided_errors[1]}')
-            print(f'-> input_guided_AV:{input_AV} e:{guided_errors[2]}')
+            print_verbose(f'-> Forcing non-linear fit parameters (input guided):', verbose=verbose)
+            print_verbose(f'-> input_guided_redshift:{input_redshift} e:{guided_errors[0]}', verbose=verbose)
+            print_verbose(f'-> input_guided_sigma:{input_sigma} e:{guided_errors[1]}', verbose=verbose)
+            print_verbose(f'-> input_guided_AV:{input_AV} e:{guided_errors[2]}', verbose=verbose)
         if i > 0 and (not guided_nl and is_guided_sigma):
             if SPS.best_sigma > 0:
                 sigma_seq.append(SPS.best_sigma)

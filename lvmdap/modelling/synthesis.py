@@ -34,7 +34,7 @@ class StellarSynthesis(StPopSynt):
                  w_min=None, w_max=None, nl_w_min=None, nl_w_max=None,
                  elines_mask_file=None, mask_list=None,
                  R_V=3.1, extlaw='CCM', spec_id=None, guided_errors=None,
-                 plot=None, verbose=False, ratio_master=None, fit_gas=True):
+                 plot=None, verbose=False, full_verbose=False, ratio_master=None, fit_gas=True):
         """
         Instantiates :class: `StPopSynt`.
         Reads the config file and SSP models. Creates all wavelength masks and
@@ -117,6 +117,7 @@ class StellarSynthesis(StPopSynt):
         self.config = config
 
         self.verbose = verbose
+        self.full_verbose = full_verbose
         self.R_V = __selected_R_V__ if R_V is None else R_V
         self.extlaw =  __selected_extlaw__ if extlaw is None else extlaw
         self.n_loops_nl_fit = 0
@@ -176,8 +177,8 @@ class StellarSynthesis(StPopSynt):
         models = self.models
 
         print_verbose('', verbose=self.verbose)
-        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
-        print_verbose('--[ BEGIN non-linear parameters taken ]--------------------------------', verbose=self.verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.full_verbose)
+        print_verbose('--[ BEGIN non-linear parameters taken ]--------------------------------', verbose=self.full_verbose)
 
         sigma_inst = self.sigma_inst
         sigma = self.best_sigma
@@ -210,7 +211,7 @@ class StellarSynthesis(StPopSynt):
         model_min=0.0*flux_models_obsframe_dust[0,:]
         for i_mod,coeffs_now in enumerate(coeffs_input):
             model_min=model_min+coeffs_now*flux_models_obsframe_dust[i_mod,:]
-        print('model_min_shape: ',model_min.shape)
+        #print('model_min_shape: ',model_min.shape)
         coeffs_single=coeffs_input
         chi_sq_mean_norm = 1
         chi_sq_median_norm = 1
@@ -293,7 +294,7 @@ class StellarSynthesis(StPopSynt):
         coeffs_single=np.array(coeffs_single)
         chi_sq_mean = np.array(chi_sq_mean)
         chi_sq_median = np.array(chi_sq_median)
-        print(f'len_chi_sq_mean={len(chi_sq_mean)}')
+        #print(f'len_chi_sq_mean={len(chi_sq_mean)}')
         chi_sq_mean_norm = chi_sq_mean / chi_sq_mean.sum()
         chi_sq_median_norm = chi_sq_median / chi_sq_median.sum()
 
@@ -311,9 +312,9 @@ class StellarSynthesis(StPopSynt):
         ntbl = len(tbl_title)
         tbl_border = ntbl*'-'
         # output coeffs table
-        print(tbl_border)
-        print(tbl_title)
-        print(tbl_border)
+        print_verbose(tbl_border,verbose=self.verbose)
+        print_verbose(tbl_title,verbose=self.verbose)
+        print_verbose(tbl_border,verbose=self.verbose)
 
         i_C_mean_min = chi_sq_mean_norm.argmin()
         i_C_median_min = chi_sq_mean_norm.argmin()
@@ -352,7 +353,7 @@ class StellarSynthesis(StPopSynt):
         tbl_row.append(self.ssp.alph_models[i_C_mean_min])
         tbl_row.append(chi_sq_mean_norm[i_C_mean_min])  # a_coeffs_N
         tbl_row.append(chi_sq_median_norm[i_C_median_min])  # a_min_coeffs
-        print(fmt_numbers.format(*tbl_row))
+        print_verbose(fmt_numbers.format(*tbl_row), verbose=self.verbose)
         if (i_C_median_min != i_C_mean_min):
             tbl_row = []
             tbl_row.append(i_C_median_min)
@@ -362,7 +363,7 @@ class StellarSynthesis(StPopSynt):
             tbl_row.append(self.ssp.alph_models[i_C_median_min])
             tbl_row.append(chi_sq_mean_norm[i_C_mean_min])  # a_coeffs_N
             tbl_row.append(chi_sq_median_norm[i_C_median_min])  # a_min_coeffs
-            print(fmt_numbers.format(*tbl_row))
+            print_verbose(fmt_numbers.format(*tbl_row), verbose=self.verbose)
 
         self.output_table = []
         for i in range(models.n_models):
@@ -377,7 +378,7 @@ class StellarSynthesis(StPopSynt):
             tbl_row.append(C_mean)  # a_coeffs_N
             tbl_row.append(C_median)  # a_min_coeffs
             self.output_table.append(tbl_row)
-        print(tbl_border)
+        print_verbose(tbl_border, verbose=self.verbose)
 
         return chi_sq_median_norm[i_C_median_min]
 
@@ -418,7 +419,7 @@ class StellarSynthesis(StPopSynt):
         chi_sq = self._calc_coeffs_MC(ssp, coeffs_MC, chi_sq_MC, models_MC)
 
         coeffs_now = self.coeffs_ssp_MC
-        print_verbose(f'coeffs_now ------------------ {coeffs_now}', verbose=self.verbose)
+        print_verbose(f'coeffs_now ------------------ {coeffs_now}', verbose=self.full_verbose)
 
         model_ssp_min = s['model_ssp_min']
         res_ssp = s['raw_flux_no_gas'] - model_ssp_min
@@ -948,13 +949,13 @@ class StellarSynthesis(StPopSynt):
         if self.guided_errors is not None:
             self.best_redshift = cf.redshift
             self.e_redshift = self.guided_errors[0]
-            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
+            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=self.verbose)
             self.best_sigma = cf.sigma
             self.e_sigma = self.guided_errors[1]
-            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
+            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=self.verbose)
             self.best_AV = cf.AV
             self.e_AV = self.guided_errors[2]
-            print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=True)
+            print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=self.verbose)
             # self.correct_elines_mask(redshift=self.best_redshift)
             self.redshift_correct_masks(redshift=self.best_redshift, correct_wl_ranges=correct_wl_ranges)
             if self.sigma_inst is None:
@@ -967,7 +968,7 @@ class StellarSynthesis(StPopSynt):
             # self.best_chi_sq_redshift = self.get_last_chi_sq_redshift()
             # self.best_coeffs_redshift = self.get_last_coeffs_redshift()
             msg_cut = f' - cut value: {cf.CUT_MEDIAN_FLUX}'
-            print_verbose(msg_cut, verbose=True)
+            print_verbose(msg_cut, verbose=self.verbose)
 #            print_verbose(f' - redshift range: {cf.min_redshift} to {cf.max_redshift} with step {cf.delta_redshift}, delta={cf.delta_redshift}', verbose=True)
             if cf.delta_redshift > 0:
                 self._fit_redshift(correct_wl_ranges=correct_wl_ranges,ssp=ssp)
@@ -976,7 +977,7 @@ class StellarSynthesis(StPopSynt):
             else:
                 self.best_redshift=cf.redshift_set[0]
                 self.e_redshift=0.0
-            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
+            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=self.verbose)
             # self.correct_elines_mask(redshift=self.best_redshift)
             self.redshift_correct_masks(redshift=self.best_redshift, correct_wl_ranges=correct_wl_ranges)
             coeffs_now, chi_sq, _ = self.fit_WLS_invmat(ssp=ssp, smooth_cont=True, sel_wavelengths=s['sel_nl_wl'])
@@ -985,7 +986,7 @@ class StellarSynthesis(StPopSynt):
                 if not fit_sigma_rnd:
                     self._fit_sigma(guided=guide_sigma)
                 else:
-                    print_verbose(f'- fit_sigma_rnd', verbose=True)
+                    print_verbose(f'- fit_sigma_rnd', verbose=self.full_verbose)
                     self._fit_sigma_rnd(guided=guide_sigma,
                                         medres_merit=sigma_rnd_medres_merit)
                 # self._fit_sigma(guided_sigma)
@@ -994,7 +995,7 @@ class StellarSynthesis(StPopSynt):
             else:
                 self.best_sigma=cf.losvd_set[0]
                 self.e_sigma=0.0               
-            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
+            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=self)
             if self.sigma_inst is None:
                 self.sigma_mean = self.best_sigma
             else:
@@ -1006,15 +1007,15 @@ class StellarSynthesis(StPopSynt):
             else:
                 self.best_AV=cf.AV_set[0]
                 self.e_AV=0.0               
-            print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=True)
+            print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=self.verbose)
 #            print(f'Deriving redshift, sigma, AV... DONE!')
         self.best_chi_sq_nl_fit = chi_sq
         self.best_coeffs_nl_fit = coeffs_now
-        print_verbose('------------------------[ END non-linear fit report]--', verbose=self.verbose)
+        print_verbose('------------------------[ END non-linear fit report]--', verbose=self.full_verbose)
 
-        print_verbose('', verbose=self.verbose)
-        print_verbose('-----------------------------------------------[ END non-linear fit ]--', verbose=self.verbose)
-        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
+        print_verbose('', verbose=self.full_verbose)
+        print_verbose('-----------------------------------------------[ END non-linear fit ]--', verbose=self.full_verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.full_verbose)
 
 
     def non_linear_fit_kin(self, guide_sigma=False, fit_sigma_rnd=True,
@@ -1071,13 +1072,13 @@ class StellarSynthesis(StPopSynt):
         if self.guided_errors is not None:
             self.best_redshift = cf.redshift
             self.e_redshift = self.guided_errors[0]
-            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
+            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=self.verbose)
             self.best_sigma = cf.sigma
             self.e_sigma = self.guided_errors[1]
-            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
+            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=self.verbose)
             self.best_AV = cf.AV
             self.e_AV = self.guided_errors[2]
-            print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=True)
+            print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=self.verbose)
             # self.correct_elines_mask(redshift=self.best_redshift)
             self.redshift_correct_masks(redshift=self.best_redshift, correct_wl_ranges=correct_wl_ranges)
             if self.sigma_inst is None:
@@ -1098,7 +1099,7 @@ class StellarSynthesis(StPopSynt):
             else:
                 self.best_redshift=cf.redshift_set[0]
                 self.e_redshift=0.0
-            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
+            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=self.verbose)
             # self.correct_elines_mask(redshift=self.best_redshift)
             SPS_kin.redshift_correct_masks(redshift=SPS_kin.best_redshift, correct_wl_ranges=correct_wl_ranges)
             coeffs_now, chi_sq, _ = SPS_kin.fit_WLS_invmat(ssp=ssp, smooth_cont=True, sel_wavelengths=s['sel_nl_wl'])
@@ -1108,7 +1109,7 @@ class StellarSynthesis(StPopSynt):
                 if not fit_sigma_rnd:
                     SPS_kin._fit_sigma(guided=guide_sigma)
                 else:
-                    print_verbose(f'- fit_sigma_rnd', verbose=True)
+                    print_verbose(f'- fit_sigma_rnd', verbose=self.full_verbose)
                     SPS_kin._fit_sigma_rnd(guided=guide_sigma,
                                         medres_merit=sigma_rnd_medres_merit)
                 #SPS_kin._fit_sigma(guided=guided_sigma)
@@ -1119,7 +1120,7 @@ class StellarSynthesis(StPopSynt):
             else:
                 self.best_sigma=cf.losvd_set[0]
                 self.e_sigma=0.0               
-            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
+            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=self.verbose)
             if self.sigma_inst is None:
                 self.sigma_mean = self.best_sigma
             else:
@@ -1127,11 +1128,11 @@ class StellarSynthesis(StPopSynt):
 #            print(f'Deriving redshift, sigma... DONE!')
         self.best_chi_sq_nl_fit = chi_sq
         self.best_coeffs_nl_fit = coeffs_now
-        print_verbose('------------------------[ END non-linear fit report]--', verbose=self.verbose)
+        print_verbose('------------------------[ END non-linear fit report]--', verbose=self.full_verbose)
 
         print_verbose('', verbose=self.verbose)
-        print_verbose('-----------------------------------------------[ END non-linear fit ]--', verbose=self.verbose)
-        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
+        print_verbose('-----------------------------------------------[ END non-linear fit ]--', verbose=self.full_verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.full_verbose)
         
 
     

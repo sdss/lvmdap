@@ -13,6 +13,7 @@ from .io import get_data_from_fits, get_wave_from_header, array_to_fits
 from .io import print_time, read_masks_file, remove_isfile, print_verbose
 from .io import trim_waves, sel_waves, read_spectra, output_spectra, write_img_header
 from lvmdap.pyFIT3D.modelling.gas import EmissionLines, EmissionLinesLM, EmissionLinesRND
+from astropy.table import vstack as tab_vstack,Table
 
 from .constants import __sigma_to_FWHM__, __FWHM_to_sigma__, __c__
 from .constants import __selected_extlaw__, __selected_R_V__, __n_models_params__
@@ -192,8 +193,8 @@ class ConfigEmissionModel(object):
                     )
 
             if self._verbose:
-                print(f'{n_models} models to fit')
-                print(f'{self.n_free_param} free parameters')
+                print_verbose(f'{n_models} models to fit', verbose=self._verbose)
+                print_verbose(f'{self.n_free_param} free parameters', verbose=self._verbose)
 
         return None
 
@@ -970,10 +971,10 @@ def detect_create_ConfigEmissionModel(wave, flux,
         # Crossmatch wave list
         crossmatch_v0_guess = None
         if (crossmatch_list_filename is not None) and (len(final_eml_list_corr) > 0):
-            print_verbose('-- List crossmatch currently under develpment.', verbose=True)
+            print_verbose('-- List crossmatch currently under develpment.', verbose=verbose)
             if crossmatch_redshift_search_boundaries is not None:
                 zmin, zmax = crossmatch_redshift_search_boundaries
-                print_verbose('-- List crossmatch: looking for best redshift...', verbose=True)
+                print_verbose('-- List crossmatch: looking for best redshift...', verbose=verbose)
                 redshift__z = np.arange(zmin, zmax, crossmatch_redshift_search_step)
                 _n_match__z = []
                 for z in redshift__z:
@@ -983,7 +984,7 @@ def detect_create_ConfigEmissionModel(wave, flux,
                     _n_match__z.append(len(r[-1]))
                 inmax = np.argmax(_n_match__z)
                 best_redshift = redshift__z[inmax]
-                print_verbose(f'-- List crossmatch: best redshift for the emission lines: {best_redshift}', verbose=True)
+                print_verbose(f'-- List crossmatch: best redshift for the emission lines: {best_redshift}', verbose=verbose)
                 redshift = best_redshift
             r = list_eml_compare(wave_hyperbolicfit_peaks, crossmatch_list_filename,
                                  redshift=redshift, abs_max_dist_AA=crossmatch_absdmax_AA,
@@ -1069,7 +1070,7 @@ def detect_create_ConfigEmissionModel(wave, flux,
 
     return config_filenames, wl_eff_chunks, wave_peaks_tot, wave_peaks_tot_corr
 
-def guide_vel(config, vel, mask, fit, half_range=30):
+def guide_vel(config, vel, mask, fit, half_range=30, verbose=False):
     """
     Guide the v0 parameter of the eline model in a `ConfigEmissionModel` instance.
 
@@ -1098,7 +1099,7 @@ def guide_vel(config, vel, mask, fit, half_range=30):
         fit = int(fit)
     if isinstance(mask, bool):
         mask = int(mask)
-    print('guided...')
+    print_verbose('guided...', verbose=verbose)
     # print(vel, mask)
     new_guess = copy(config.guess)
     i_m = 0
@@ -1115,22 +1116,22 @@ def guide_vel(config, vel, mask, fit, half_range=30):
         if m[i_v0] and model == 'eline' and (mask == 1):
             new_guess[i_m][i_v0] = vel
 
-            print(f'{new_guess[i_m][i_wl]} - guided vel = {vel}', end=' ')
+            print_verbose(f'{new_guess[i_m][i_wl]} - guided vel = {vel}', end=' ', verbose=verbose)
             upd = True
             if fit is not None:
                 config.to_fit[i_m][i_v0] = fit
                 if fit == 1:
                     new_pars_0[i_m][i_v0] = vel - half_range
                     new_pars_1[i_m][i_v0] = vel + half_range
-                    print(f'({new_pars_0[i_m][i_v0]:.4f}, {new_pars_1[i_m][i_v0]:.4f})', end='')
+                    print_verbose(f'({new_pars_0[i_m][i_v0]:.4f}, {new_pars_1[i_m][i_v0]:.4f})', end='', verbose=verbose)
                 else:
-                    print(' fixed', end='')
+                    print_verbose(' fixed', end='', verbose=verbose)
         i_m += 1
-    if upd: print('')
+    if upd: print_verbose('', verbose=verbose)
     config.update_ranges(max_values=new_pars_1, min_values=new_pars_0)
     config.guess = config._set_linkings(new_guess)
 
-def guide_sigma(config, sigma, mask, fit, half_range_frac=0.2):
+def guide_sigma(config, sigma, mask, fit, half_range_frac=0.2, verbose=False):
     """
     Guide the sigma parameter of the eline model in a `ConfigEmissionModel` instance.
 
@@ -1160,7 +1161,7 @@ def guide_sigma(config, sigma, mask, fit, half_range_frac=0.2):
         fit = int(fit)
     if isinstance(mask, bool):
         mask = int(mask)
-    print('guided disp...')
+    print_verbose('guided disp...', verbose=verbose)
     new_guess = copy(config.guess)
     i_m = 0
     i_sigma = _MODELS_ELINE_PAR['sigma']
@@ -1174,18 +1175,18 @@ def guide_sigma(config, sigma, mask, fit, half_range_frac=0.2):
         # if i_m: print('')
         if m[i_sigma] and model == 'eline' and (mask == 1):
             new_guess[i_m][i_sigma] = sigma
-            print(f'guided disp = {sigma}', end=' ')
+            print_verbose(f'guided disp = {sigma}', end=' ', verbose=verbose)
             upd = True
             if fit is not None:
                 config.to_fit[i_m][i_sigma] = fit
                 if fit == 1:
                     new_pars_0[i_m][i_sigma] = sigma*(1 - half_range_frac)
                     new_pars_1[i_m][i_sigma] = sigma*(1 + half_range_frac)
-                    print(f'({new_pars_0[i_m][i_sigma]:.4f}, {new_pars_1[i_m][i_sigma]:.4f})', end='')
+                    print_verbose(f'({new_pars_0[i_m][i_sigma]:.4f}, {new_pars_1[i_m][i_sigma]:.4f})', end='', verbose=verbose)
                 else:
-                    print(' fixed', end='')
+                    print_verbose(' fixed', end = '',verbose=verbose)
         i_m += 1
-    if upd: print('')
+    if upd: print_verbose('', verbose=verbose)
     config.update_ranges(max_values=new_pars_1, min_values=new_pars_0)
     config.guess = config._set_linkings(new_guess)
 
@@ -1218,6 +1219,7 @@ def fit_elines_main(
     rnd_sigma_flux_threshold=False,
     oversize_chi=True,
     update_config_frac_range=0.25,
+    verbose=False
     ):
     """
     The main function of the fit_elines script. It will run the fit of the emission models
@@ -1393,7 +1395,8 @@ def fit_elines_main(
                 EL = _EL
         if run_mode == 'LM':
             EL = _EL
-    EL.output_to_screen()
+    if (verbose == True):
+        EL.output_to_screen()
     return EL
 
 def fit_elines(
@@ -1413,6 +1416,7 @@ def fit_elines(
     out_mod_res_final=None,
     seed=None,
     check_stats=True,
+    verbose=False
     ):
     """
     The fit_elines script (i.e. a well prepared wrap of `fit_elines_main`).
@@ -1501,7 +1505,7 @@ def fit_elines(
 
     # read masks file
     masks, n_masks = read_masks_file(mask_file)
-    print(f'{n_masks} regions to mask')
+    print_verbose(f'{n_masks} regions to mask', verbose=verbose)
     # read config FOR TESTING PURPOSES -------------------------------------------------------------
     cf = ConfigEmissionModel(config_file)
     # read seds
@@ -1535,7 +1539,7 @@ def fit_elines(
 
     time_end = print_time(print_seed=False)
     time_total = time_end - time_ini_run
-    print(f'# SECONDS = {time_total}')
+    print_verbose(f'# SECONDS = {time_total}', verbose=self.verbose)
 
 def load_spec(filename, wave_axis=3, error_filename=None, error_extension=0):
     """
@@ -1809,6 +1813,7 @@ def kin_cube_elines_main(
     min_factor=0.012,
     plot=0,
     oversize_chi=False,
+    verbose = False
     ):
     """
     The main function of the kin_cube_elines script. It will run the `fit_elines_main`
@@ -1913,7 +1918,7 @@ def kin_cube_elines_main(
 
     for ixy in itertools.product(range(nx), range(ny)):
         ix, iy = ixy
-        print(f'# ID {ix}/{nx - 1},{iy}/{ny - 1}')
+        print_verbose(f'# ID {ix}/{nx - 1},{iy}/{ny - 1}', verbose=verbose)
         current_spaxel = ixy
         current_guide_vel = None if vel_map is None else vel_map[iy, ix]
         current_guide_vel_mask = None if vel_mask_map is None else vel_mask_map[iy, ix]
@@ -1994,6 +1999,7 @@ def kin_cube_elines(
     min_factor=0.012,
     plot=0,
     seed=None,
+    verbose=False
     ):
     """
     The kin_cube_elines script (i.e. a well prepared wrap of `kin_cube_elines_main`).
@@ -2122,7 +2128,7 @@ def kin_cube_elines(
         sigma_fixed = 2
     # read masks file
     masks, n_masks = read_masks_file(mask_file)
-    print(f'{n_masks} regions to mask')
+    print_verbose(f'{n_masks} regions to mask', verbose=verbose)
     error_extension = 0
     if error_file is not None:
         _tmp = error_file.split('[')
@@ -2206,6 +2212,7 @@ def kin_rss_elines_main(
     redefine_min=False,
     min_factor=0.012,
     plot=0,
+    verbose=False
     ):
     """
     The main function of the kin_rss_elines script. It will run the `fit_elines_main`
@@ -2311,7 +2318,7 @@ def kin_rss_elines_main(
     res__sw = np.zeros_like(rss_flux)
 
     for i_s in range(ns):
-        print(f'# ID {i_s}/{ns - 1}')
+        print_verbose(f'# ID {i_s}/{ns - 1}',verbose=verbose)
         current_spaxel = i_s
         current_guide_vel = None if vel_map is None else vel_map[i_s]
         current_guide_vel_mask = None if vel_mask_map is None else vel_mask_map[i_s]
@@ -2367,6 +2374,284 @@ def kin_rss_elines_main(
         append_emission_lines_parameters(EL, output_el_models, i_s)
     output_el_spectra = np.array([org__sw, mod__sw, res__sw])
     return output_el_spectra, output_el_models
+
+def create_elines_table_EL(id_fib, EL):
+    """
+    Create an Astropy table containing the emission-line fitting
+    results from the SPS configuration.
+
+    Parameters
+    ----------
+    id_fib : int
+        Fiber identifier.
+    SPS : StellarSynthesis
+        Stellar population synthesis fitting object.
+
+    Returns
+    -------
+    tab_elines : astropy.table.Table
+        Table containing emission-line and polynomial model
+        parameters with columns:
+
+        id_fib, model, wl, flux, e_flux,
+        disp, e_disp, vel, e_vel
+    """
+
+    rows = []
+
+    # ---------------------------------------------------------
+    # Extract all emission-line fitting systems
+    # ---------------------------------------------------------
+
+   
+
+    model_types = EL.config.model_types
+    fit_params = EL.final_fit_params_mean
+    fit_errors = EL.final_fit_params_std
+
+    # -----------------------------------------------------
+    # Extract individual models within each system
+    # -----------------------------------------------------
+
+    for model_type, params, errors in zip(
+        model_types,
+        fit_params,
+        fit_errors
+    ):
+
+        params = np.asarray(params)
+        errors = np.asarray(errors)
+
+        wl = float(params[0])
+        flux = float(params[1])
+        e_flux = float(errors[1])
+        disp = float(params[2])
+        e_disp = float(errors[2])
+        vel = float(params[3])
+        e_vel = float(errors[3])
+
+
+        rows.append((
+            int(id_fib),
+            str(model_type),
+            wl,
+            flux,
+            e_flux,
+            disp,
+            e_disp,
+            vel,
+            e_vel
+        ))
+
+    # ---------------------------------------------------------
+    # Create Astropy table
+    # ---------------------------------------------------------
+
+    tab_elines = Table(
+        rows=rows,
+        names=[
+            'id_fib',
+            'model',
+            'wl',
+            'flux',
+            'e_flux',
+            'disp',
+            'e_disp',
+            'vel',
+            'e_vel'
+        ],
+        dtype=[
+            'int64',
+            'U9',
+            'float64',
+            'float64',
+            'float64',
+            'float64',
+            'float64',
+            'float64',
+            'float64'
+        ]
+    )
+
+    return tab_elines
+
+def kin_rss_elines_main_return(
+    wavelength,
+    rss_flux,
+    config,
+    rss_eflux=None,
+    run_mode='RND',
+    guided=False,
+    memo=False,
+    vel_map=None,
+    vel_mask_map=None,
+    vel_fixed=2,
+    sigma_map=None,
+    sigma_fixed=2,
+    n_MC=50,
+    n_loops=15,
+    scale_ini=0.15,
+    fine_search=None,
+    redefine_max=False,
+    max_factor=2,
+    redefine_min=False,
+    min_factor=0.012,
+    plot=0,
+    verbose=False
+    ):
+    """
+    The main function of the kin_rss_elines script. It will run the `fit_elines_main`
+    over all observed spectra `rss_flux`, with shape ``(NW, NS)``. All spectra
+    has to be sampled over the same `wavelength` with shape ``(NW)``.
+
+    Parameters
+    ----------
+    wavelength : array
+        The observed wavelengths.
+
+    rss_flux : array like
+        The observed flux spectra with shape (NW, NS).
+
+    config : :class:`ConfigEmissionModel`
+        The :class:`ConfigEmissionModel` instance that will configure the fit.
+
+    rss_eflux : array like, optional
+        The error in `flux` with shape ``(NW, NY, NX)``.
+
+    run_mode : 'RND', 'LM', 'both', optional
+        It will configure which :class:`EmissionLines` it will run.
+        'RND': The RND algorithm of fit.
+        'LM': Levemberg-Marquadt algorithm of fit.
+        'both': It will run first the 'RND' method and inputs the `final_fit_params` of 'RND' at the 'LM' method.
+        Defaults to RND method.
+
+    guided : boolean, optional
+        It will redefine the max and the min flux parameter of the eline models.
+
+    memo : boolean, optional
+        While fitting the rss, memorizes the last result and inputs to the next spectrum
+        in the loop.
+
+    vel_map : array like, optional
+        Sets up the guide velocity map. (see: `guide_vel`).
+
+    vel_mask_map : array like, optional
+        Sets up the mask map of the guide velocity. (see: `guide_vel`).
+
+    vel_fixed : int or boolean, optional
+        Sets up the to_fit parameter of the guide velocity. (see: `guide_vel`).
+
+    sigma_map : array like, optional
+        Sets up the guide sigma map. (see: `guide_sigma`).
+
+    sigma_fixed : int or boolean
+        Sets up the to_fit parameter of the guide sigma map. (see: `guide_sigma`).
+
+    n_MC : int, optional
+        Number of Monte-Carlo iterations in the fit. Defaults to 50.
+
+    n_loops : int, optional
+        Number of loops of the fit. Defaults to 15.
+
+    scale_ini : float, optional
+        The scale_ini parameter of fit. Defaults to 0.15
+
+    fine_search : boolean, optional
+        The fine_search parameter of RND method. Defaults to
+        `__ELRND_fine_search_option__` defined in pyFIT3D.common.constants.
+
+    redefine_max : int or boolean, optional
+        The redefine_max parameter of the fit. Defaults to 0.
+
+    max_factor : float, optional
+        Set up the max flux factor when redefine_max is on. Defaults to 2.
+
+    redefine_min : boolean, optional
+        If redefine_max is on, it will also redefine the min flux. Defaults
+        to False.
+
+    min_factor : float, optional
+        Set up the min flux factor when redefine_max is on. Defaults to 0.012.
+
+    plot : int, optional
+        If 1 it will plot fit. If 2 it will plot to a file. None it will be set as 0, i.e.
+        do not plot.
+
+    Returns
+    -------
+    list of array like
+        Observed spectra, model spectra and residual spectra, all with same shape as `rss_flux`.
+
+    dict
+        Output maps of fitted parameters (see: `create_emission_lines_parameters`,
+        `append_emission_lines_parameters` and `output_emission_lines_parameters`).
+    """
+    guided = False if guided is None else bool(guided)
+    memo = False if memo is None else bool(memo)
+    ns, nw = rss_flux.shape
+
+    # create models output
+    output_el_models = create_emission_lines_parameters(config, shape=(ns))
+
+    tab_elines = []
+    for i_s in range(ns):
+        print_verbose(f'# ID {i_s}/{ns - 1}',verbose=verbose)
+        current_spaxel = i_s
+        current_guide_vel = None if vel_map is None else vel_map[i_s]
+        current_guide_vel_mask = None if vel_mask_map is None else vel_mask_map[i_s]
+        current_guide_sigma = None if sigma_map is None else sigma_map[i_s]
+        flux = rss_flux[i_s, :]
+        flux[~np.isfinite(flux)] = 0
+        st_f = pdl_stats(flux)
+        st_f_median = st_f[_STATS_POS['median']]
+        st_f_sigma = st_f[_STATS_POS['pRMS']]
+        if rss_eflux is not None:
+            eflux = rss_eflux[i_s, :]
+            eflux[~np.isfinite(eflux)] = 0
+        else:
+            eflux = np.ones_like(flux)*0.1
+            if (st_f_median != 0) and (st_f_sigma != 0):
+                eflux *= (st_f_median + st_f_sigma**2)
+            # setvaltobad(0)
+            eflux[eflux == 0] = np.nan
+            if st_f_median != 0:
+                eflux[np.isnan(eflux)] = st_f_median
+            else:
+                eflux[np.isnan(eflux)] = 0.001
+        # enter if all flux is zero or if is in the first spaxel
+        if not bool(i_s) and flux.any():
+            cf = copy(config)
+        else:
+            last_chi_sq, _ = calc_chi_sq(EL.flux, EL.model, EL.sigma_flux,
+                                         EL.config.n_models + 1)
+            # Memorize last result to input the next spectrum
+            if memo and (last_chi_sq < 2*EL.config.chi_goal):
+                print('update')
+                memo_cf = EL.update_config()
+            else:
+                cf = copy(config)
+        model = np.zeros_like(flux)
+        flux_max = np.abs(st_f[_STATS_POS['max']] - st_f[_STATS_POS['median']])
+        if guided:
+            redefine_min = True
+            redefine_max = True
+        EL = fit_elines_main(wavelength, flux, eflux, cf,
+                             vel_guide=current_guide_vel, sigma_guide=current_guide_sigma,
+                             vel_fixed=vel_fixed, sigma_fixed=sigma_fixed,
+                             vel_mask=current_guide_vel_mask,
+                             n_MC=n_MC, plot=plot, n_loops=n_loops,
+                             scale_ini=scale_ini, fine_search=True,
+                             redefine_max=redefine_max, redefine_min=redefine_min,
+                             max_factor=max_factor, min_factor=min_factor, flux_max=flux_max,
+                             run_mode=run_mode, randomize_flux=False)
+        #
+        # Check the consistency between fib_id names!
+        #
+        tab_elines.append(create_elines_table_EL(i_s, EL))
+    tab_elines = tab_vstack(tab_elines)
+    return tab_elines
+
+
 
 def kin_rss_elines(
     spec_file,

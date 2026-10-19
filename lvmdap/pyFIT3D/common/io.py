@@ -410,7 +410,7 @@ def read_masks_file(filename):
         print(f'{basename(sys.argv[0])}: no mask list file')
     return masks, n_masks
 
-def print_verbose(text, verbose=0, level=1):
+def print_verbose(text, verbose=0, level=1, end='\n'):
     """ Print `text` if verbose is True.
 
     Parameters
@@ -424,7 +424,7 @@ def print_verbose(text, verbose=0, level=1):
         Configures the print level of the verbosity. Default level is 1.
     """
     if (level if (0 if verbose is None else verbose) is True else verbose) >= level:
-        print(text)
+        print(text,end=end)
 
 def plot_spectra_ax(ax, wave_list, spectra_list, title='', labels_list=None,
                     color=None, cmap=None, ylim=None, xlim=None, alpha=None, lw=None):
@@ -624,6 +624,30 @@ def array_to_fits(filename, arr, new_card=False, header=None, overwrite=False, s
     hdu.header.set('UNIXTIME', value=int(now), comment=f'{dt_now}')
     hdul.writeto(filename, overwrite=overwrite)
 
+def array_to_hdu(label, arr, new_card=False, header=None, overwrite=False, sort_dict_header=True):
+    hdul = fits.HDUList()
+    if new_card:
+        hdul.append(fits.PrimaryHDU())
+        hdul.append(fits.ImageHDU(data=arr))
+    else:
+        hdul.append(fits.PrimaryHDU(arr))
+    hdu = hdul[0]
+    # XXX version should be a global parameter
+    if header is not None:
+        if isinstance(header, dict):
+            if sort_dict_header:
+                header = dict(sorted(header.items()))
+            for k, v in header.items():
+                hdu.header.set(k, value=v)
+        else:
+            hdu.header = header
+    hdu.header.set('PIPELINE', value=__version__)
+    hdu.header.set('LABEL', value=label)
+    now = time.time()
+    dt_now = datetime.fromtimestamp(now)
+    hdu.header.set('UNIXTIME', value=int(now), comment=f'{dt_now}')
+    return hdul
+ 
 def call_cmnd(cmnd, logfile=None, verbose=True, logfilemode='a', timeout=None):
     close = False
     if isinstance(logfile, str):

@@ -13,7 +13,7 @@ from copy import deepcopy as copy
 from .dust import spec_apply_dust
 from .gas import output_config_final_fit
 from lvmdap.pyFIT3D.common.gas_tools import fit_elines_main
-from lvmdap.pyFIT3D.common.io import plot_spectra_ax, array_to_fits, write_img_header
+from lvmdap.pyFIT3D.common.io import plot_spectra_ax, array_to_fits, write_img_header, array_to_hdu
 from lvmdap.pyFIT3D.common.io import sel_waves, trim_waves, print_verbose, get_wave_from_header
 from lvmdap.pyFIT3D.common.stats import pdl_stats, _STATS_POS, WLS_invmat, median_box, median_filter
 from lvmdap.pyFIT3D.common.stats import calc_chi_sq, smooth_ratio, shift_convolve, hyperbolic_fit_par
@@ -65,7 +65,7 @@ def _fit_WLS_invmat(flux, eflux, flux_models, verbose=False):
     '''
     return _fit_WLS_invmat_default(flux, eflux, flux_models, verbose)
 
-def _fit_WLS_invmat_default(flux, eflux, flux_models, verbose=False):
+def _fit_WLS_invmat_default(flux, eflux, flux_models, verbose=False, full_verbose=False):
     """
     Fits an observed spectrum a with a linear combination of SSP models using
     Weighted Least Squares (WLS) through matrix inversion. This process consider
@@ -96,8 +96,8 @@ def _fit_WLS_invmat_default(flux, eflux, flux_models, verbose=False):
     array like
         The `flux` modelled.
     """
-    print_verbose('------------------------------------------------------------------', verbose=verbose)
-    print_verbose('--[ BEGIN fit SSP with WLS_invmat ]-------------------------------', verbose=verbose)
+    print_verbose('------------------------------------------------------------------', verbose=full_verbose)
+    print_verbose('--[ BEGIN fit SSP with WLS_invmat ]-------------------------------', verbose=full_verbose)
 
     n_models = flux_models.shape[0]
 
@@ -107,20 +107,20 @@ def _fit_WLS_invmat_default(flux, eflux, flux_models, verbose=False):
     weights = 1/eflux**2
     while search_coeffs:
         coeffs_now = np.zeros(n_models, dtype='float')
-        print_verbose(f'n_models -------------------- {flux_models.shape[0]}', verbose=verbose)
+        print_verbose(f'n_models -------------------- {flux_models.shape[0]}', verbose=full_verbose)
 
         # invert matrix
         r = WLS_invmat(flux, flux_models[select_positive_coeffs, :], dy=weights)
         model_now, coeffs_now[select_positive_coeffs] = r
-        print_verbose(f'coeffs_now ------------------ {coeffs_now}', verbose=verbose)
+        print_verbose(f'coeffs_now ------------------ {coeffs_now}', verbose=full_verbose)
 
         # check negative coeffs
         n_neg_coeffs = (coeffs_now < 0).sum()
         search_coeffs = n_neg_coeffs > 0
         select_positive_coeffs = coeffs_now > 0
         n_positive_coeffs = select_positive_coeffs.sum()
-        print_verbose(f'n_positive_coeffs ----------- {n_positive_coeffs}', verbose=verbose)
-        print_verbose(f'n_neg_coeffs ---------------- {n_neg_coeffs}', verbose=verbose)
+        print_verbose(f'n_positive_coeffs ----------- {n_positive_coeffs}', verbose=full_verbose)
+        print_verbose(f'n_neg_coeffs ---------------- {n_neg_coeffs}', verbose=full_verbose)
 
         n_search_loops += 1
 
@@ -129,15 +129,15 @@ def _fit_WLS_invmat_default(flux, eflux, flux_models, verbose=False):
     chi_sq, n_free_param = calc_chi_sq(flux, model_now, eflux, n_models + 1)
 
     # final report
-    print_verbose(f'n_free_param ---------------- {n_free_param}', verbose=verbose)
-    print_verbose(f'chi_sq ---------------------- {chi_sq}', verbose=verbose)
-    print_verbose(f'n_search_loops --------------------- {n_search_loops}', verbose=verbose)
-    print_verbose('---------------------------------[ END fit SSP with WLS_invmat ]--', verbose=verbose)
-    print_verbose('------------------------------------------------------------------', verbose=verbose)
+    print_verbose(f'n_free_param ---------------- {n_free_param}', verbose=full_verbose)
+    print_verbose(f'chi_sq ---------------------- {chi_sq}', verbose=full_verbose)
+    print_verbose(f'n_search_loops --------------------- {n_search_loops}', verbose=full_verbose)
+    print_verbose('---------------------------------[ END fit SSP with WLS_invmat ]--', verbose=full_verbose)
+    print_verbose('------------------------------------------------------------------', verbose=full_verbose)
 
     return coeffs_now, chi_sq, model_now
 
-def _fit_WLS_invmat_alternative(flux, eflux, flux_models, verbose=False):
+def _fit_WLS_invmat_alternative(flux, eflux, flux_models, verbose=False, full_verbose=False):
     """
     A copy of perl fit process.
 
@@ -167,8 +167,8 @@ def _fit_WLS_invmat_alternative(flux, eflux, flux_models, verbose=False):
     float
         Chi square of the fit.
     """
-    print_verbose('------------------------------------------------------------------', verbose=verbose)
-    print_verbose('--[ BEGIN fit SSP with WLS_invmat ]-------------------------------', verbose=verbose)
+    print_verbose('------------------------------------------------------------------', verbose=full_verbose)
+    print_verbose('--[ BEGIN fit SSP with WLS_invmat ]-------------------------------', verbose=full_verbose)
 
     n_models = flux_models.shape[0]
     n_search_loops = 0
@@ -195,11 +195,11 @@ def _fit_WLS_invmat_alternative(flux, eflux, flux_models, verbose=False):
                     ic += 1
                 else:
                     coeffs[i] = 0
-            print_verbose(f'n_models -------------------- {_flux_models.shape[0]}', verbose=verbose)
+            print_verbose(f'n_models -------------------- {_flux_models.shape[0]}', verbose=full_verbose)
             # invert matrix
             r = WLS_invmat(flux, _flux_models, dy=weights)
             model_now, coeffs_now = r
-            print_verbose(f'coeffs_now ------------------ {coeffs_now}', verbose=verbose)
+            print_verbose(f'coeffs_now ------------------ {coeffs_now}', verbose=full_verbose)
             ic = 0
             n_neg = 0
             n_new = 0
@@ -221,11 +221,11 @@ def _fit_WLS_invmat_alternative(flux, eflux, flux_models, verbose=False):
     chi_sq, n_free_param = calc_chi_sq(flux, model_now, eflux, n_models + 1)
 
     # final report
-    print_verbose(f'n_free_param ---------------- {n_free_param}', verbose=verbose)
-    print_verbose(f'chi_sq ---------------------- {chi_sq}', verbose=verbose)
-    print_verbose(f'n_search_loops --------------------- {n_search_loops}', verbose=verbose)
-    print_verbose('---------------------------------[ END fit SSP with WLS_invmat ]--', verbose=verbose)
-    print_verbose('------------------------------------------------------------------', verbose=verbose)
+    print_verbose(f'n_free_param ---------------- {n_free_param}', verbose=full_verbose)
+    print_verbose(f'chi_sq ---------------------- {chi_sq}', verbose=full_verbose)
+    print_verbose(f'n_search_loops --------------------- {n_search_loops}', verbose=full_verbose)
+    print_verbose('---------------------------------[ END fit SSP with WLS_invmat ]--', verbose=full_verbose)
+    print_verbose('------------------------------------------------------------------', verbose=full_verbose)
 
     return coeffs, chi_sq, model_now
 
@@ -374,8 +374,8 @@ class SSPModels(object):
                                             for i in range(self.n_models)])
             wave_norm = np.median(probable_wavenorms)
             # wave_norm = self.get_wavelength()[int(self.n_wave/2)]
-            print(f'[SSPModels] {ex}')
-            print(f'[SSPModels] setting normalization wavelength to {wave_norm} A')
+            print_verbose(f'[SSPModels] {ex}', verbose=self.verbose)
+            print_verbose(f'[SSPModels] setting normalization wavelength to {wave_norm} A', verbose=self.verbose)
         return wave_norm
 
     def get_wavelength(self, mask=None):
@@ -882,7 +882,7 @@ class StPopSynt(object):
                  w_min=None, w_max=None, nl_w_min=None, nl_w_max=None,
                  elines_mask_file=None, mask_list=None,
                  R_V=3.1, extlaw='CCM', spec_id=None, guided_errors=None,
-                 plot=None, verbose=False, ratio_master=None, fit_gas=True):
+                 plot=None, verbose=False, full_verbose=False, ratio_master=None, fit_gas=True):
         """
         Instantiates :class: `StPopSynt`.
         Reads the config file and SSP models. Creates all wavelength masks and
@@ -964,6 +964,7 @@ class StPopSynt(object):
         self.config = config
 
         self.verbose = verbose
+        self.full_verbose = full_verbose
         self.R_V = __selected_R_V__ if R_V is None else R_V
         self.extlaw =  __selected_extlaw__ if extlaw is None else extlaw
         self.n_loops_nl_fit = 0
@@ -1024,20 +1025,20 @@ class StPopSynt(object):
                 msg_el_config += _msg
             msg_el_config = msg_el_config[:-1]
         bar = '-'*max_msg_size
-        print(msg + '-'*(max_msg_size-len(msg)))
-        print(msg_config)
-        print(msg_config_red)
-        print(msg_config_sig)
-        print(msg_config_av)
+        print_verbose(msg + '-'*(max_msg_size-len(msg)), verbose=self.verbose)
+        print_verbose(msg_config, verbose=self.verbose)
+        print_verbose(msg_config_red, verbose=self.verbose)
+        print_verbose(msg_config_sig, verbose=self.verbose)
+        print_verbose(msg_config_av, verbose=self.verbose)
         if self.fit_gas:
-            print(bar)
-            print(msg_el_config)
-        print(bar)
+            print_verbose(bar, verbose=self.verbose)
+            print_verbose(msg_el_config, verbose=self.verbose)
+        print_verbose(bar, verbose=self.verbose)
 
     # deprecated, use redshift_correct_masks instead
     def correct_elines_mask(self, redshift, window_size=None, update_nl_range=False):
         if self.elines_mask_file is not None:
-            print_verbose(f'[correct_elines_mask]: input redshift: {redshift:.8f}', verbose=self.verbose)
+            print_verbose(f'[correct_elines_mask]: input redshift: {redshift:.8f}', verbose=self.full_verbose)
             e_masks = np.empty((self.e_w.size, 2), dtype=np.float64)
             z_fact = 1 + redshift
             window_size = __mask_elines_window__ if window_size is None else window_size
@@ -1062,7 +1063,7 @@ class StPopSynt(object):
             print_verbose('[correct_elines_mask]: no mask elines file', verbose=self.verbose)
 
     def redshift_correct_masks(self, redshift, eline_half_range=None, correct_wl_ranges=False):
-        print_verbose(f'[redshift_correct_masks]: input redshift: {redshift:.8f}', verbose=self.verbose)
+        print_verbose(f'[redshift_correct_masks]: input redshift: {redshift:.8f}', verbose=self.full_verbose)
         # correct_wl_ranges = True
         z_fact = 1 + redshift
         eline_half_range = __mask_elines_window__ if eline_half_range is None else eline_half_range
@@ -1074,7 +1075,7 @@ class StPopSynt(object):
             nl_w_max = self.nl_w_max*z_fact
             self.wl_range = [w_min, w_max]
             self.nl_wl_range = [nl_w_min, nl_w_max]
-            print_verbose(f'- New wavelength range: [{w_min:.2f}, {w_max:.2f}] - Non-linear analysis: [{nl_w_min:.2f}, {nl_w_max:.2f}]', verbose=self.verbose)
+            print_verbose(f'- New wavelength range: [{w_min:.2f}, {w_max:.2f}] - Non-linear analysis: [{nl_w_min:.2f}, {nl_w_max:.2f}]', verbose=self.full_verbose)
         if self.e_w is not None:
             e_masks = np.empty((self.e_w.size, 2), dtype=np.float64)
             eline_half_range *= 1 if self.sigma_inst is None else (self.sigma_inst if self.sigma_mean is None else self.sigma_mean)
@@ -1083,8 +1084,8 @@ class StPopSynt(object):
             e_masks[:,0] = self.e_w*z_fact - eline_half_range
             e_masks[:,1] = self.e_w*z_fact + eline_half_range
             self.e_masks = e_masks
-            print_verbose(f'- Update emission line masks: ', verbose=self.verbose)
-            print_verbose(self.e_masks, verbose=self.verbose)
+            print_verbose(f'- Update emission line masks: ', verbose=self.full_verbose)
+            print_verbose(self.e_masks, verbose=self.full_verbose)
             # if needed a complete mask:
             if self.masks is not None:
                 self.comp_masks = np.sort(np.append(self.masks, self.e_masks, axis=0), axis=0)
@@ -1121,20 +1122,20 @@ class StPopSynt(object):
             if isfile(self.mask_list):
                 self.masks = np.loadtxt(self.mask_list)
             else:
-                print(f'{basename(sys.argv[0])}: {self.mask_list}: mask list file not found')
+                print_verbose(f'{basename(sys.argv[0])}: {self.mask_list}: mask list file not found',verbose=self.full_verbose)
                 self.mask_list = None
         else:
-            print(f'{basename(sys.argv[0])}: no mask list file')
+            print_verbose(f'{basename(sys.argv[0])}: no mask list file',verbose=self.verbose)
             # read elines mask
         self.comp_masks = self.masks
         if self.elines_mask_file is not None:
             if isfile(self.elines_mask_file):
                 self.e_w = np.loadtxt(self.elines_mask_file, usecols=(0))
             else:
-                print(f'{basename(sys.argv[0])}: {self.elines_mask_file}: emission lines mask file not found')
+                print_verbose(f'{basename(sys.argv[0])}: {self.elines_mask_file}: emission lines mask file not found',verbose=self.full_verbose)
                 self.elines_mask_file = None
         else:
-            print(f'{basename(sys.argv[0])}: no elines mask file')
+            print_verbose(f'{basename(sys.argv[0])}: no elines mask file',verbose=self.full_verbose)
         self.redshift_correct_masks(redshift=self.config.redshift)
 
     def _create_spectra_dict(self, wavelength, flux, eflux, min=None, max=None, ratio_master=None):
@@ -1150,7 +1151,7 @@ class StPopSynt(object):
         raw_eflux = copy(eflux)
         if not raw_eflux.any():
             # print_verbose('all zeros in error spectrum. Setting error_flux = 5% flux', verbose=self.verbose)
-            print_verbose(f'{basename(sys.argv[0])}: eflux: all zeros in error spectrum. Setting error_flux = 5% flux', verbose=1)
+            print_verbose(f'{basename(sys.argv[0])}: eflux: all zeros in error spectrum. Setting error_flux = 5% flux', verbose=self.full_verbose)
             raw_eflux = 0.05*flux
 
         redef_max = 0
@@ -1163,7 +1164,7 @@ class StPopSynt(object):
         #     redef = 2
 
         sigma_e = np.median(raw_eflux)
-        print(f'-> median error in flux = {sigma_e:6.4f}')
+        print_verbose(f'-> median error in flux = {sigma_e:6.4f}',verbose=self.full_verbose)
 
         # correct errors, i.e. defines the maximum error
         raw_eflux = np.where(raw_eflux > sigma_e*1.5, sigma_e*1.5, raw_eflux)
@@ -1186,13 +1187,13 @@ class StPopSynt(object):
 
         self.valid_flux = 2
         if not (sel_nl_wl).any():
-            print('-> no valid flux inside non-linear fit wavelength range.')
+            print_verbose('-> no valid flux inside non-linear fit wavelength range.',verbose=self.full_verbose)
             self.valid_flux = 1
             if not (sel_wl & sel_wl_emasks).any():
-                print('-> no valid flux inside wavelength range.')
+                print_verbose('-> no valid flux inside wavelength range.',verbose=self.full_verbose)
                 self.valid_flux = 0
             else:
-                print('-> force use linear fit wavelength range during non-linear fit.')
+                print_verbose('-> force use linear fit wavelength range during non-linear fit.',verbose=self.full_verbose)
                 sel_nl_wl = sel_wl & sel_wl_emasks
                 self.nl_wl_range = self.wl_range
 
@@ -1589,7 +1590,7 @@ class StPopSynt(object):
             noise = rnd*msk_sigma_flux
             # noise = rnd*msk_sigma_flux**2
             perturbed_flux = msk_flux + noise
-            print_verbose(f'i_MC: {i_MC} - perturbed flux SN: {(perturbed_flux/msk_sigma_flux).mean()}', verbose=self.verbose)
+            print_verbose(f'i_MC: {i_MC} - perturbed flux SN: {(perturbed_flux/msk_sigma_flux).mean()}', verbose=self.full_verbose)
             coeffs[i_MC], chi_sqs[i_MC], models[i_MC] = _fit_WLS_invmat(flux=perturbed_flux,
                                                                         eflux=msk_sigma_flux,
                                                                         flux_models=ssp_flux_models_obsframe_dust,
@@ -1753,8 +1754,8 @@ class StPopSynt(object):
             ssp = self.models_nl_fit
         cf = self.config
         s = self.spectra
-        print_verbose('', verbose=self.verbose)
-        print_verbose('-=[ BEGIN fit redshift ]=---------------------------------------------', verbose=self.verbose)
+        print_verbose('', verbose=self.full_verbose)
+        print_verbose('-=[ BEGIN fit redshift ]=---------------------------------------------', verbose=self.full_verbose)
         # print(f'D_REDSHIFT = {cf.delta_redshift} MIN = {cf.min_redshift} MAX = {cf.max_redshift}')
         # if cf.MIN_W == 0:
         #     cf.MIN_W = cf.wl_range[0]
@@ -1767,7 +1768,7 @@ class StPopSynt(object):
             self.redshift_correct_masks(redshift=red, correct_wl_ranges=correct_wl_ranges)
             # self.correct_elines_mask(redshift=red)
             n_loops += 1
-            print_verbose(f'redshift ---------------- {red}', verbose=self.verbose)
+            print_verbose(f'redshift ---------------- {red}', verbose=self.full_verbose)
             coeffs_now, chi_sq, msk_model_now = self.fit_WLS_invmat(ssp=ssp, redshift=red,
                                                                     smooth_cont=True,
                                                                     sel_wavelengths=s['sel_nl_wl'])
@@ -1781,31 +1782,29 @@ class StPopSynt(object):
             #     R_V=self.R_V, extlaw=self.extlaw,
             # )
             self.plot_last(model=model_now, sel=s['sel_nl_wl'], redshift=red, chi_sq=chi_sq, AV=self.best_AV, sigma=self.best_sigma)
-            print_verbose(f'last_chi_sq ------------- {self.get_last_chi_sq_redshift()}', verbose=self.verbose)
-            print_verbose(f'last_coeffs ------------- {self.get_last_coeffs_redshift()}', verbose=self.verbose)
-            print_verbose(f'best_chi_sq_redshift ---- {self.best_chi_sq_redshift}', verbose=self.verbose)
-            print_verbose(f'best_coeffs_redshift ---- {self.best_coeffs_redshift}', verbose=self.verbose)
+            print_verbose(f'last_chi_sq ------------- {self.get_last_chi_sq_redshift()}', verbose=self.full_verbose)
+            print_verbose(f'last_coeffs ------------- {self.get_last_coeffs_redshift()}', verbose=self.full_verbose)
+            print_verbose(f'best_chi_sq_redshift ---- {self.best_chi_sq_redshift}', verbose=self.full_verbose)
+            print_verbose(f'best_coeffs_redshift ---- {self.best_coeffs_redshift}', verbose=self.full_verbose)
             # if found a lower chi squared: update_bests
             if (n_loops > 1) and chi_sq < self.best_chi_sq_redshift:
-                print_verbose(f'found min chi_sq ]=-------- {chi_sq} ', verbose=self.verbose)
+                print_verbose(f'found min chi_sq ]=-------- {chi_sq} ', verbose=self.full_verbose)
                 self.best_chi_sq_redshift = chi_sq
-                print_verbose(f'updating best coeffs ]=---- {coeffs_now} ')
+                print_verbose(f'updating best coeffs ]=---- {coeffs_now} ', verbose=self.full_verbose)
                 self.best_coeffs_redshift = coeffs_now
-                print_verbose(f'updating best redshift ]=-- {red} ')
+                print_verbose(f'updating best redshift ]=-- {red} ', verbose=self.full_verbose)
                 self.best_redshift = red
-            print_verbose('', verbose=self.verbose)
-        print_verbose(f'n_loops ------------------ {n_loops}', verbose=self.verbose)
-        print_verbose(f'n_loops_redshift --------- {self.n_loops_redshift}', verbose=self.verbose)
-        print_verbose(f'n_loops_nl_fit ----------- {self.n_loops_nl_fit}', verbose=self.verbose)
-        print_verbose(f'best_chi_sq_redshift ----- {self.best_chi_sq_redshift}', verbose=self.verbose)
-        print_verbose(f'best_redshift ------------ {self.best_redshift}', verbose=self.verbose)
-        print_verbose(f'best_coeffs_redshift ----- {self.best_coeffs_redshift}', verbose=self.verbose)
-        print_verbose('-------------------------------------------=[ END 1st fit redshift ]=-', verbose=self.verbose)
+            print_verbose('', verbose=self.full_verbose)
+        print_verbose(f'n_loops ------------------ {n_loops}', verbose=self.full_verbose)
+        print_verbose(f'n_loops_redshift --------- {self.n_loops_redshift}', verbose=self.full_verbose)
+        print_verbose(f'n_loops_nl_fit ----------- {self.n_loops_nl_fit}', verbose=self.full_verbose)
+        print_verbose(f'best_chi_sq_redshift ----- {self.best_chi_sq_redshift}', verbose=self.full_verbose)
+        print_verbose(f'best_redshift ------------ {self.best_redshift}', verbose=self.full_verbose)
+        print_verbose(f'best_coeffs_redshift ----- {self.best_coeffs_redshift}', verbose=self.full_verbose)
+        print_verbose('-------------------------------------------=[ END 1st fit redshift ]=-', verbose=self.full_verbose)
         self.e_redshift = delta_red
         # self.plot_best(ssp, coeffs=self.best_coeffs_redshift, sel=s['sel_nl_wl'])
-        print_verbose('', verbose=self.verbose)
-        print_verbose('-=[ BEGIN redshift fine tune ]=---------------------------------------', verbose=self.verbose)
-        print_verbose('-------------------------------------------=[ END 1st fit redshift ]=-', verbose=self.verbose)
+        print_verbose('', verbose=self.full_verbose)
         n_first_loop = n_loops
         n_loops = 0
         if self.plot > 0:
@@ -1833,7 +1832,7 @@ class StPopSynt(object):
             self.redshift_correct_masks(redshift=red, correct_wl_ranges=correct_wl_ranges)
             # self.correct_elines_mask(redshift=red)
             n_loops += 1
-            print_verbose(f'redshift ------------------ {red}', verbose=self.verbose)
+            print_verbose(f'redshift ------------------ {red}', verbose=self.full_verbose)
             coeffs_now, chi_sq, msk_model_now = self.fit_WLS_invmat(ssp=ssp, redshift=red,
                                                                     smooth_cont=True,
                                                                     sel_wavelengths=s['sel_nl_wl'])
@@ -1845,10 +1844,10 @@ class StPopSynt(object):
             # )
             model_now = np.dot(coeffs_now, ssp.flux_models_obsframe_dust)
             self.plot_last(model=model_now, redshift=red, chi_sq=chi_sq, AV=self.best_AV, sigma=self.best_sigma, sel=s['sel_nl_wl'])
-            print_verbose(f'last_chi_sq --------------- {self.get_last_chi_sq_redshift()}', verbose=self.verbose)
-            print_verbose(f'last_coeffs --------------- {self.get_last_coeffs_redshift()}', verbose=self.verbose)
-            print_verbose(f'best_chi_sq_redshift ------ {self.best_chi_sq_redshift}', verbose=self.verbose)
-            print_verbose(f'best_coeffs_redshift ------ {self.best_coeffs_redshift}', verbose=self.verbose)
+            print_verbose(f'last_chi_sq --------------- {self.get_last_chi_sq_redshift()}', verbose=self.full_verbose)
+            print_verbose(f'last_coeffs --------------- {self.get_last_coeffs_redshift()}', verbose=self.full_verbose)
+            print_verbose(f'best_chi_sq_redshift ------ {self.best_chi_sq_redshift}', verbose=self.full_verbose)
+            print_verbose(f'best_coeffs_redshift ------ {self.best_coeffs_redshift}', verbose=self.full_verbose)
             redshift_chain = self.redshift_chain[n_first_loop + 1:]
             chi_sq_chain = self.chi_sq_redshift_chain[n_first_loop + 1:]
             if len(chi_sq_chain) > 2:
@@ -1859,27 +1858,27 @@ class StPopSynt(object):
                     #                                                     redshift=_red,
                     #                                                     smooth_cont=True,
                     #                                                     sel_wavelengths=s['sel_nl_wl'])
-                    print_verbose(f'found min chi_sq ]=-------- ' , verbose=self.verbose)
+                    print_verbose(f'found min chi_sq ]=-------- ' , verbose=self.full_verbose)
                     print_verbose(f'update best chi_sq ]=------ {chi_sq}' , verbose=self.verbose)
                     # YGK suggested
 #                    self.best_chi_sq_redshift = chi_sq
                     self.best_chi_sq_redshift = fb
-                    print_verbose(f'updating best coeffs ]=---- {coeffs_now}', verbose=self.verbose)
+                    print_verbose(f'updating best coeffs ]=---- {coeffs_now}', verbose=self.full_verbose)
                     self.best_coeffs_redshift = coeffs_now
-                    print_verbose(f'updating best redshift ]=-- {_red}', verbose=self.verbose)
+                    print_verbose(f'updating best redshift ]=-- {_red}', verbose=self.full_verbose)
                     self.best_redshift = _red
                     print_verbose(f'sigma best redshift ]=----- {_e_red}', verbose=self.verbose)
                     self.e_redshift = _e_red
                     # self.update_nl_fit_params(coeffs=coeffs_now, redshift=red, chi_sq=chi_sq)
-            print_verbose('', verbose=self.verbose)
-        print_verbose('---------------------------------------=[ END redshift fine tune ]=-', verbose=self.verbose)
+            print_verbose('', verbose=self.full_verbose)
+        print_verbose('---------------------------------------=[ END redshift fine tune ]=-', verbose=self.full_verbose)
         # print(f'REDSHIFT = {self.best_redshift} +- {self.e_redshift}')
-        print_verbose(f'n_loops ------------------- {n_loops}', verbose=self.verbose)
-        print_verbose(f'n_loops_redshift ---------- {self.n_loops_redshift}', verbose=self.verbose)
-        print_verbose(f'n_loops_nl_fit ------------ {self.n_loops_nl_fit}', verbose=self.verbose)
-        print_verbose(f'best_chi_sq_redshift ------ {self.best_chi_sq_redshift}', verbose=self.verbose)
-        print_verbose(f'best_coeffs_redshift ------ {self.best_coeffs_redshift}', verbose=self.verbose)
-        print_verbose('-----------------------------------------------=[ END fit redshift ]=-', verbose=self.verbose)
+        print_verbose(f'n_loops ------------------- {n_loops}', verbose=self.full_verbose)
+        print_verbose(f'n_loops_redshift ---------- {self.n_loops_redshift}', verbose=self.full_verbose)
+        print_verbose(f'n_loops_nl_fit ------------ {self.n_loops_nl_fit}', verbose=self.full_verbose)
+        print_verbose(f'best_chi_sq_redshift ------ {self.best_chi_sq_redshift}', verbose=self.full_verbose)
+        print_verbose(f'best_coeffs_redshift ------ {self.best_coeffs_redshift}', verbose=self.full_verbose)
+        print_verbose('-----------------------------------------------=[ END fit redshift ]=-', verbose=self.full_verbose)
         self.plot_best(ssp, coeffs=self.best_coeffs_redshift, sel=s['sel_nl_wl'], filename='best_redshift.png')
         if self.plot > 0:
             if 'matplotlib.pyplot' not in sys.modules:
@@ -2047,9 +2046,10 @@ class StPopSynt(object):
         cf = self.config
         s = self.spectra
         print_verbose('', verbose=self.verbose)
-        print_verbose('-=[ BEGIN fit sigma ]=------------------------------------------------', verbose=self.verbose)
+        print_verbose('', verbose=self.full_verbose)
+        print_verbose('-=[ BEGIN fit sigma ]=------------------------------------------------', verbose=self.full_verbose)
         if medres_merit:
-            print_verbose('- using median(abs(res/(np.abs(res) + obs))) as merit function', verbose=self.verbose, level=0)
+            print_verbose('- using median(abs(res/(np.abs(res) + obs))) as merit function', verbose=self.full_verbose, level=0)
         ### Here is used flux_masked2 in the perl version.
         # masked2 is a mask that includes other wavelengths limits passed by user.
         # TODO: min_wave2 and max_wave2 it is now implemented
@@ -2063,7 +2063,7 @@ class StPopSynt(object):
         for sigma, delta_sigma in self._loop_sigma_broad(guided=guided):
             delta_chain.append(delta_sigma)
             n_loops += 1
-            print_verbose(f'sigma -------------------- {sigma}', verbose=self.verbose)
+            print_verbose(f'sigma -------------------- {sigma}', verbose=self.full_verbose)
             ##############################################################################
             # EL: The calculation of coefficients in the first loop of the sigma
             # search is a bad idea. does not work because creates the 'box effect'
@@ -2106,8 +2106,8 @@ class StPopSynt(object):
             self.update_sigma_params(coeffs=coeffs_now, sigma=sigma, chi_sq=chi_sq)
             # self.plot_last_sigma(model_now)
             self.plot_last(model=model_now, sel=s['sel_nl_wl'], redshift=self.best_redshift, chi_sq=chi_sq, AV=self.best_AV, sigma=sigma)
-            print_verbose(f'last_chi_sq -------------- {self.get_last_chi_sq_sigma()}', verbose=self.verbose)
-            print_verbose(f'best_chi_sq_sigma -------- {self.best_chi_sq_sigma}', verbose=self.verbose)
+            print_verbose(f'last_chi_sq -------------- {self.get_last_chi_sq_sigma()}', verbose=self.full_verbose)
+            print_verbose(f'best_chi_sq_sigma -------- {self.best_chi_sq_sigma}', verbose=self.full_verbose)
             chi_chain = self.chi_sq_sigma_chain
             sigma_chain = self.sigma_chain
             n_chi = len(chi_chain)
@@ -2118,19 +2118,19 @@ class StPopSynt(object):
             if (len(sigma_chain) > 1) & (chi_sq < self.best_chi_sq_sigma):
             # if (len(med_chain) > 1) & (_med <_best_med):
                 # _best_med = _med
-                print_verbose(f'found min chi_sq ]=-------- {chi_sq}', verbose=self.verbose)
+                print_verbose(f'found min chi_sq ]=-------- {chi_sq}', verbose=self.full_verbose)
                 self.best_chi_sq_sigma = chi_sq
-                print_verbose(f'updating best coeffs ]=---- {coeffs_now} ')
+                print_verbose(f'updating best coeffs ]=---- {coeffs_now} ', verbose=self.full_verbose)
                 self.best_coeffs_sigma = coeffs_now
-                print_verbose(f'updating best sigma ]=----- {sigma}', verbose=self.verbose)
+                print_verbose(f'updating best sigma ]=----- {sigma}', verbose=self.full_verbose)
                 self.best_sigma = sigma
-            print_verbose('', verbose=self.verbose)
-        print_verbose(f'n_loops ------------------- {n_loops}', verbose=self.verbose)
-        print_verbose(f'n_loops_sigma ------------- {self.n_loops_sigma}', verbose=self.verbose)
-        print_verbose(f'n_loops_nl_fit ------------ {self.n_loops_nl_fit}', verbose=self.verbose)
-        print_verbose(f'best_chi_sq_sigma --------- {self.best_chi_sq_sigma}', verbose=self.verbose)
-        print_verbose(f'best_sigma ---------------- {self.best_sigma}', verbose=self.verbose)
-        print_verbose('----------------------------------------------=[ END 1st fit sigma ]=-', verbose=self.verbose)
+            print_verbose('', verbose=self.full_verbose)
+        print_verbose(f'n_loops ------------------- {n_loops}', verbose=self.full_verbose)
+        print_verbose(f'n_loops_sigma ------------- {self.n_loops_sigma}', verbose=self.full_verbose)
+        print_verbose(f'n_loops_nl_fit ------------ {self.n_loops_nl_fit}', verbose=self.full_verbose)
+        print_verbose(f'best_chi_sq_sigma --------- {self.best_chi_sq_sigma}', verbose=self.full_verbose)
+        print_verbose(f'best_sigma ---------------- {self.best_sigma}', verbose=self.full_verbose)
+        print_verbose('----------------------------------------------=[ END 1st fit sigma ]=-', verbose=self.full_verbose)
         self.e_sigma = delta_sigma
         # self.plot_best(ssp, coeffs=self.best_coeffs_sigma, sel=s['sel_nl_wl'])
         if self.plot > 0:
@@ -2167,7 +2167,7 @@ class StPopSynt(object):
 
         n_first_loop = n_loops
         n_loops = 0
-        print_verbose('-=[ sigma fine tune ]=-', verbose=self.verbose)
+        print_verbose('-=[ sigma fine tune ]=-', verbose=self.full_verbose)
         smooth_cont = False
         if self.sigma_inst is None:
             smooth_cont = True
@@ -2175,7 +2175,7 @@ class StPopSynt(object):
         delta_chain = []
         for sigma, delta_sigma in self._loop_sigma_narrow(guided=guided):
             delta_chain.append(delta_sigma)
-            print_verbose(f'sigma -------------------- {sigma}', verbose=self.verbose)
+            print_verbose(f'sigma -------------------- {sigma}', verbose=self.full_verbose)
             n_loops += 1
             # BUFGIX EL: (2020-06-08)
             #   added smooth_cont=True to fit_WLS_invmat (which will do the equivalent
@@ -2217,10 +2217,10 @@ class StPopSynt(object):
             self.update_sigma_params(coeffs=coeffs_now, sigma=sigma, chi_sq=chi_sq)
             self.plot_last(model=model_now, sel=s['sel_nl_wl'], redshift=self.best_redshift, chi_sq=chi_sq, AV=self.best_AV, sigma=sigma)
             # self.plot_last_sigma(model_now)
-            print_verbose(f'last_chi_sq ------------- {self.get_last_chi_sq_sigma()}', verbose=self.verbose)
-            print_verbose(f'last_coeffs ------------- {self.get_last_coeffs_sigma()}', verbose=self.verbose)
-            print_verbose(f'best_chi_sq_sigma ------- {self.best_chi_sq_sigma}', verbose=self.verbose)
-            print_verbose(f'best_coeffs_sigma ------- {self.best_coeffs_sigma}', verbose=self.verbose)
+            print_verbose(f'last_chi_sq ------------- {self.get_last_chi_sq_sigma()}', verbose=self.full_verbose)
+            print_verbose(f'last_coeffs ------------- {self.get_last_coeffs_sigma()}', verbose=self.full_verbose)
+            print_verbose(f'best_chi_sq_sigma ------- {self.best_chi_sq_sigma}', verbose=self.full_verbose)
+            print_verbose(f'best_coeffs_sigma ------- {self.best_coeffs_sigma}', verbose=self.full_verbose)
             # Perl version of disp_min forces the best sigma to be, at least,
             # the first sigma of this narrow sigma search loop.
             if guided and n_loops == 1:
@@ -2234,9 +2234,9 @@ class StPopSynt(object):
                 # _best_med = _med
                 self.best_chi_sq_sigma = chi_sq
                 self.best_coeffs_sigma = coeffs_now
-                print_verbose(f'found min chi_sq ]=-------- {chi_sq}', verbose=self.verbose)
-                print_verbose(f'updating best coeffs ]=---- {coeffs_now}', verbose=self.verbose)
-                print_verbose(f'updating best sigma ]=----- {sigma}', verbose=self.verbose)
+                print_verbose(f'found min chi_sq ]=-------- {chi_sq}', verbose=self.full_verbose)
+                print_verbose(f'updating best coeffs ]=---- {coeffs_now}', verbose=self.full_verbose)
+                print_verbose(f'updating best sigma ]=----- {sigma}', verbose=self.full_verbose)
         _sigma = self.get_last_sigma()
         if _sigma != self.best_sigma:
             # delta_y = _med - _best_med
@@ -2285,13 +2285,13 @@ class StPopSynt(object):
             if np.isnan(e_sigma):
                 e_sigma = 0.5*sigma
         self.e_sigma = e_sigma
-        print_verbose(f'n_loops ------------------- {n_loops}', verbose=self.verbose)
-        print_verbose(f'n_loops_sigma ------------- {self.n_loops_sigma}', verbose=self.verbose)
-        print_verbose(f'n_loops_nl_fit ------------ {self.n_loops_nl_fit}', verbose=self.verbose)
-        print_verbose(f'best_chi_sq_sigma --------- {self.best_chi_sq_sigma}', verbose=self.verbose)
-        print_verbose(f'best_sigma ---------------- {self.best_sigma}', verbose=self.verbose)
-        print_verbose(f'best_coeffs_sigma --------- {self.best_coeffs_sigma}', verbose=self.verbose)
-        print_verbose('--------------------------------------------------=[ END fit sigma ]=-', verbose=self.verbose)
+        print_verbose(f'n_loops ------------------- {n_loops}', verbose=self.full_verbose)
+        print_verbose(f'n_loops_sigma ------------- {self.n_loops_sigma}', verbose=self.full_verbose)
+        print_verbose(f'n_loops_nl_fit ------------ {self.n_loops_nl_fit}', verbose=self.full_verbose)
+        print_verbose(f'best_chi_sq_sigma --------- {self.best_chi_sq_sigma}', verbose=self.full_verbose)
+        print_verbose(f'best_sigma ---------------- {self.best_sigma}', verbose=self.full_verbose)
+        print_verbose(f'best_coeffs_sigma --------- {self.best_coeffs_sigma}', verbose=self.full_verbose)
+        print_verbose('--------------------------------------------------=[ END fit sigma ]=-', verbose=self.full_verbose)
         self.plot_best(ssp, coeffs=self.best_coeffs_sigma, sel=s['sel_nl_wl'], filename='best_sigma.png')
         if self.plot > 0:
             if 'matplotlib.pyplot' not in sys.modules:
@@ -2344,8 +2344,8 @@ class StPopSynt(object):
             ssp = self.models_nl_fit
         cf = self.config
         s = self.spectra
-        print_verbose('', verbose=self.verbose)
-        print_verbose('-=[ BEGIN fit AV ]=---------------------------------------------------', verbose=self.verbose)
+        print_verbose('', verbose=self.full_verbose)
+        print_verbose('-=[ BEGIN fit AV ]=---------------------------------------------------', verbose=self.full_verbose)
         # print(f'D_AV = {cf.delta_AV} MIN = {cf.min_AV} MAX = {cf.max_AV}')
         self.best_chi_sq_AV = self.get_last_chi_sq_AV()
         force_update = True
@@ -2353,7 +2353,7 @@ class StPopSynt(object):
         update_parameter_function = lambda x, d: x + d*np.random.random_sample(2)[0]
         for AV, delta_AV in self.loop_par_func(cf.min_AV, cf.max_AV, cf.delta_AV,
                                                update_parameter_function=update_parameter_function):
-            print_verbose(f'AV ----------------------- {AV}', verbose=self.verbose)
+            print_verbose(f'AV ----------------------- {AV}', verbose=self.full_verbose)
             # print(f'AV ----------------------- {AV}')
             n_loops += 1
             self.n_loops_AV += 1
@@ -2370,10 +2370,10 @@ class StPopSynt(object):
             #                                       sigma_inst=self.sigma_inst, R_V=self.R_V, extlaw=self.extlaw)
             self.plot_last(model=model_now, sel=s['sel_AV'], redshift=self.best_redshift, chi_sq=chi_sq, AV=AV, sigma=self.best_sigma)
             # self.plot_last_AV(model_now)
-            print_verbose(f'last_chi_sq -------------- {self.get_last_chi_sq_AV()}', verbose=self.verbose)
-            print_verbose(f'last_coeffs -------------- {self.get_last_coeffs_AV()}', verbose=self.verbose)
-            print_verbose(f'best_chi_sq_AV ----------- {self.best_chi_sq_AV}', verbose=self.verbose)
-            print_verbose(f'best_coeffs_AV ----------- {self.best_coeffs_AV}', verbose=self.verbose)
+            print_verbose(f'last_chi_sq -------------- {self.get_last_chi_sq_AV()}', verbose=self.full_verbose)
+            print_verbose(f'last_coeffs -------------- {self.get_last_coeffs_AV()}', verbose=self.full_verbose)
+            print_verbose(f'best_chi_sq_AV ----------- {self.best_chi_sq_AV}', verbose=self.full_verbose)
+            print_verbose(f'best_coeffs_AV ----------- {self.best_coeffs_AV}', verbose=self.full_verbose)
             if force_update and (chi_sq < self.best_chi_sq_AV):
                 # print(f'force update AV: {AV} chi_sq: {chi_sq}')
                 self.best_chi_sq_AV = chi_sq
@@ -2385,16 +2385,17 @@ class StPopSynt(object):
                     _AV, _e_AV = hyperbolic_fit_par(self.AV_chain, self.chi_sq_AV_chain, verbose=self.verbose)
                     # print<(f'found best: {_AV} chi_sq: {chi_sq}', end=' ')
                     # coeffs_now, chi_sq, msk_model_now = self.fit_WLS_invmat(ssp=ssp, AV=_AV, sel_wavelengths=s['sel_AV'])
-                    print_verbose(f'found min chi_sq ]=-------- ' , verbose=self.verbose)
-                    print_verbose(f'update best chi_sq ]=------ {chi_sq}' , verbose=self.verbose)
+                    print_verbose(f'found min chi_sq ]=-------- ' , verbose=self.full_verbose)
+                    print_verbose(f'update best chi_sq ]=------ {chi_sq}' , verbose=self.full_verbose)
                     # print(f' new chi_sq: {chi_sq}')
                     self.best_chi_sq_AV = fb
-                    print_verbose(f'updating best coeffs ]=---- {coeffs_now}', verbose=self.verbose)
+                    print_verbose(f'updating best coeffs ]=---- {coeffs_now}', verbose=self.full_verbose)
+                    print_verbose(f'updating best coeffs ]=---- {coeffs_now}', verbose=self.full_verbose)
                     self.best_coeffs_AV = coeffs_now
-                    print_verbose(f'updating best AV ]=-------- {_AV}', verbose=self.verbose)
+                    print_verbose(f'updating best AV ]=-------- {_AV}', verbose=self.full_verbose)
                     self.best_AV = _AV
                     force_update = False
-            print_verbose('', verbose=self.verbose)
+            print_verbose('', verbose=self.full_verbose)
         _AV = self.get_last_AV()
         _chi = self.get_last_chi_sq_AV()
         if _AV != self.best_AV:
@@ -2411,13 +2412,13 @@ class StPopSynt(object):
             self.e_AV = cf.delta_AV*0.5
 
         # print(f'AV = {self.best_AV} +- {self.e_AV}')
-        print_verbose(f'n_loops ------------------- {n_loops}', verbose=self.verbose)
-        print_verbose(f'n_loops_AV ---------------- {self.n_loops_AV}', verbose=self.verbose)
-        print_verbose(f'n_loops_nl_fit ------------ {self.n_loops_nl_fit}', verbose=self.verbose)
-        print_verbose(f'best_chi_sq_AV ------------ {self.best_chi_sq_AV}', verbose=self.verbose)
-        print_verbose(f'best_AV ------------------- {self.best_AV}', verbose=self.verbose)
-        print_verbose(f'best_coeffs_AV ------------ {self.best_coeffs_AV}', verbose=self.verbose)
-        print_verbose('-----------------------------------------------------=[ END fit AV ]=-', verbose=self.verbose)
+        print_verbose(f'n_loops ------------------- {n_loops}', verbose=self.full_verbose)
+        print_verbose(f'n_loops_AV ---------------- {self.n_loops_AV}', verbose=self.full_verbose)
+        print_verbose(f'n_loops_nl_fit ------------ {self.n_loops_nl_fit}', verbose=self.full_verbose)
+        print_verbose(f'best_chi_sq_AV ------------ {self.best_chi_sq_AV}', verbose=self.full_verbose)
+        print_verbose(f'best_AV ------------------- {self.best_AV}', verbose=self.full_verbose)
+        print_verbose(f'best_coeffs_AV ------------ {self.best_coeffs_AV}', verbose=self.full_verbose)
+        print_verbose('-----------------------------------------------------=[ END fit AV ]=-', verbose=self.full_verbose)
         self.plot_best(ssp, coeffs=self.best_coeffs_AV, sel=s['sel_AV'], filename='best_AV.png')
         if self.plot > 0:
             if 'matplotlib.pyplot' not in sys.modules:
@@ -2526,8 +2527,8 @@ class StPopSynt(object):
         if stats_res_norm_window[_STATS_POS['pRMS']] > 0:
             SN = stats_model_norm_window[_STATS_POS['mean']]/stats_res_norm_window[_STATS_POS['pRMS']]
         self.SN_norm_window = SN
-        print(f'Normalization window = [{l_wave}, {r_wave}]')
-        print(f'Signal-to-Noise inside normalization window = {SN}')
+        print_verbose(f'Normalization window = [{l_wave}, {r_wave}]',verbose=self.verbose)
+        print_verbose(f'Signal-to-Noise inside normalization window = {SN}',verbose=self.verbose)
 
     def non_linear_fit(self, guide_sigma=False, fit_sigma_rnd=True,
                        sigma_rnd_medres_merit=False, correct_wl_ranges=False):
@@ -2543,14 +2544,14 @@ class StPopSynt(object):
         s = self.spectra
         # if guided_sigma is not None: self.best_sigma = guided_sigma
 
-        print_verbose('', verbose=self.verbose)
-        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
-        print_verbose('--[ BEGIN non-linear fit ]---------------------------------------------', verbose=self.verbose)
+        print_verbose('', verbose=self.full_verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.full_verbose)
+        print_verbose('--[ BEGIN non-linear fit ]---------------------------------------------', verbose=self.full_verbose)
         coeffs_now, chi_sq, msk_model_min = self.fit_WLS_invmat(ssp=ssp, sel_wavelengths=s['sel_AV'])
         # TODO: check mask from med_flux in perl version
         msk_flux = s['raw_flux'][s['sel_AV']]
         med_flux = np.median(msk_flux)
-        print_verbose('-[ non-linear fit report ]-----------------------------', verbose=self.verbose)
+        print_verbose('-[ non-linear fit report ]-----------------------------', verbose=self.full_verbose)
         if self.guided_errors is not None:
             self.best_redshift = cf.redshift
             self.e_redshift = self.guided_errors[0]
@@ -2568,7 +2569,7 @@ class StPopSynt(object):
             else:
                 self.sigma_mean = np.sqrt(self.sigma_inst**2 + (5000*self.best_sigma/__c__)**2)
         else:
-            print(f'Deriving redshift, sigma, AV...')
+            print_verbose(f'Deriving redshift, sigma, AV...', verbose=self.verbose)
             # self.update_redshift_params(coeffs=coeffs_now, chi_sq=chi_sq, redshift=self.best_redshift)
             # self.best_chi_sq_redshift = self.get_last_chi_sq_redshift()
             # self.best_coeffs_redshift = self.get_last_coeffs_redshift()
@@ -2577,7 +2578,7 @@ class StPopSynt(object):
                 self._fit_redshift(correct_wl_ranges=correct_wl_ranges)
                 self.best_chi_sq_nl_fit = self.get_last_chi_sq_redshift()
                 self.best_coeffs_nl_fit = self.get_last_coeffs_redshift()
-            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=True)
+            print_verbose(f'- Redshift: {self.best_redshift:.8f} +- {self.e_redshift:.8f}', verbose=self.verbose)
             # self.correct_elines_mask(redshift=self.best_redshift)
             self.redshift_correct_masks(redshift=self.best_redshift, correct_wl_ranges=correct_wl_ranges)
             coeffs_now, chi_sq, _ = self.fit_WLS_invmat(ssp=ssp, smooth_cont=True, sel_wavelengths=s['sel_nl_wl'])
@@ -2586,13 +2587,13 @@ class StPopSynt(object):
                 if not fit_sigma_rnd:
                     self._fit_sigma(guided=guide_sigma)
                 else:
-                    print_verbose(f'- fit_sigma_rnd', verbose=True)
+                    print_verbose(f'- fit_sigma_rnd', verbose=self.verbose)
                     self._fit_sigma_rnd(guided=guide_sigma,
                                         medres_merit=sigma_rnd_medres_merit)
                 # self._fit_sigma(guided_sigma)
                 self.best_chi_sq_nl_fit = self.get_last_chi_sq_sigma()
                 self.best_coeffs_nl_fit = self.get_last_coeffs_sigma()
-            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=True)
+            print_verbose(f'- Sigma:    {self.best_sigma:.8f} +- {self.e_sigma:.8f}', verbose=self.verbose)
             if self.sigma_inst is None:
                 self.sigma_mean = self.best_sigma
             else:
@@ -2601,15 +2602,15 @@ class StPopSynt(object):
                 self._fit_AV()
                 self.best_chi_sq_nl_fit = self.get_last_chi_sq_AV()
                 self.best_coeffs_nl_fit = self.get_last_coeffs_AV()
-            print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=True)
+            print_verbose(f'- AV:       {self.best_AV:.8f} +- {self.e_AV:.8f}', verbose=self.verbose)
             print(f'Deriving redshift, sigma, AV... DONE!')
         self.best_chi_sq_nl_fit = chi_sq
         self.best_coeffs_nl_fit = coeffs_now
-        print_verbose('------------------------[ END non-linear fit report]--', verbose=self.verbose)
+        print_verbose('------------------------[ END non-linear fit report]--', verbose=self.full_verbose)
 
-        print_verbose('', verbose=self.verbose)
-        print_verbose('-----------------------------------------------[ END non-linear fit ]--', verbose=self.verbose)
-        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
+        print_verbose('', verbose=self.full_verbose)
+        print_verbose('-----------------------------------------------[ END non-linear fit ]--', verbose=self.full_verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.full_verbose)
         # plt.show(block=True)
 
     def _subtract_continuum(self, model, ratio_range=None, ratio_std=None):
@@ -2750,7 +2751,7 @@ class StPopSynt(object):
             half_range_sysvel = __selected_half_range_sysvel_auto_ssp__
 
         if correct_wl_range > 2:
-            print(f'{basename(sys.argv[0])}: [StPopSynth._EL_fit()]: {correct_wl_range}: correct mode not recognized. Setting up to zero.')
+            print_verbose(f'{basename(sys.argv[0])}: [StPopSynth._EL_fit()]: {correct_wl_range}: correct mode not recognized. Setting up to zero.', verbose=self.verbose)
             correct_wl_range = 0
 
         self.systemic_velocity = __c__*self.best_redshift
@@ -2758,7 +2759,7 @@ class StPopSynt(object):
         self.n_models_elines = 0
         if not self.fit_gas:
             return
-        print('Gas fit...')
+        print_verbose('Gas fit...', verbose=self.verbose)
         model_elines = np.zeros(self.spectra['raw_flux'].shape)
         n_models = 0
         for i_s, (els, els_config) in enumerate(zip(self.config.systems, self.config.systems_config)):
@@ -2794,7 +2795,7 @@ class StPopSynt(object):
                     # _end_w = _e_wl*(1 + _z)
                 start_w_corr = _start_w*z_fact
                 end_w_corr = _end_w*z_fact
-            print(f'-> analyzing {els_config.n_models} {_m_str} in {start_w_corr}-{end_w_corr} wavelength range')
+            print_verbose(f'-> analyzing {els_config.n_models} {_m_str} in {start_w_corr}-{end_w_corr} wavelength range', verbose=self.full_verbose)
 
             # number of models different from 'poly1d'
             n_models += np.sum(list(map(lambda x: x != 'poly1d', els_config.model_types)))
@@ -2810,9 +2811,9 @@ class StPopSynt(object):
                     _m = np.loadtxt(mask_file)
                     sel_wl_masks = sel_waves(_m, wave_elines)
                 else:
-                    print(f'{basename(sys.argv[0])}: [StPopSynth._EL_fit()]: {mask_file}: mask list file not found')
+                    print_verbose(f'{basename(sys.argv[0])}: [StPopSynth._EL_fit()]: {mask_file}: mask list file not found', verbose=self.full_verbose)
             else:
-                print(f'{basename(sys.argv[0])}: [StPopSynth._EL_fit()]: no mask list file')
+                print_verbose(f'{basename(sys.argv[0])}: [StPopSynth._EL_fit()]: no mask list file', verbose=self.full_verbose)
 
             flux_elines = flux_elines[sel_wl_range & sel_wl_masks]
             eflux_elines = eflux_elines[sel_wl_range & sel_wl_masks]
@@ -2850,6 +2851,7 @@ class StPopSynt(object):
                 #
                 run_mode='BOTH',
                 update_config_frac_range=0.25,
+                verbose=self.verbose
             )
 
             # saving EmissionLinesLM system to self.config.systems[i]['EL']
@@ -2862,7 +2864,7 @@ class StPopSynt(object):
 
         # create joint spectrum
         self.spectra['raw_model_elines'] = model_elines
-        print('Gas fit... DONE!');
+        print_verbose('Gas fit... DONE!', verbose=self.verbose)
         self.n_models_elines = n_models
 
     def _rescale(self, model_min, ratio_range=None, ratio_std=None):
@@ -2947,9 +2949,9 @@ class StPopSynt(object):
         ssp = self.models
         sigma_mean = self.sigma_mean
 
-        print_verbose('', verbose=self.verbose)
-        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
-        print_verbose('--[ BEGIN EL fit ]-----------------------------------------------------', verbose=self.verbose)
+        print_verbose('', verbose=self.full_verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.full_verbose)
+        print_verbose('--[ BEGIN EL fit ]-----------------------------------------------------', verbose=self.full_verbose)
 
         model_min = self.get_best_model_from_coeffs(ssp=ssp, coeffs=self.get_last_coeffs_ssp())
 
@@ -3388,17 +3390,15 @@ class StPopSynt(object):
                                             parameters=[np.zeros_like(x) for x in elcf.guess],
                                             e_parameters=[np.zeros_like(x) for x in elcf.guess],
                                             spec_id=spec_id, append_output=append)
-    def output_gas_emission_return(self, filename, spec_id=None, append=True):
+                    
+    def output_gas_emission_return(self):
         if self.fit_gas:
             for system, elcf in zip(self.config.systems, self.config.systems_config):
                 EL = system['EL']
                 if EL is not None:
                     EL.output(filename_output=filename, spec_id=spec_id, append_output=append)
                 else:
-                    output_config_final_fit(elcf, filename, chi_sq=np.nan,
-                                            parameters=[np.zeros_like(x) for x in elcf.guess],
-                                            e_parameters=[np.zeros_like(x) for x in elcf.guess],
-                                            spec_id=spec_id, append_output=append)
+                    print_verbose('No emission line system fitted for this configuration.', verbose=self.verbose)
 
     def output_coeffs_MC_to_screen(self):
         cols = 'ID,AGE,MET,COEFF,Min.Coeff,log(M/L),AV,N.Coeff,Err.Coeff'
@@ -3434,9 +3434,9 @@ class StPopSynt(object):
             tbl_row.append(self.coeffs_ssp_MC_rms[i])  # a_e_coeffs
             tbl_row.append(self.coeffs_input_MC[i])  # ???
             tbl_row.append(self.coeffs_input_MC_rms[i])  # ???
-            print(fmt_numbers.format(*tbl_row))
-        print(tbl_border)
-
+            print_verbose(fmt_numbers.format(*tbl_row), verbose=self.verbose)
+        print_verbose(tbl_border, verbose=self.verbose)
+    
     def output_coeffs_MC(self, filename, write_header=True):
         """
         Outputs the SSP coefficients table to the screen and to the output file `filename`.
@@ -3457,7 +3457,7 @@ class StPopSynt(object):
         fmt_numbers_out_coeffs = '{:=04d}\t{:=7.4f}\t{:=6.4f}\t{:=6.4f}\t{:=9.4f}\t{:=8.4f}\t{:=4.2f}\t{:=7.4f}\t{:=9.4f}'
 
         if write_header:
-            print(f'#{cols_out_coeffs}', file=f_out_coeffs)
+            print_verbose(f'#{cols_out_coeffs}', file=f_out_coeffs)
 
         for i in range(self.ssp.n_models):
             try:
@@ -3547,6 +3547,32 @@ class StPopSynt(object):
         h['NAME5'] = 'no_gas_spec'
         h['COMMENT'] = f'OUTPUT {basename(sys.argv[0])} FITS'
         write_img_header(filename, list(h.keys()), list(h.values()))
+
+    def output_fits_hdu(self):
+        """
+        Generate the FITS HDU with the output spectra (original, model, residual and joint).
+
+        Parameters
+        ----------
+        filename : str
+            Output FITS filename.
+        """
+        s = self.spectra
+        table = np.array(self.output_spectra_list)
+        hdu = array_to_hdu('output_spectra', table, overwrite=True)
+        h = {}
+        h['CRPIX1'] = 1
+        h['CRVAL1'] = s['raw_wave'][0]
+        h['CDELT1'] = s['raw_wave'][1] - s['raw_wave'][0]
+        h['NAME0'] = 'org_spec'
+        h['NAME1'] = 'model_spec'
+        h['NAME2'] = 'mod_joint_spec'
+        h['NAME3'] = 'gas_spec'
+        h['NAME4'] = 'res_joint_spec'
+        h['NAME5'] = 'no_gas_spec'
+        h['COMMENT'] = f'OUTPUT {basename(sys.argv[0])} FITS'
+        hdu[0].header.update(h)
+        return hdu
 
     def _print_header(self, filename):
         """
@@ -3914,9 +3940,9 @@ class StPopSynt(object):
     def ssp_single_fit(self):
         models = self.models
 
-        print_verbose('', verbose=self.verbose)
-        print_verbose('-----------------------------------------------------------------------', verbose=self.verbose)
-        print_verbose('--[ BEGIN non-linear fit ]---------------------------------------------', verbose=self.verbose)
+        print_verbose('', verbose=self.full_verbose)
+        print_verbose('-----------------------------------------------------------------------', verbose=self.full_verbose)
+        print_verbose('--[ BEGIN non-linear fit ]---------------------------------------------', verbose=self.full_verbose)
 
         sigma_inst = self.sigma_inst
         sigma = self.best_sigma

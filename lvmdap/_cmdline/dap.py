@@ -11,6 +11,7 @@
 
 '''
 ##############################################################################
+#                                                                            #
 # START: Import required packages                                            #
 ##############################################################################
 '''
@@ -19,7 +20,14 @@
 # Defining the number of cores to to use in paralelization      #
 #################################################################
 
-import sys, os
+from email import parser
+from logging import config
+import sys,os
+from unittest import result
+
+from lvmdap import config
+from lvmdap.pyFIT3D.common.tools import peak_finder 
+
 import wave
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -49,15 +57,15 @@ import yaml
 from lvmdap.pyFIT3D.common.io import clean_preview_results_files, print_time
 from lvmdap.modelling.auto_rsp_tools import auto_rsp_elines_single_main
 from lvmdap.pyFIT3D.common.io import trim_waves, write_img_header
-from lvmdap.pyFIT3D.common.gas_tools import detect_create_ConfigEmissionModel
+from lvmdap.pyFIT3D.common.gas_tools import detect_create_ConfigEmissionModel, kin_rss_elines_main_return
 from lvmdap.pyFIT3D.common.io import create_ConfigAutoSSP_from_lists
 from lvmdap.pyFIT3D.common.io import create_emission_lines_file_from_list
 from lvmdap.pyFIT3D.common.io import create_emission_lines_mask_file_from_list
 from lvmdap.pyFIT3D.common.gas_tools import kin_rss_elines_main
 from lvmdap.pyFIT3D.common.constants import __c__, __Ha_central_wl__, _MODELS_ELINE_PAR
 from lvmdap.modelling.synthesis import StellarSynthesis
-from lvmdap.dap_tools import load_LVM_rss, read_PT, plot_spec, read_rsp
-from lvmdap.dap_tools import plot_spec_art, Table_mean_rows
+from lvmdap.dap_tools import find_redshift_elines, load_LVM_rss, print_solution, read_PT, plot_spec, read_rsp
+from lvmdap.dap_tools import plot_spec_art, plot_spec_art_hdu, Table_mean_rows
 from lvmdap.dap_tools import load_LVMSIM_rss, read_LVMSIM_PT
 from lvmdap.dap_tools import load_in_rss, read_MaStar_PT
 from lvmdap.dap_tools import plot_spectra, read_coeffs_RSP, read_elines_RSP, read_tab_EL
@@ -70,12 +78,16 @@ from lvmdap.dap_tools import find_closest_indices_different
 from lvmdap.dap_tools import get_DAP_tab
 from lvmdap.flux_elines_tools import flux_elines_RSS_EW_cl
 from lvmdap.dap_tools import read_DAP_file,map_plot_DAP,nanaverage,find_closest_indices
-from lvmdap.pyFIT3D.common.io import array_to_fits, trim_waves, write_img_header
+from lvmdap.pyFIT3D.common.io import array_to_fits, trim_waves, write_img_header, array_to_hdu
 from lvmdap.dap_tools import eline, get_X_sq_out_mod
 from lvmdap.modelling.auto_rsp_tools import auto_rsp_elines_rnd
-
-
-
+from lvmdap.dap_tools import decompose_spectrum
+from lvmdap.dap_tools import find_redshift_elines,print_solution
+from lvmdap.dap_tools import find_redshift_weights,running_std_spec
+from lvmdap.dap_tools import median_fit_spectrum,fit_emission_line_system
+from lvmdap.pyFIT3D.common.io import print_verbose
+from lvmdap.dap_tools import process_elines_spec, cluster_emission_lines
+from astropy.table import vstack as tab_vstack
 
 ####################################################################
 # Define the default values for the fitting using pyFIT3D          #
@@ -277,7 +289,19 @@ def load_input_data(args, ny_range=None, nx_range=None,
         LSF_mean
     )
 #---------------------------------------------------------------
+def str_to_bool(value):
+    if isinstance(value, bool):
+        return value
 
+    if str(value).lower() in ('true', 'yes', '1', 'on'):
+        return True
+
+    if str(value).lower() in ('false', 'no', '0', 'off'):
+        return False
+
+    raise argparse.ArgumentTypeError(
+        f"Invalid Boolean value: {value}"
+    )
 
 def parse_dap_arguments(cmd_args=None):
     """
@@ -340,9 +364,27 @@ def parse_dap_arguments(cmd_args=None):
 
     parser.add_argument(
         "--plot",
-        type=int,
+        type=np.int64,
         default=0,
         help="Plot mode: 0=no plot, 1=interactive, 2=save to file"
+    )
+
+    parser.add_argument(
+        "--verbose",
+        type=str_to_bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="Enable verbose output (True/False)"
+    )
+
+    parser.add_argument(
+        "--full_verbose",
+        type=str_to_bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="Enable full verbose output (True/False)"
     )
 
     # ---------------------------------------------------------
@@ -468,6 +510,7 @@ def initialize_dap_parameters(args):
         'w_range_FE': 30,
         'smooth_size': 21,
         'n_leg': 11,
+        "verbose": False,
     }
 
     # ---------------------------------------------------------
@@ -758,13 +801,1325 @@ def prepare_integrated_spectrum(m_flux, e_flux, smooth_box=51):
     return m_flux, e_flux, s_flux, m_flux_SN, m_flux_rss
 
 
+#-------------------------------------------------------------------------
+# Detection of redshift
+#-------------------------------------------------------------------------
+
+
+REFERENCE_LINES = {
+    "[OII]3726": 3726.03,
+    "[OII]3729": 3728.82,
+    "Hepsilon": 3970.07,
+    "Hdelta": 4101.77,
+    "Hgamma": 4340.49,
+    "HeII4686": 4685.68,
+    "Hbeta": 4861.36,
+    "[OIII]4959": 4958.91,
+    "[OIII]5007": 5006.84,
+    "[OI]6300": 6300.30,
+    "[NII]6548": 6548.05,
+    "Halpha": 6562.85,
+    "[NII]6583": 6583.45,
+    "HeI6678": 6678.15,
+    "[SII]6716": 6716.44,
+    "[SII]6731": 6730.82,
+    "[ArV]7006": 7005.67,
+    "[SIII]9069": 9068.62,
+    "[SIII]9531": 9530.62,
+}
+
+LINE_WEIGHTS = {
+    "[OII]3726": 1.5,
+    "[OII]3729": 1.5,
+    "Hepsilon": 0.8,
+    "Hdelta": 1.0,
+    "Hgamma": 1.2,
+    "HeII4686": 1.0,
+    "Hbeta": 2.5,
+    "[OIII]4959": 2.0,
+    "[OIII]5007": 3.0,
+    "[OI]6300": 1.2,
+    "[NII]6548": 1.5,
+    "Halpha": 3.0,
+    "[NII]6583": 2.5,
+    "HeI6678": 0.8,
+    "[SII]6716": 1.8,
+    "[SII]6731": 1.8,
+    "[ArV]7006": 0.6,
+    "[SIII]9069": 1.8,
+    "[SIII]9531": 2.3,
+}
+
+LINE_GROUPS = [
+    (
+        "OII_doublet",
+        ["[OII]3726", "[OII]3729"],
+        2.0,
+    ),
+    (
+        "OIII_doublet",
+        ["[OIII]4959", "[OIII]5007"],
+        3.0,
+    ),
+    (
+        "Halpha_NII_complex",
+        ["[NII]6548", "Halpha", "[NII]6583"],
+        4.0,
+    ),
+    (
+        "SII_doublet",
+        ["[SII]6716", "[SII]6731"],
+        2.5,
+    ),
+    (
+        "SIII_doublet",
+        ["[SIII]9069", "[SIII]9531"],
+        2.5,
+    ),
+]
+
+
+def estimate_integrated_redshift(
+    wl__w,
+    int_flux_cw,
+    e_flux,
+    args,
+    m_flux_SN=None
+):
+    """
+    Estimate redshift from the continuum-weighted integrated spectrum.
+
+    Uses spectral decomposition, emission-line peak detection,
+    and weighted emission-line matching with group bonuses.
+
+    Parameters
+    ----------
+    wl__w : ndarray
+        Observed wavelength array in Angstrom.
+    int_flux_cw : ndarray
+        Continuum-weighted integrated spectrum.
+    e_flux : ndarray
+        Error spectrum associated with the integrated spectrum.
+    args : argparse.Namespace
+        DAP configuration parameters.
+    m_flux_SN : float, optional
+        Integrated spectrum S/N diagnostic.
+
+    Returns
+    -------
+    args : argparse.Namespace
+        Updated DAP configuration.
+    out_decompose_flux_rss : dict
+        Results of spectral decomposition.
+    find_z_out_w : sequence
+        Ranked weighted-redshift solutions.
+    z_guess : float
+        Best estimated redshift, or configured fallback.
+    """
+
+    print('# Searching for the guess redshift using the integrated spectrum...')
+
+    # ---------------------------------------------------------
+    # 1. Initialize configuration
+    # ---------------------------------------------------------
+
+    n_narrow = int(getattr(args, "n_narrow", 3))
+    n_medium = int(getattr(args, "n_medium", 5))
+    n_broad = int(getattr(args, "n_broad", 21))
+    n_iter = int(getattr(args, "n_iter", 5))
+
+    peak_threshold = float(getattr(args, "peak_threshold", 1))
+    n_cut_peaks = float(getattr(args, "n_cut_peaks", 2))
+
+    velocity_tolerance = float(
+        getattr(args, "velocity_tolerance", 15.0)
+    )
+    min_matches = int(getattr(args, "min_matches", 3))
+
+    auto_redshift = getattr(args, "auto_redshift", False)
+
+    z_min = args.auto_z_min
+    z_max = args.auto_z_max
+
+    print(
+        f'# Using n_narrow={n_narrow}, '
+        f'n_medium={n_medium}, '
+        f'n_broad={n_broad}, '
+        f'n_iter={n_iter}'
+    )
+
+    # ---------------------------------------------------------
+    # 2. Decompose integrated spectrum
+    # ---------------------------------------------------------
+
+    print(
+        '# Decomposing the integrated spectrum '
+        'background and emission lines...'
+    )
+
+    out_decompose_flux_rss = decompose_spectrum(
+        wl__w,
+        int_flux_cw,
+        n_narrow=n_narrow,
+        n_medium=n_medium,
+        n_broad=n_broad,
+        n_iter=n_iter
+    )
+
+    # ---------------------------------------------------------
+    # 3. Find emission-line peaks
+    # ---------------------------------------------------------
+
+    print(
+        '# Decomposition finished. Searching for peaks '
+        'in the emission-line spectrum...'
+    )
+
+    i_peak, peaks, w_peaks, f_peaks = peak_finder(
+        wl__w,
+        out_decompose_flux_rss["eline_only"],
+        2,
+        peak_threshold=peak_threshold,
+        dmin=0.3,
+        plot=args.plot,
+        verbose=args.verbose
+    )
+
+    w_peaks = np.asarray(w_peaks)
+    f_peaks = np.asarray(f_peaks)
+
+    # ---------------------------------------------------------
+    # 4. Select significant emission-line peaks
+    # ---------------------------------------------------------
+
+    peak_indices = np.array([
+        np.argmin(np.abs(wl__w - w))
+        for w in w_peaks
+    ], dtype=int)
+
+    mask_good_peaks = (
+        np.isfinite(w_peaks) &
+        np.isfinite(f_peaks) &
+        (f_peaks > 0) &
+        (f_peaks > e_flux[peak_indices] * n_cut_peaks)
+    )
+
+    n_good_peaks = np.count_nonzero(mask_good_peaks)
+
+    print(
+        f'# Found {len(w_peaks)} peaks, '
+        f'{n_good_peaks} are above the threshold '
+        f'of {n_cut_peaks} times the error spectrum'
+    )
+
+    obs_waves = w_peaks[mask_good_peaks]
+
+    # ---------------------------------------------------------
+    # 5. Prepare reference emission lines
+    # ---------------------------------------------------------
+
+    rest_names = list(REFERENCE_LINES.keys())
+
+    rest_waves = np.array(
+        list(REFERENCE_LINES.values()),
+        dtype=float
+    )
+    #print(f'# Observed peaks wavelengths: {obs_waves}')
+    #print(f'# Reference lines: {rest_waves}')
+
+    # ---------------------------------------------------------
+    # 6. Weighted redshift search
+    # ---------------------------------------------------------
+
+    print('# Searching for weighted redshift solutions...')
+    print(f'# Redshift interval: {z_min}, {z_max}')
+    print(f'# Velocity tolerance: {velocity_tolerance} km/s')
+    print(f'# Minimum line matches: {min_matches}')
+
+    print(f'{z_min} < z < {z_max}, {velocity_tolerance} km/s, {min_matches} matches')
+    if len(obs_waves) >= min_matches:
+
+        find_z_out_w = find_redshift_weights(
+            rest_waves=rest_waves,
+            obs_waves=obs_waves,
+            rest_names=rest_names,
+            line_weights=LINE_WEIGHTS,
+            line_groups=LINE_GROUPS,
+            zmin=z_min,
+            zmax=z_max,
+            velocity_tolerance=velocity_tolerance,
+            min_matches=min_matches
+        )
+
+    else:
+
+        print(
+            '# Insufficient significant peaks for '
+            'weighted redshift determination'
+        )
+
+        find_z_out_w = []
+
+    # ---------------------------------------------------------
+    # 7. Report the best solutions
+    # ---------------------------------------------------------
+
+    print(f'# Number of redshift solutions: {len(find_z_out_w)}')
+
+    for rank, solution in enumerate(find_z_out_w[:5], start=1):
+        print_solution(solution, rank)
+
+    # ---------------------------------------------------------
+    # 8. Select best redshift
+    # ---------------------------------------------------------
+
+    if len(find_z_out_w) > 0:
+
+        best_solution = find_z_out_w[0]
+        z_guess = best_solution.z
+
+        print(f'# Best weighted solution:')
+        print(f'# Redshift = {best_solution.z}')
+        print(f'# Velocity = {best_solution.velocity_kms} km/s')
+        print(f'# RMS = {best_solution.rms_velocity_kms} km/s')
+
+    else:
+ 
+        z_guess = args.redshift[0]
+
+        print(
+            '# No weighted redshift solution found. '
+            f'Using input redshift: {z_guess}'
+        )
+
+    print(f'# Guess redshift = {z_guess}')
+
+    # ---------------------------------------------------------
+    # 9. Update DAP parameters if requested
+    # ---------------------------------------------------------
+
+    if auto_redshift:
+
+        auto_z = z_guess
+
+        args.redshift[0] = auto_z
+        delta_redshift = args.redshift[3] - args.redshift[2]
+        args.redshift[2] = auto_z - delta_redshift / 2
+        args.redshift[3] = auto_z + delta_redshift / 2
+
+        args.w_range_nl[0] *= (1 + auto_z)
+        args.w_range_nl[1] *= (1 + auto_z)
+
+        print(f'# Adopted automatic redshift: {auto_z}')
+        print(f'# Updated redshift limits: {args.redshift[2:4]}')
+        print(f'# Updated NL wavelength range: {args.w_range_nl}')
+
+    else:
+
+        print(
+            '# Automatic redshift disabled. '
+            f'Keeping input redshift: {args.redshift[0]}'
+        )
+
+    return args, out_decompose_flux_rss, find_z_out_w, z_guess
+
+
+
+
+
+
+
+def estimate_integrated_redshift(
+    wl__w,
+    int_flux_cw,
+    e_flux,
+    args,
+    m_flux_SN=None
+):
+    """
+    Estimate redshift from the continuum-weighted integrated spectrum.
+
+    Uses spectral decomposition, emission-line peak detection,
+    and weighted emission-line matching with group bonuses.
+
+    Parameters
+    ----------
+    wl__w : ndarray
+        Observed wavelength array in Angstrom.
+    int_flux_cw : ndarray
+        Continuum-weighted integrated spectrum.
+    e_flux : ndarray
+        Error spectrum associated with the integrated spectrum.
+    args : argparse.Namespace
+        DAP configuration parameters.
+    m_flux_SN : float, optional
+        Integrated spectrum S/N diagnostic.
+
+    Returns
+    -------
+    args : argparse.Namespace
+        Updated DAP configuration.
+    out_decompose_flux_rss : dict
+        Results of spectral decomposition.
+    find_z_out_w : sequence
+        Ranked weighted-redshift solutions.
+    z_guess : float
+        Best estimated redshift, or configured fallback.
+    """
+
+    print('# Searching for the guess redshift using the integrated spectrum...')
+
+    # ---------------------------------------------------------
+    # 1. Initialize configuration
+    # ---------------------------------------------------------
+
+    n_narrow = int(getattr(args, "n_narrow", 3))
+    n_medium = int(getattr(args, "n_medium", 5))
+    n_broad = int(getattr(args, "n_broad", 21))
+    n_iter = int(getattr(args, "n_iter", 5))
+
+    peak_threshold = float(getattr(args, "peak_threshold", 1))
+    n_cut_peaks = float(getattr(args, "n_cut_peaks", 2))
+
+    velocity_tolerance = float(
+        getattr(args, "velocity_tolerance", 15.0)
+    )
+    min_matches = int(getattr(args, "min_matches", 3))
+
+    auto_redshift = getattr(args, "auto_redshift", False)
+
+    z_min = args.auto_z_min
+    z_max = args.auto_z_max
+
+    print(
+        f'# Using n_narrow={n_narrow}, '
+        f'n_medium={n_medium}, '
+        f'n_broad={n_broad}, '
+        f'n_iter={n_iter}'
+    )
+
+    # ---------------------------------------------------------
+    # 2. Decompose integrated spectrum
+    # ---------------------------------------------------------
+
+    print(
+        '# Decomposing the integrated spectrum '
+        'background and emission lines...'
+    )
+
+    out_decompose_flux_rss = decompose_spectrum(
+        wl__w,
+        int_flux_cw,
+        n_narrow=n_narrow,
+        n_medium=n_medium,
+        n_broad=n_broad,
+        n_iter=n_iter
+    )
+
+    # ---------------------------------------------------------
+    # 3. Find emission-line peaks
+    # ---------------------------------------------------------
+
+    print(
+        '# Decomposition finished. Searching for peaks '
+        'in the emission-line spectrum...'
+    )
+
+    i_peak, peaks, w_peaks, f_peaks = peak_finder(
+        wl__w,
+        out_decompose_flux_rss["eline_only"],
+        2,
+        peak_threshold=peak_threshold,
+        dmin=0.3,
+        plot=args.plot,
+        verbose=0
+    )
+
+    w_peaks = np.asarray(w_peaks)
+    f_peaks = np.asarray(f_peaks)
+
+    # ---------------------------------------------------------
+    # 4. Select significant emission-line peaks
+    # ---------------------------------------------------------
+
+    peak_indices = np.array([
+        np.argmin(np.abs(wl__w - w))
+        for w in w_peaks
+    ], dtype=int)
+
+    mask_good_peaks = (
+        np.isfinite(w_peaks) &
+        np.isfinite(f_peaks) &
+        (f_peaks > 0) &
+        (f_peaks > e_flux[peak_indices] * n_cut_peaks)
+    )
+
+    n_good_peaks = np.count_nonzero(mask_good_peaks)
+
+    print(
+        f'# Found {len(w_peaks)} peaks, '
+        f'{n_good_peaks} are above the threshold '
+        f'of {n_cut_peaks} times the error spectrum'
+    )
+
+    obs_waves = w_peaks[mask_good_peaks]
+
+    # ---------------------------------------------------------
+    # 5. Prepare reference emission lines
+    # ---------------------------------------------------------
+
+    rest_names = list(REFERENCE_LINES.keys())
+
+    rest_waves = np.array(
+        list(REFERENCE_LINES.values()),
+        dtype=float
+    )
+
+    # ---------------------------------------------------------
+    # 6. Weighted redshift search
+    # ---------------------------------------------------------
+
+    print('# Searching for weighted redshift solutions...')
+    print(f'# Redshift interval: {z_min}, {z_max}')
+    print(f'# Velocity tolerance: {velocity_tolerance} km/s')
+    print(f'# Minimum line matches: {min_matches}')
+
+#    print(f'# Reference line wavelengths: {rest_waves}')
+#    print(f'# Observed peak wavelengths: {obs_waves}')
+
+
+    if len(obs_waves) >= min_matches:
+
+        find_z_out_w = find_redshift_weights(
+            rest_waves=rest_waves,
+            obs_waves=obs_waves,
+            rest_names=rest_names,
+            line_weights=LINE_WEIGHTS,
+            line_groups=LINE_GROUPS,
+            zmin=z_min,
+            zmax=z_max,
+            velocity_tolerance=velocity_tolerance,
+            min_matches=min_matches
+        )
+
+    else:
+
+        print(
+            '# Insufficient significant peaks for '
+            'weighted redshift determination'
+        )
+
+        find_z_out_w = []
+
+    # ---------------------------------------------------------
+    # 7. Report the best solutions
+    # ---------------------------------------------------------
+
+    print(f'# Number of redshift solutions: {len(find_z_out_w)}')
+
+    for rank, solution in enumerate(find_z_out_w[:5], start=1):
+        print_solution(solution, rank)
+
+    # ---------------------------------------------------------
+    # 8. Select best redshift
+    # ---------------------------------------------------------
+
+    if len(find_z_out_w) > 0:
+
+        best_solution = find_z_out_w[0]
+        z_guess = best_solution.z
+
+        print(f'# Best weighted solution:')
+        print(f'# Redshift = {best_solution.z}')
+        print(f'# Velocity = {best_solution.velocity_kms} km/s')
+        print(f'# RMS = {best_solution.rms_velocity_kms} km/s')
+
+    else:
+
+        z_guess = args.redshift[0]
+
+        print(
+            '# No weighted redshift solution found. '
+            f'Using input redshift: {z_guess}'
+        )
+
+    print(f'# Guess redshift = {z_guess}')
+
+    # ---------------------------------------------------------
+    # 9. Update DAP parameters if requested
+    # ---------------------------------------------------------
+
+    if auto_redshift:
+
+        auto_z = z_guess
+
+        args.redshift[0] = auto_z
+        delta_redshift = args.redshift[3] - args.redshift[2]
+        args.redshift[2] = auto_z - delta_redshift / 2
+        args.redshift[3] = auto_z + delta_redshift / 2
+
+#        args.w_range_nl[0] *= (1 + auto_z)
+#        args.w_range_nl[1] *= (1 + auto_z)
+
+        print(f'# Adopted automatic redshift: {auto_z}')
+        print(f'# Updated redshift limits: {args.redshift[2:4]}')
+        print(f'# Updated NL wavelength range: {args.w_range_nl}')
+
+    else:
+
+        print(
+            '# Automatic redshift disabled. '
+            f'Keeping input redshift: {args.redshift[0]}'
+        )
+
+    return args, out_decompose_flux_rss, find_z_out_w, z_guess
+
+
+def estimate_integrated_redshift_NW(
+    wl__w,
+    int_flux_cw,
+    e_flux,
+    tab_el_strong,
+    args,
+    m_flux_SN=None
+):
+    """
+    Estimate the redshift from emission-line peaks in the
+    continuum-weighted integrated spectrum.
+
+    The function:
+      1. Decomposes the integrated spectrum.
+      2. Detects peaks in the emission-line component.
+      3. Selects peaks above the error threshold.
+      4. Matches observed peaks to known emission lines.
+      5. Updates the fitting parameters if auto_redshift is enabled.
+
+    Parameters
+    ----------
+    wl__w : ndarray
+        Observed wavelength array in Angstrom.
+    int_flux_cw : ndarray
+        Continuum-weighted integrated spectrum.
+    e_flux : ndarray
+        Error spectrum associated with the integrated spectrum.
+    tab_el_strong : astropy.table.Table
+        Table containing the rest wavelengths ('wl') and
+        identifiers ('id') of strong emission lines.
+    args : argparse.Namespace
+        DAP configuration parameters.
+    m_flux_SN : float, optional
+        Integrated spectrum S/N diagnostic.
+
+    Returns
+    -------
+    args : argparse.Namespace
+        Configuration with potentially updated redshift
+        and nonlinear fitting wavelength ranges.
+    out_decompose_flux_rss : dict
+        Spectral decomposition results.
+    find_z_out : sequence
+        Candidate redshift solutions.
+    auto_z : float
+        Estimated or adopted redshift.
+    """
+
+    # ---------------------------------------------------------
+    # 1. Initialize parameters
+    # ---------------------------------------------------------
+
+    print('# Searching for the guess redshift using the integrated spectrum...')
+
+    n_narrow = int(getattr(args, "n_narrow", 3))
+    n_medium = int(getattr(args, "n_medium", 5))
+    n_broad = int(getattr(args, "n_broad", 21))
+    n_iter = int(getattr(args, "n_iter", 5))
+
+    peak_threshold = float(getattr(args, "peak_threshold", 1))
+    n_cut_peaks = float(getattr(args, "n_cut_peaks", 2))
+
+    auto_redshift = getattr(args, "auto_redshift", False)
+
+    print(
+        f'# Using n_narrow={n_narrow}, '
+        f'n_medium={n_medium}, '
+        f'n_broad={n_broad}, '
+        f'n_iter={n_iter}'
+    )
+
+    # ---------------------------------------------------------
+    # 2. Decompose the integrated spectrum
+    # ---------------------------------------------------------
+
+    print(
+        '# Decomposing the integrated spectrum '
+        'background and emission lines...'
+    )
+
+    out_decompose_flux_rss = decompose_spectrum(
+        wl__w,
+        int_flux_cw,
+        n_narrow=n_narrow,
+        n_medium=n_medium,
+        n_broad=n_broad,
+        n_iter=n_iter
+    )
+
+    # ---------------------------------------------------------
+    # 3. Find emission-line peaks
+    # ---------------------------------------------------------
+
+    print(
+        '# Decomposition finished. Searching for peaks '
+        'in the emission line spectrum...'
+    )
+
+    i_peak, peaks, w_peaks, f_peaks = peak_finder(
+        wl__w,
+        out_decompose_flux_rss["eline_only"],
+        2,
+        peak_threshold=peak_threshold,
+        dmin=0.3,
+        plot=args.plot,
+        verbose=0
+    )
+
+    # ---------------------------------------------------------
+    # 4. Select statistically significant peaks
+    # ---------------------------------------------------------
+
+    peak_indices = np.array([
+        np.argmin(np.abs(wl__w - w))
+        for w in w_peaks
+    ], dtype=int)
+
+    mask_good_peaks = (
+        (f_peaks > 0) &
+        (f_peaks > e_flux[peak_indices] * n_cut_peaks)
+    )
+
+    n_good_peaks = np.count_nonzero(mask_good_peaks)
+
+    print(
+        f'# Found {len(w_peaks)} peaks, '
+        f'{n_good_peaks} are above the threshold '
+        f'of {n_cut_peaks} times the error spectrum'
+    )
+
+    # ---------------------------------------------------------
+    # 5. Identify emission lines and estimate redshift
+    # ---------------------------------------------------------
+
+    find_z_out = find_redshift_elines(
+        rest_waves=tab_el_strong['wl'],
+        obs_waves=w_peaks[mask_good_peaks],
+        rest_names=tab_el_strong['id'],
+        zmin=args.auto_z_min,
+        zmax=args.auto_z_max,
+        velocity_tolerance=15,
+        min_matches=1
+    )
+
+    print(
+        f'# Redshift search range: '
+        f'{args.auto_z_min}, {args.auto_z_max}'
+    )
+
+    if len(find_z_out) > 0:
+
+        best_solution = find_z_out[0]
+
+        print_solution(best_solution, 1)
+
+        print("Best solution, z  =", best_solution.z)
+        print("Best solution, vel=", best_solution.velocity_kms)
+        print("Best solution, rms=", best_solution.rms_velocity_kms)
+
+    # ---------------------------------------------------------
+    # 6. Adopt the redshift
+    # ---------------------------------------------------------
+
+    if auto_redshift:
+
+        if len(find_z_out) > 0:
+
+            auto_z = find_z_out[0].z
+
+            print(
+                f'# Automatic redshift adopted: {auto_z}'
+            )
+
+        else:
+
+            auto_z = args.redshift[0]
+
+            print(
+                '# No redshift solution found, '
+                f'using input redshift {auto_z}'
+            )
+
+            print(
+                f'# No auto_z peaks found, '
+                f'SN={m_flux_SN}; using input parameters'
+            )
+
+        # -----------------------------------------------------
+        # 7. Update redshift and fitting wavelength ranges
+        # -----------------------------------------------------
+
+        args.redshift[0] = auto_z
+
+        args.redshift[2] = (
+            args.redshift[2] * (1 + auto_z) + auto_z
+        )
+
+        args.redshift[3] = (
+            args.redshift[3] * (1 + auto_z) + auto_z
+        )
+
+        args.w_range_nl[0] *= (1 + auto_z)
+        args.w_range_nl[1] *= (1 + auto_z)
+
+        print(
+            f'# Auto_z derivation '
+            f'({args.auto_z_min}, {args.auto_z_max}, '
+            f'{getattr(args, "auto_z_d", 0.00001)}): {auto_z}'
+        )
+
+    else:
+
+        auto_z = args.redshift[0]
+
+        print(
+            '# Auto_z derivation disabled, '
+            f'using input redshift {auto_z}'
+        )
+
+    return args, out_decompose_flux_rss, find_z_out, auto_z
+
 #----------------------------------------------------------------
+def create_rsp_table(id_fib, SPS):
+    """
+    Create an Astropy table with the RSP fitting results.
+
+    Parameters
+    ----------
+    id_fib : int
+        Fiber identifier.
+    SPS : StellarSynthesis
+        Stellar population synthesis fitting object.
+
+    Returns
+    -------
+    tab_rsp : astropy.table.Table
+        Single-row table containing the fiber ID and
+        the RSP fitting parameters.
+    """
+
+    # Extract RSP fitting results
+    rsp_cols, a_rsp = SPS.output_return()
+
+    # Define column names
+    a_rsp_cols = ['id_fib'] + rsp_cols.split(',')
+
+    # Combine fiber ID and fitting results
+    a_rsp = np.concatenate(([id_fib], a_rsp.flatten()))
+
+    # Create a single-row Astropy table
+    tab_rsp = Table(
+        rows=[a_rsp],
+        names=a_rsp_cols,
+        dtype=['int64'] + ['float64'] * (len(a_rsp_cols) - 1)
+    )
+
+    return tab_rsp
+
+
+def create_coeffs_table(id_fib, SPS):
+    """
+    Create an Astropy table with the RSP Monte Carlo coefficients.
+
+    Parameters
+    ----------
+    id_fib : int
+        Fiber identifier.
+    SPS : StellarSynthesis
+        Stellar population synthesis fitting object.
+
+    Returns
+    -------
+    tab_coeffs_MC : astropy.table.Table
+        Table containing the RSP coefficients and their
+        associated fiber identifier.
+    """
+
+    # Extract Monte Carlo coefficients
+    coeffs_cols, a_coeffs_MC = SPS.output_coeffs_MC_return()
+
+    # Define column names
+    a_coeffs_cols = coeffs_cols.split(',')
+    a_coeffs_cols[0] = 'rsp'
+
+    # Create coefficients table
+    tab_coeffs_MC = Table(
+        a_coeffs_MC,
+        names=a_coeffs_cols
+    )
+
+    # Ensure RSP index is an integer
+    tab_coeffs_MC['rsp'] = tab_coeffs_MC['rsp'].astype('int64')
+
+    # Add fiber identifier as the first column
+    tab_coeffs_MC.add_column(
+        np.full(len(tab_coeffs_MC), id_fib, dtype='int64'),
+        name='id_fib',
+        index=0
+    )
+
+    return tab_coeffs_MC
+
+
+def create_elines_table(id_fib, SPS):
+    """
+    Create an Astropy table containing the emission-line fitting
+    results from the SPS configuration.
+
+    Parameters
+    ----------
+    id_fib : int
+        Fiber identifier.
+    SPS : StellarSynthesis
+        Stellar population synthesis fitting object.
+
+    Returns
+    -------
+    tab_elines : astropy.table.Table
+        Table containing emission-line and polynomial model
+        parameters with columns:
+
+        id_fib, model, wl, flux, e_flux,
+        disp, e_disp, vel, e_vel
+    """
+
+    rows = []
+
+    # ---------------------------------------------------------
+    # Extract all emission-line fitting systems
+    # ---------------------------------------------------------
+
+    for system, elcf in zip(
+        SPS.config.systems,
+        SPS.config.systems_config
+    ):
+
+        EL = system['EL']
+
+        model_types = EL.config.model_types
+        fit_params = EL.final_fit_params_mean
+        fit_errors = EL.final_fit_params_std
+
+        # -----------------------------------------------------
+        # Extract individual models within each system
+        # -----------------------------------------------------
+
+        for model_type, params, errors in zip(
+            model_types,
+            fit_params,
+            fit_errors
+        ):
+
+            params = np.asarray(params)
+            errors = np.asarray(errors)
+
+            if model_type == 'eline':
+
+                wl = float(params[0])
+                flux = float(params[1])
+                e_flux = float(errors[1])
+                disp = float(params[2])
+                e_disp = float(errors[2])
+                vel = float(params[3])
+                e_vel = float(errors[3])
+
+            elif model_type == 'poly1d':
+
+                wl = float(params[0])
+
+                flux = 0.0
+                e_flux = 0.0
+                disp = 0.0
+                e_disp = 0.0
+                vel = 0.0
+                e_vel = 0.0
+
+            else:
+
+                # Preserve other model types if present
+                wl = float(params[0])
+
+                flux = 0.0
+                e_flux = 0.0
+                disp = 0.0
+                e_disp = 0.0
+                vel = 0.0
+                e_vel = 0.0
+
+            rows.append((
+                int(id_fib),
+                str(model_type),
+                wl,
+                flux,
+                e_flux,
+                disp,
+                e_disp,
+                vel,
+                e_vel
+            ))
+
+    # ---------------------------------------------------------
+    # Create Astropy table
+    # ---------------------------------------------------------
+
+    tab_elines = Table(
+        rows=rows,
+        names=[
+            'id_fib',
+            'model',
+            'wl',
+            'flux',
+            'e_flux',
+            'disp',
+            'e_disp',
+            'vel',
+            'e_vel'
+        ],
+        dtype=[
+            'int64',
+            'U9',
+            'float64',
+            'float64',
+            'float64',
+            'float64',
+            'float64',
+            'float64',
+            'float64'
+        ]
+    )
+
+    return tab_elines
+
+
+def create_elines_table_EL(id_fib, EL):
+    """
+    Create an Astropy table containing the emission-line fitting
+    results from the SPS configuration.
+
+    Parameters
+    ----------
+    id_fib : int
+        Fiber identifier.
+    SPS : StellarSynthesis
+        Stellar population synthesis fitting object.
+
+    Returns
+    -------
+    tab_elines : astropy.table.Table
+        Table containing emission-line and polynomial model
+        parameters with columns:
+
+        id_fib, model, wl, flux, e_flux,
+        disp, e_disp, vel, e_vel
+    """
+
+    rows = []
+
+    # ---------------------------------------------------------
+    # Extract all emission-line fitting systems
+    # ---------------------------------------------------------
+
+   
+
+    model_types = EL.config.model_types
+    fit_params = EL.final_fit_params_mean
+    fit_errors = EL.final_fit_params_std
+
+    # -----------------------------------------------------
+    # Extract individual models within each system
+    # -----------------------------------------------------
+
+    for model_type, params, errors in zip(
+        model_types,
+        fit_params,
+        fit_errors
+    ):
+
+        params = np.asarray(params)
+        errors = np.asarray(errors)
+
+        wl = float(params[0])
+        flux = float(params[1])
+        e_flux = float(errors[1])
+        disp = float(params[2])
+        e_disp = float(errors[2])
+        vel = float(params[3])
+        e_vel = float(errors[3])
+
+
+        rows.append((
+            int(id_fib),
+            str(model_type),
+            wl,
+            flux,
+            e_flux,
+            disp,
+            e_disp,
+            vel,
+            e_vel
+        ))
+
+    # ---------------------------------------------------------
+    # Create Astropy table
+    # ---------------------------------------------------------
+
+    tab_elines = Table(
+        rows=rows,
+        names=[
+            'id_fib',
+            'model',
+            'wl',
+            'flux',
+            'e_flux',
+            'disp',
+            'e_disp',
+            'vel',
+            'e_vel'
+        ],
+        dtype=[
+            'int64',
+            'U9',
+            'float64',
+            'float64',
+            'float64',
+            'float64',
+            'float64',
+            'float64',
+            'float64'
+        ]
+    )
+
+    return tab_elines
+
+
+def create_elines_wide_table_EL(id_fib, EL):
+    """
+    Create a wide-format emission-line table directly from an EL object.
+
+    Each fiber occupies one row, with six columns per
+    emission line: flux, e_flux, disp, e_disp, vel, e_vel.
+
+    Parameters
+    ----------
+    id_fib : int
+        Fiber identifier.
+    EL : ConfigEmissionModel
+        Fitted emission-line model object.
+
+    Returns
+    -------
+    tab_PE_ord : astropy.table.Table
+        Single-row table with dynamically generated columns:
+
+        id, flux_WL, e_flux_WL, disp_WL, e_disp_WL,
+        vel_WL, e_vel_WL
+
+        where WL is the rest wavelength of each emission line.
+    """
+
+    # ---------------------------------------------------------
+    # 1. Extract emission-line parameters
+    # ---------------------------------------------------------
+
+    elines = {}
+
+    model_types = EL.config.model_types
+    fit_params = EL.final_fit_params_mean
+    fit_errors = EL.final_fit_params_std
+
+    for model_type, params, errors in zip(
+        model_types, fit_params, fit_errors
+    ):
+
+        # Only emission-line models
+        if model_type != 'eline':
+            continue
+
+        params = np.asarray(params)
+        errors = np.asarray(errors)
+
+        wl = float(params[0])
+
+        elines[wl] = {
+            'flux': float(params[1]),
+            'e_flux': float(errors[1]),
+            'disp': float(params[2]),
+            'e_disp': float(errors[2]),
+            'vel': float(params[3]),
+            'e_vel': float(errors[3])
+        }
+
+    # ---------------------------------------------------------
+    # 2. Generate columns dynamically
+    # ---------------------------------------------------------
+
+    columns = {'id': [int(id_fib)]}
+
+    for wl in sorted(elines):
+
+        for param in (
+            'flux', 'e_flux',
+            'disp', 'e_disp',
+            'vel', 'e_vel'
+        ):
+
+            columns[f'{param}_{wl}'] = [
+                elines[wl][param]
+            ]
+
+    # ---------------------------------------------------------
+    # 3. Create and return Astropy table
+    # ---------------------------------------------------------
+
+    tab_PE_ord = Table(columns)
+
+    return tab_PE_ord
+
+
+def create_elines_wide_table(id_fib, SPS):
+    """
+    Create a wide-format emission-line table directly from SPS.
+
+    Emission lines and their wavelengths are obtained dynamically
+    from SPS.config.systems.
+
+    Parameters
+    ----------
+    id_fib : int
+        Original fiber identifier.
+    SPS : StellarSynthesis
+        Stellar population synthesis fitting object.
+
+    Returns
+    -------
+    tab_PE_ord : astropy.table.Table
+        Single-row table containing six parameters per
+        emission line, with dynamically generated column names.
+    """
+
+    # ---------------------------------------------------------
+    # 1. Extract emission-line parameters
+    # ---------------------------------------------------------
+
+    elines = {}
+
+    for system in SPS.config.systems:
+
+        EL = system['EL']
+
+        model_types = EL.config.model_types
+        fit_params = EL.final_fit_params_mean
+        fit_errors = EL.final_fit_params_std
+
+        for model_type, params, errors in zip(
+            model_types, fit_params, fit_errors
+        ):
+
+            if model_type != 'eline':
+                continue
+
+            params = np.asarray(params)
+            errors = np.asarray(errors)
+
+            wl = float(params[0])
+
+            elines[wl] = {
+                'flux': float(params[1]),
+                'e_flux': float(errors[1]),
+                'disp': float(params[2]),
+                'e_disp': float(errors[2]),
+                'vel': float(params[3]),
+                'e_vel': float(errors[3])
+            }
+
+    # ---------------------------------------------------------
+    # 2. Construct columns dynamically
+    # ---------------------------------------------------------
+
+    columns = {'id': [int(id_fib)]}
+
+    for wl in sorted(elines):
+
+        for param in (
+            'flux', 'e_flux',
+            'disp', 'e_disp',
+            'vel', 'e_vel'
+        ):
+
+            columns[f'{param}_{wl}'] = [
+                elines[wl][param]
+            ]
+
+    # ---------------------------------------------------------
+    # 3. Create Astropy table
+    # ---------------------------------------------------------
+
+    tab_PE_ord = Table(columns)
+
+    return tab_PE_ord
 
 
 
-####################################################
-# MAIN script. Uses the entries from commands lines: Depcreated since version
-####################################################################
+def combine_elines_wide_tables(tables):
+    """
+    Combine single-fiber wide emission-line tables.
+
+    Different sets of emission-line columns are supported.
+    Missing measurements are filled with NaN.
+
+    Parameters
+    ----------
+    tables : list of astropy.table.Table
+        Single-row emission-line tables.
+
+    Returns
+    -------
+    tab_PE_ord : astropy.table.Table
+        Combined table, one row per fiber.
+    """
+
+    if not tables:
+        return Table()
+
+    tab_PE_ord = tab_vstack(
+        tables,
+        join_type='outer',
+        metadata_conflicts='silent'
+    )
+
+    # Convert missing entries to NaN
+    for col in tab_PE_ord.colnames:
+
+        if col == 'id':
+            continue
+
+        if np.ma.isMaskedArray(tab_PE_ord[col]):
+            tab_PE_ord[col] = tab_PE_ord[col].filled(np.nan)
+
+    return tab_PE_ord
+
+
+
+###############################################################################
+# MAIN script. Uses the entries from commands lines: Depcreated since version #
+###############################################################################
 def _main(cmd_args=sys.argv[1:]):
     print("########################################")
     print("### Do nothing")
@@ -841,6 +2196,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
          sky_hack=sky_hack,
          mask_to_val=mask_to_val
      )
+    tab_el_strong = read_tab_EL(args.emission_lines_file)
     ######################################################################
     # We mask the non-science spectra and broken fibers ones
     ######################################################################
@@ -851,6 +2207,40 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     hdr_flux=copy(hdr_flux_org)
     hdr_flux['NAXIS2']=len(tab_PT)
     print(f'# Number of spectra to analyze : {len(tab_PT)}')
+
+    #####################################################################################
+    # Reading the emission lines file and identify the instrumental LSF and blended lines
+    #####################################################################################
+    tab_el=read_tab_EL(args.emission_lines_file_long)
+    lsf = []
+    blended = []
+    for wl_el in tab_el['wl']:
+      i_wl_el = find_closest_indices(wl__w, wl_el)
+      lsf_now = LSF_mean[i_wl_el[0]]
+      lsf.append(lsf_now)
+      i_wl_near = find_closest_indices_different(tab_el['wl'], wl_el)
+      dist_abs = np.abs(wl_el-tab_el['wl'][i_wl_near[0]])
+      if (dist_abs<4*args.sigma_gas):
+        blended.append(1)
+      else:
+        blended.append(0)
+    blended = np.array(blended)    
+    tab_el['blended'] = blended
+    lsf = np.array(lsf)
+    tab_el['lsf'] = lsf
+
+
+    ########################################################
+    # Clusters of emission lines for future fitting
+    ########################################################
+
+    el_clusters, el_cluster_id = cluster_emission_lines(
+        tab_el,
+        max_cluster_span=float(getattr(args, "max_cluster_span", 300.0)),
+        max_adjacent_distance=float(getattr(args, "max_adjacent_distance", 100.0)),
+    )
+
+
     #####################################################################
     # END: Reading the input data to be analyzed
     #####################################################################
@@ -874,30 +2264,19 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     int_flux = integrated['int_flux']
     int_eflux = integrated['int_eflux']
-
     int_flux_we = integrated['int_flux_we']
     int_flux_cw = integrated['int_flux_cw']
     int_flux_w_ce = integrated['int_flux_w_ce']
-
     rat_flux_cw = integrated['rat_flux_cw']
     int_lsf = integrated['int_lsf']
-
     SN_map = integrated['SN_map']
     high_SN_mask = integrated['high_SN_mask']
-
-    # Select the integrated spectrum for RSP fitting  
-    m_flux = integrated['int_flux_cw'].copy()
-    e_flux = integrated['int_eflux'].copy()
-
-    # Prepare the integrated spectrum
+    #m_flux = int_flux_cw
+    #e_flux = int_eflux
     m_flux, e_flux, s_flux, m_flux_SN, m_flux_rss = \
-      prepare_integrated_spectrum(m_flux, e_flux, smooth_box=51)
-
-    # Initialize kinematics
-    vel__yx = np.zeros(1)
-    sigma__yx = 0.8
+      prepare_integrated_spectrum(int_flux_cw, int_eflux, smooth_box=51)
     m_flux_rss = m_flux[np.newaxis, :].copy()
-    
+
     if ((args.flux_scale[0]==-1) and (args.flux_scale[1]==1)):
       args.flux_scale[0]=-0.1*np.abs(np.median(m_flux_rss))
       args.flux_scale[1]=3*np.abs(np.median(m_flux_rss))+10*np.std(m_flux_rss)
@@ -905,139 +2284,45 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #####################################################################
     # END: Generate integrated spectra
     #####################################################################
+    # Initialize kinematics
+    vel__yx = np.zeros(1)
+    sigma__yx = 0.8
 
+
+    #####################################################################
+    # START: Automatic search of the guess redshift
+    #####################################################################
+
+    (args,
+     out_decompose_flux_rss,
+     find_z_out_w,
+     z_guess) = estimate_integrated_redshift(
+         wl__w,
+         int_flux_cw,
+         e_flux,
+         args,
+         m_flux_SN=m_flux_SN
+     )
+
+
+    #####################################################################
+    # END: Automatic redefine the guess redshift
+    #####################################################################
+
+
+    ###########################################################################
     #
-    # Redefine the redshift
+    # START: Removing the emission lines and fitting just the stellar continuum 
     #
-
-    #
-    # This is hard coded, what is not a good idea!
-    #
-    if (auto_redshift == True):
-      #,w_min=6500,w_max=6800,\
-      #                 w_min_ne=6350,w_max_ne=6500,\
-      #                 w_ref=(6548.05,6562.85,6583.45,6678.15,6716.44,6730.82),do_plot=0,\
-
-      #
-      # We remove the continuum to the m_flux 
-      #
-      m_flux_bgs = m_flux.copy()
-      # print(f'auto_z_bg: {args.auto_z_bg}')
-      if (auto_z_bg == True):
-        m_flux_bg = find_continuum(m_flux,niter=15,thresh=0.8,median_box_max=75,median_box_min=5)
-        m_flux_bgs = m_flux-m_flux_bg
-        print('# Back ground removed from auto-z spec')
-
-
-      if (auto_z_sc == True):
-        tab_el_sky=read_tab_EL(args.emission_lines_file_sky)
-        specSky_e_mod = np.zeros(m_flux_bgs.shape)
-        for w in tab_el_sky['wl']:
-          delta_w = np.abs(wl__w-w)
-          i_w = delta_w.argmin()
-          sigma_inst=0.05+0.75*np.sqrt(((w-3000)/10000))          
-          if (np.isfinite(m_flux_bgs[i_w]) == True):
-            G = m_flux_bgs[i_w]*np.exp(-0.5*(delta_w/sigma_inst)**2)
-            specSky_e_mod = specSky_e_mod+G
-#        plt.plot(wl__w,m_flux)
-#        plt.plot(wl__w,m_flux_bg)
-#        if (args.plot==1):
-#          plt.plot(wl__w,m_flux_bgs)
-#        if           plt.plot(wl__w,m_flux_bg)    
-#        m_flux_bgs = m_flux_bgs-specSky_e_mod
-
-
-        m_flux_bgs_max = np.nanmax(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
-        m_flux_bgs_median = np.nanmedian(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
-
-        m_flux_bgs_std = np.nanstd(m_flux_bgs[int(0.45*m_flux.shape[0]):int(0.55*m_flux.shape[0])])
-        m_flux_bgs_SN = m_flux_bgs_max / m_flux_bgs_std
-        print(f'# m_flux_bgs: {m_flux_bgs_median} +- {m_flux_bgs_std}');
-        print(f'# m_flux_bgs_max: {m_flux_bgs_max},  S/N: {m_flux_bgs_SN}');
-        WA0 = 6500.0
-        WA1 = 6650.0
-
-        WAb0 = WA0-60.0
-#        WAb1 = WA0-30.0
-        mask_WA = (wl__w > WA0) & (wl__w < WA1)
-#        mask_WAb = (wl__w > WAb0) & (wl__w < WAb1)
-        m_flux_bgs_max_WA = np.nanmax(m_flux_bgs[mask_WA])
-        m_flux_bgs_median_WA = np.nanmedian(m_flux_bgs[mask_WA])
-        m_flux_bgs_std_WA = np.nanmedian(e_flux[mask_WA])
-        m_flux_bgs_SN_WA = m_flux_bgs_max_WA / m_flux_bgs_std_WA
-        print(f'# m_flux_bgs auto_z     window: {m_flux_bgs_median_WA} +- {m_flux_bgs_std_WA}');
-        print(f'# m_flux_bgs_max auto_z window: {m_flux_bgs_max_WA},  S/N: {m_flux_bgs_SN_WA}');
-        
-#        if (args.plot==1):
-#          plt.plot(wl__w,m_flux_bgs)    
-#          plt.plot(wl__w,specSky_e_mod)
-#          plt.plot(wl__w,m_flux,linewidth=2,color='black')    
-#          plt.plot(wl__w,m_flux_bg,alpha=0.7,color='cyan')
-#          plt.plot(wl__w,m_flux_bgs,alpha=0.7,color='red')
-
-#          plt.show()
-        #
-        # We remove the residuals of the emission lines
-        # from the integrated spectrum
-
-        if (m_flux_SN>0):
-          m_flux = m_flux-specSky_e_mod
-        else:
-          m_flux = m_flux-m_flux_bg
-
-
-        
-        print('# Night sky emission lines removed from auto-z spec')
-      auto_z=find_redshift_spec(wl__w,m_flux_bgs,z_min=auto_z_min,z_max=auto_z_max,d_z=auto_z_del,\
-                                w_min=6500,w_max=6650,w_ref=(6548.05,6562.85,6583.45),do_plot=args.do_plots)
-      if (auto_z != auto_z_min):
-        if (m_flux_bgs_SN_WA>10):
-          args.redshift[0]=auto_z
-          range_z = args.redshift[3]-args.redshift[2]
-          args.redshift[2]=auto_z-range_z
-          args.redshift[3]=auto_z+range_z
-          args.w_range_nl[0]=args.w_range_nl[0]*(1+auto_z)
-          args.w_range_nl[1]=args.w_range_nl[1]*(1+auto_z)     
-          print(f'# Auto_z derivation ({auto_z_min},{auto_z_max},{auto_z_del}) :{auto_z}')
-        else:
-          print(f'# No auto_z derived, S/N is too low')
-      else:
-        if (m_flux_SN>20):
-          args.redshift[0]=0.0
-          args.redshift[2]=auto_z_min
-          args.redshift[3]=auto_z_max
-          args.w_range_nl[0]=args.w_range_nl[0]*(1+auto_z_min)
-          args.w_range_nl[1]=args.w_range_nl[1]*(1+auto_z_max)
-          print(f'# No auto_z peaks found, SN={m_flux_SN} use auto_z parameters')
-        else:
-          print(f'# No auto_z peaks found, SN={m_flux_SN} use configuration file parameters')
+    ###########################################################################
 
 
 
-    
-      
-    #
-    #
-      
-    ############################################################################
-    # Run flux_elines on the mean spectrum
-    #
-#    fe_m_data, fe_m_hdr =flux_elines_RSS_EW(m_flux_rss, hdr_flux_org, 5, args.emission_lines_file, vel__yx,\
-#                                              sigma__yx,eflux__wyx=m_e_flux_rss,\
-#                                              flux_ssp__wyx=m_s_flux_rss,w_range=15)
-#    colnames=[]
-#    for i in range(fe_m_data.shape[0]):
-#      colname=str(fe_m_hdr[f'NAME{i}'])+'_'+str(fe_m_hdr[f'WAVE{i}'])
-#      colname=colname.replace(' ','_')
-#      colnames.append(colname)
-#    colnames=np.array(colnames)
-#    tab_fe_m=Table(np.transpose(fe_m_data),names=colnames)  
-#    print(tab_fe_m)
-    
     #########################################################
-    # We fit the mean spectrum with RSPs 
+    # We fit the mean/integrated spectrum with RSPs 
     #
-    # OUTPUT NAMES ---------------------------------------------------------------------------------
+    # (1) We define and remove the output files.
+    #     We try to minimize the reading/writing of files to speed up the process in version 2.0.0
     #
     try:
         os.makedirs(args.output_path)
@@ -1052,118 +2337,91 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     out_file_fit = os.path.join(args.output_path, f"m_{args.label}.output.fits")
     out_file_ps = os.path.join(args.output_path, f"m_{args.label}.rsp.txt")
 
-
-
-    # remove previous outputs with the same label
     if args.clear_outputs:
         clean_preview_results_files(out_file_ps, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
         clean_preview_results_files(out_file_fe, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
     # ----------------------------------------------------------------------------------------------
 
+    #
+    # (2) We set the random seed to ensure reproducibility of the fitting results
+    #
     seed = print_time(print_seed=False, get_time_only=True)
-    # initial time used as the seed of the random number generator.
     np.random.seed(seed)
+    #
+    # (3) We fit the integrated spectrum with RSPs
+    #
+    print(f'### START RSP fitting the integrated spectrum...')  
+    #
+    #
+    #
 
     #
-    # We start the fitting
+    # We already have decomposed
     #
-#    print(f'ignore_gas = {args.ignore_gas}')
- #   print(f'single_gas_fit = {args.single_gas_fit}')
-    print(f'### START RSP fitting the integrated spectrum...')
-
-       
+    '''
+        ``trend_cw`` : medium-scale trend, the pseudo-continuum.
+        ``trend_cw_broad`` : broad-scale trend, used only as an upper
+        bound on the background.
+        ``eline_only`` : emission-line component.  Strictly positive:
+        where the raw residual was negative it is set to the smallest
+        positive residual, not to zero (see Notes).
+        ``st_flux_cw`` : ``int_flux_cw - eline_only``, the line-free
+        spectrum.
+        ``pos_abs_flux_cw`` : ``trend_cw - st_flux_cw``.  This is zero
+        wherever the raw residual was already positive, and positive
+        only where it was clipped, so it isolates the absorption
+        component.
+        ``bg_spec`` : the lower-envelope background.
+        ``res_bg_spec`` : ``int_flux_cw - bg_spec``.
+    '''
+#    print('Keys of the decomposed flux dictionary:')
+#    print(out_decompose_flux_rss.keys())
+#    exit(0)
     #
-    # Reading the emission line file
+    # (3.1) We decompose the integrated spectrum into background and emission lines
     #
-    tab_el=read_tab_EL(args.emission_lines_file_long)
-    lsf = []
-    blended = []
-    for wl_el in tab_el['wl']:
-      i_wl_el = find_closest_indices(wl__w, wl_el)
-      lsf_now = LSF_mean[i_wl_el[0]]
-      lsf.append(lsf_now)
-      i_wl_near = find_closest_indices_different(tab_el['wl'], wl_el)
-      dist_abs = np.abs(wl_el-tab_el['wl'][i_wl_near[0]])
-      if (dist_abs<4*args.sigma_gas):
-        blended.append(1)
-      else:
-        blended.append(0)
-    blended = np.array(blended)    
-    tab_el['blended'] = blended
-    lsf = np.array(lsf)
-    tab_el['lsf'] = lsf
+#    print (len(find_z_out_w), ' redshift solutions found for the integrated spectrum')
+#    print(f'Finding z for the integrated spectrum... find_z_out_w={find_z_out_w[0].z }')
+    lsf_mean = np.mean(LSF_rss, axis=0)
 
-
-
-
-
-    #    print('EL file:',args.emission_lines_file_long)
+    n_narrow = int(getattr(args, "n_narrow", 3))
+    n_medium = int(getattr(args, "n_medium", 5))
+    n_broad = int(getattr(args, "n_broad", 21)) 
+    n_iter = int(getattr(args, "n_iter", 5))
+    peak_threshold = float(getattr(args, "peak_threshold", 1))
+    n_cut_peaks = int(getattr(args, "n_cut_peaks", 2))
+    velocity_tolerance = float(getattr(args, "velocity_tolerance", 10.0))
+    #print(f'Using n_narrow={n_narrow}, n_medium={n_medium}, n_broad={n_broad}, n_iter={n_iter}')
     
-    #print('tab_EL:',tab_el['id'])
-    #quit()
+    #out_decompose_flux_rss = decompose_spectrum(
+    #    wl__w,
+    #    int_flux_cw,
+    #    n_narrow=n_narrow,
+    #    n_medium=n_medium,
+    #    n_broad=n_broad,
+    #     n_iter=n_iter
+    #)
 
+    result = process_elines_spec(
+        wl=wl__w,
+        flux=int_flux_cw,
+        eflux=int_eflux,
+        eline_spec=out_decompose_flux_rss["eline_only"],
+        lsf=lsf_mean,
+        tab_el=tab_el,
+        z_guess=args.redshift[0],
+        peak_threshold=peak_threshold,
+        n_cut_peaks=n_cut_peaks,
+        smooth_size=n_medium,
+        velocity_tolerance=velocity_tolerance,
+        verbose=args.verbose
+    )
 
-    #
-    # We fit everything in a single run
-    #
-
-    #
-    # We create the SPS:
-    #
-    #print('Test loading the SPS')
-    #print(f'{args.config_file}')
-    #cf_master = ConfigAutoSSP(args.config_file, redshift_set=args.redshift, sigma_set=args.sigma, AV_set=args.AV) 
-    #SPS_master = StellarSynthesis(config=cf_master,
-    #                              wavelength=wl__w, flux=m_flux, eflux=e_flux,
-    #                             mask_list=args.mask_file, elines_mask_file=args.emission_lines_file,
-    #                              sigma_inst=args.sigma_inst, ssp_file=args.rsp_file,
-    #                              ssp_nl_fit_file=args.rsp_nl_file, out_file=None,
-    #                              w_min=args.w_range[0], w_max=args.w_range[1], nl_w_min=args.w_range_nl[0], nl_w_max=args.w_range_nl[1],                          
-    #                              R_V=None, extlaw=None, spec_id=None, min=args.flux_scale[0], max=args.flux_scale[1],
-    #                             guided_errors=None, ratio_master=None,
-    #                              fit_gas=True, plot=None, verbose=False)
-    #print('SPS_master loaded')
-    
-#
-# (1) Lets fit just the velocity and the dispersion!
-#
-#    print('##############################');
-#    print('# *** Start SPS_kin fitting...');
-#    mask_w_nl = (wl__w>args.w_range_nl[0]*(1+args.redshift[0])) & (wl__w<args.w_range_nl[1]*(1+args.redshift[0]))
-#    kin_pars, SPS_kin = auto_rsp_elines_rnd(
-#      wl__w[mask_w_nl], m_flux[mask_w_nl], e_flux[mask_w_nl],\
-#      ssp_file=args.rsp_nl_file, ssp_nl_fit_file=args.rsp_nl_file,
-#      config_file=args.config_file,
-#      w_min=args.w_range_nl[0], w_max=args.w_range_nl[1], nl_w_min=args.w_range_nl[0],
-#      nl_w_max=args.w_range_nl[1], mask_list=args.mask_file,
-#      min=args.flux_scale[0], max=args.flux_scale[1], elines_mask_file=args.emission_lines_file,
-#      fit_gas=False, refine_gas=False, sigma_gas=args.sigma_gas,
-#      input_redshift=args.redshift[0], delta_redshift=args.redshift[1], min_redshift=args.redshift[2], max_redshift=args.redshift[3],
-#            input_sigma=args.sigma[0], delta_sigma=args.sigma[1], min_sigma=args.sigma[2], max_sigma=args.sigma[3],
-#            input_AV=0, delta_AV=0, min_AV=args.AV[2], max_AV=args.AV[3],
-#      sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot) #, SPS_master=SPS_master)
-#    print(f'SPS_kin: {SPS_kin.best_redshift} , {SPS_kin.best_sigma}')
-#    print('##############################')
-
-
-#
-# (2) Now we fit the rest
-#
-#    print('# **** Start SPS_full fitting...');
-#    _, SPS = auto_rsp_elines_rnd(
-#      wl__w, m_flux, e_flux, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
-#      config_file=args.config_file,
-#      w_min=args.w_range[0], w_max=args.w_range[1], nl_w_min=args.w_range_nl[0],
-#      nl_w_max=args.w_range_nl[1], mask_list=args.mask_file,
-#      min=args.flux_scale[0], max=args.flux_scale[1], elines_mask_file=args.emission_lines_file,
-#      fit_gas=not args.ignore_gas, refine_gas=not args.single_gas_fit, sigma_gas=args.sigma_gas,
-#      input_redshift=SPS_kin.best_redshift, delta_redshift=0.0, min_redshift=args.redshift[2], max_redshift=args.redshift[3],
-#            input_sigma=SPS_kin.best_sigma, delta_sigma=0.0, min_sigma=args.sigma[2], max_sigma=args.sigma[3],
-#            input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3],
-#      sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot, SPS_master=SPS_kin)
+    spec_eline_model = result['emission_model']
+    spec_stellar = result['stellar_spectrum']  
 
     _, SPS = auto_rsp_elines_rnd(
-      wl__w, m_flux, e_flux, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
+      wl__w, spec_stellar, e_flux, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
       config_file=args.config_file,
       w_min=args.w_range[0], w_max=args.w_range[1], nl_w_min=args.w_range_nl[0],
       nl_w_max=args.w_range_nl[1], mask_list=args.mask_file,
@@ -1172,62 +2430,124 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       input_redshift=args.redshift[0], delta_redshift=args.redshift[1], min_redshift=args.redshift[2], max_redshift=args.redshift[3],
             input_sigma=args.sigma[0], delta_sigma=args.sigma[1], min_sigma=args.sigma[2], max_sigma=args.sigma[3],
             input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3],
-      sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot,SN_CUT=SN_CUT_INT
+      sigma_inst=args.sigma_inst, spaxel_id=args.label, out_path=args.output_path, plot=args.plot,SN_CUT=SN_CUT_INT,
+      verbose=args.verbose, full_verbose=args.full_verbose
     )
 
-    #print(f'SPS nl ssp models: {SPS.ssp_nl_fit.flux_models.shape}')
-    #print(f'SPS ssp models: {SPS.ssp.flux_models.shape}')
+    res_smooth = median_fit_spectrum(wl__w, \
+                    spec_stellar-SPS.spectra['model_ssp_min_uncorr'], 11,\
+                    method="legendre", degree=11, \
+                    spline_k=3, spline_s=0.0, \
+                    min_points_bin=3, return_nodes=False)
+
+    SPS.spectra['model_ssp_min'] = SPS.spectra['model_ssp_min_uncorr'] + res_smooth
+    SPS.spectra['res_ssp'] = int_flux_cw - SPS.spectra['model_ssp_min']
+    #########################################################################
+    # We fit the full set of emission lines
+    #########################################################################
+
+    i_fib = 0
+    tab_pm = Table({'id_fib': [i_fib]})
+
+
+    print('#######################################################################################')
+    spec_gas_i_fib = SPS.spectra['res_ssp']
+    spec_rsp_i_fib = SPS.spectra['model_ssp_min']
+    redshift_i_fib = z_guess
+    spec_err_i_fib = int_eflux
+    for i_cl, clusters in enumerate(el_clusters):
+        print(f"Cluster {i_cl}: {len(clusters)} lines")
+        line_wavelengths_i_cl = np.array(el_clusters[i_cl]['wl'])
+        sigma_guess_i_cl = np.mean(el_clusters[i_cl]['lsf'])
+        sigma_min_i_cl = 0.8*sigma_guess_i_cl
+        sigma_max_i_cl = 1.2*sigma_guess_i_cl
+        print(f"Cluster {i_cl}: {line_wavelengths_i_cl[0]},  {sigma_guess_i_cl}")
+        #
+        # Add verbose!
+        #
+        result_i_cl = fit_emission_line_system(
+            wl=wl__w,
+            flux=spec_gas_i_fib,
+            eflux=spec_err_i_fib,
+            line_wavelengths=line_wavelengths_i_cl,
+            redshift=redshift_i_fib,
+            fit_padding = 30,
+            velocity_range=1,
+            sigma_guess=sigma_guess_i_cl,
+            sigma_bounds=(sigma_min_i_cl, sigma_max_i_cl),
+            error_scale=1,
+            n_mc = 30,
+            n_loops = 5,
+            tie_kinematics=True,
+            add_background=True,
+            plot=args.plot,
+            bg_order=1
+        )
+        # (0.5*np.mean(el_clusters[i_cl]['lsf']), 2*np.mean(el_clusters[i_cl]['lsf'])),
+        EL_fit_now = result_i_cl["fit"]
+        cf_fit_now = result_i_cl["config"]
+        sel_fit_now = result_i_cl["mask"]
+        for i_eline,el_cluster_now in enumerate(clusters):
+            name_line = f"{el_cluster_now['id']}_{np.around(float(el_cluster_now['wl']),2)}"
+            tab_pm[f'flux_{name_line}_pm'] = EL_fit_now.final_fit_params_mean[i_eline][1]
+            tab_pm[f'e_flux_{name_line}_pm'] = EL_fit_now.final_fit_params_std[i_eline][1]
+            tab_pm[f'vel_{name_line}_pm'] = EL_fit_now.final_fit_params_mean[i_eline][3]
+            tab_pm[f'e_vel_{name_line}_pm'] = EL_fit_now.final_fit_params_std[i_eline][3]
+            tab_pm[f'disp_{name_line}_pm'] = EL_fit_now.final_fit_params_mean[i_eline][2]
+            tab_pm[f'e_disp_{name_line}_pm'] = EL_fit_now.final_fit_params_std[i_eline][2]
+            mask_wave_pm = (wl__w>el_cluster_now['wl']*(1+redshift_i_fib)-20) & (wl__w<el_cluster_now['wl']*(1+redshift_i_fib)+20)
+            cont_flux = np.median(spec_rsp_i_fib[mask_wave_pm])
+            e_cont_flux = np.std(spec_rsp_i_fib[mask_wave_pm])
+            tab_pm[f'EW_{name_line}_pm'] = (-1)*EL_fit_now.final_fit_params_mean[i_eline][1]/cont_flux
+            tab_pm[f'e_EW_{name_line}_pm'] = np.sqrt((EL_fit_now.final_fit_params_std[i_eline][1]/cont_flux)**2 + (e_cont_flux*EL_fit_now.final_fit_params_mean[i_eline][1]/cont_flux**2)**2)
+    print('#######################################################################################')
+    if (args.verbose==True):
+       print(f'tab_pm = {tab_pm}')
+
+
+
 
     y_ratio = None #SPS.ratio_master
     print(f'#### END RSP fitting the integrated spectrum...')
     #quit()
     
-    # WRITE OUTPUTS --------------------------------------------------------------------------------
-    SPS.output_gas_emission(filename=out_file_elines)
-    if args.single_rsp:
-      SPS.output_single_ssp(filename=out_file_single)
-    else:
-      SPS.output_fits(filename=out_file_fit)
-      SPS.output_coeffs_MC(filename=out_file_coeffs)
-      try:
-        SPS.output(filename=out_file_ps)
-      except:
-        SPS.mass_to_light = np.nan
-        SPS.teff_min = np.nan
-        SPS.logg_min = np.nan
-        SPS.meta_min = np.nan
-        SPS.alph_min = np.nan
-        SPS.AV_min = np.nan
-        SPS.mass_to_light = np.nan
-        SPS.teff_min_mass = np.nan
-        SPS.logg_min_mass = np.nan
-        SPS.meta_min_mass = np.nan
-        SPS.alph_min_mass = np.nan
-        SPS.AV_min_mass = np.nan
-        SPS.e_teff_min = np.nan
-        SPS.e_logg_min = np.nan
-        SPS.e_meta_min = np.nan
-        SPS.e_alph_min = np.nan
-        SPS.e_AV_min = np.nan
-        SPS.e_teff_min_mass = np.nan
-        SPS.e_logg_min_mass = np.nan
-        SPS.e_meta_min_mass = np.nan
-        SPS.e_alph_min_mass = np.nan
-        SPS.e_AV_min_mass = np.nan
-        SPS.output(filename=out_file_ps)#, write_header=i==0, block_plot=False)
-      
+    #
+    # We do not write any output so far
+    #       
 
-    tab_m_coeffs=read_coeffs_RSP(coeffs_file=out_file_coeffs)
-    tab_m_elines=read_elines_RSP(elines_file=out_file_elines)
-    tab_m_rsp=read_rsp(file_ssp=out_file_ps)
+    tab_m_coeffs=create_coeffs_table(i_fib,SPS)
+    tab_m_elines=create_elines_table(i_fib,SPS)
+    tab_m_rsp=create_rsp_table(i_fib,SPS)
+    hdu_sps = SPS.output_fits_hdu()
+
+
+    #####################################################################
+    # Test plot
+    ##################################################################### 
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.plot(wl__w, int_flux_cw, color='black', lw=2, label='Integrated Spectrum')
+    ax.plot(wl__w, out_decompose_flux_rss["eline_only"], color='green', lw=1.5, label='Decomposed Emission Lines')
+    ax.plot(wl__w, spec_eline_model, color='blue', lw=1.5, alpha = 0.7, label='Emission Line Model')
+    ax.plot(wl__w, spec_stellar, color='orange', lw=1.5,  alpha = 0.85, label='Stellar Spectrum')
+    ax.plot(wl__w, SPS.spectra['model_ssp_min_uncorr'], color='red', lw=1.5,  alpha = 0.75, label='RSP Model')
+    ax.plot(wl__w, SPS.spectra['model_ssp_min'], color='purple', lw=1.5,  alpha = 0.75, label='RSP Model (Smoothed)')
+    ax.set_xlabel('Wavelength (Angstrom)')
+    ax.set_ylabel('Flux')
+    ax.set_title('Integrated Spectrum Decomposition')
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+    
 
     ####################################################################
     # Preliminar version of the output plot
     if (args.do_plots==1):
         y_off = -1.09
         y_off2 = -2.18
-        plot_spec_art(dir='',file=out_file_fit,\
-                      file_ssp = out_file_ps,\
+        plot_spec_art_hdu(dir='',hdu=hdu_sps,\
                       name=args.label,text=args.label,output=f'{args.output_path}/output_m.{args.label}.{out_plot_format}',\
                       c_map='CMRmap',\
                       insets=((0.00, y_off, 0.09, 0.9,3715,3739,-1,35,'[OII]'),\
@@ -1250,28 +2570,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                       y_min=-0.5,y_max=30,y0_d=0.3,y1_d=2.9,\
                       x_min=3600,x_max=9600,plot_el=True, tab_el=tab_el,plot_res=True,show_scale=False,n_ord=2,gamma=0.5)#,x_min=3600,x_max=9600)
 
-      
-        plot_spec(dir='',file=out_file_fit,\
-            file_ssp = out_file_ps,\
-                  name=args.label,text=args.label,output=f'{args.output_path}/output_m_simple.{args.label}.{out_plot_format}',\
-                  insets=((0.25, 0.5, 0.22, 0.47,4840,5020,-0.5,16,''),\
-                      (0.01, 0.5, 0.22, 0.47,3851,3999,-0.5,3,''),\
-                      (0.52, 0.5, 0.22, 0.47,6303,6322,0.5,2,'[SIII]6312'),\
-                      (0.76, 0.5, 0.22, 0.47,9055,9083,-0.5,10,'[SIII]9069')),\
-              y_min=-3,y_max=66,y0_d=0.3,y1_d=2.9,\
-              x_min=3600,x_max=9600,plot_el=True, tab_el=tab_el)
-        plot_spec(dir='',file=out_file_fit,\
-            file_ssp = out_file_ps,\
-            x_min=6500,x_max=6600,y_min=-0.2,y_max=15.5,\
-            name=args.label,text=args.label,output=f'{args.output_path}/output_m_6500.{args.label}.{out_plot_format}')
-        plot_spec(dir='',file=out_file_fit,\
-            file_ssp = out_file_ps,\
-            x_min=6700,x_max=6750,y_min=-0.2,y_max=15.5,\
-            name=args.label,text=args.label,output=f'{args.output_path}/output_m_6700.{args.label}.{out_plot_format}')
-        plot_spec(dir='',file=out_file_fit,\
-            file_ssp = out_file_ps,\
-            x_min=4800,x_max=5030,y_min=-0.2,y_max=15.5,\
-            name=args.label,text=args.label,output=f'{args.output_path}/output_m_5000.{args.label}.{out_plot_format}')
 
     ############################################################################
     # Run flux_elines on the mean spectrum once subtracted the RSP model
@@ -1309,9 +2607,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     fe_m_data, fe_m_hdr =flux_elines_RSS_EW_cl(m_flux_rss, hdr_flux_org, 5, tab_el, vel__yx,\
                                               sigma__yx,eflux__wyx=m_e_flux_rss,\
                                               flux_ssp__wyx=m_s_flux_rss,w_range=w_range_FE,\
-                                            plot=args.do_plots, sigma_we=sigma_we)
-#m_flux_rss[0,:]=out_model[0,:]-out_model[1,:]
-    
+                                              plot=args.do_plots, sigma_we=sigma_we)
+
 
     
     colnames=[]
@@ -1336,13 +2633,13 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print("# End fitting the integrated spectrum ########")
     print("##############################################")
     print("\n")
+
+    ############################################################################
+    # START: Fitting the full RSS spectra with RSPs
+    ############################################################################
     print("##############################################")
     print("# Start fitting full RSS spectra  with RSPs ##")
     print("##############################################")
-
-    ############################################################################
-    # FIT all the RSS
-    ############################################################################
     out_file_fe = os.path.join(args.output_path, f"{args.label}.fe.txt")
     out_file_elines = os.path.join(args.output_path, f"{args.label}.elines.txt")
     out_file_kel = os.path.join(args.output_path, f"{args.label}.kel.txt")
@@ -1351,8 +2648,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     out_file_fit = os.path.join(args.output_path, f"{args.label}.output.fits.gz")
     out_file_ps = os.path.join(args.output_path, f"{args.label}.rsp.txt")
     out_file_dap = os.path.join(args.output_path, f"{args.label}.dap.fits.gz")
-
-    # remove previous outputs with the same label
     if args.clear_outputs:
         clean_preview_results_files(out_file_ps, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
         clean_preview_results_files(out_file_fe, out_file_elines, out_file_single, out_file_coeffs, out_file_fit)
@@ -1368,10 +2663,16 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     input_min_sigma = args.sigma[2]
     input_max_sigma = args.sigma[3]
     model_spectra = []
+    tab_coeffs = []
+    tab_rsp = []
+    tab_elines = []
+
     y_ratio = None
     ns = rss_flux.shape[0]
     for i, (f__w, ef__w) in enumerate(zip(rss_flux, rss_eflux)):
-        print(f"\n# ID {i}/{ns - 1} ===============================================\n")
+        if i % max(1, ns // 100) == 0:
+           print('.', end='', flush=True)
+        print_verbose(f"\n# ID {i}/{ns - 1} ===============================================\n", verbose=args.verbose)
         if i > 0 and is_guided_sigma:
             if SPS.best_sigma > 0:
                 sigma_seq.append(SPS.best_sigma)
@@ -1404,7 +2705,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         cf.redshift = SPS.best_redshift
         cf.sigma = SPS.best_sigma
         cf.AV = SPS.best_AV
-
+        SPS.full_verbose = args.full_verbose
         _, SPS = auto_rsp_elines_rnd(
             wl__w, f__w, ef__w, ssp_file=args.rsp_file, ssp_nl_fit_file=args.rsp_nl_file,
             config_file=args.config_file,
@@ -1416,42 +2717,35 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             input_sigma=args.sigma[0], delta_sigma=args.sigma[1], min_sigma=args.sigma[2], max_sigma=args.sigma[3],
             input_AV=args.AV[0], delta_AV=args.AV[1], min_AV=args.AV[2], max_AV=args.AV[3], y_ratio=y_ratio,
             sigma_inst=args.sigma_inst, spaxel_id=f"{args.label}_{i}", out_path=args.output_path, plot=args.plot,
-            SPS_master=SPS,SN_CUT=SN_CUT
+            SPS_master=SPS,SN_CUT=SN_CUT,verbose=args.verbose, full_verbose=args.full_verbose
         )
 #        y_ratio = SPS.ratio_master
-        SPS.output_gas_emission(filename=out_file_elines, spec_id=i)
-        SPS.output_coeffs_MC(filename=out_file_coeffs, write_header=i==0)
-#        print(f'Teff test = {SPS.teff_min}')
-        try:
-            SPS.output(filename=out_file_ps, write_header=i==0, block_plot=False)
-        except:
-            SPS.mass_to_light = np.nan
-            SPS.teff_min = np.nan
-            SPS.logg_min = np.nan
-            SPS.meta_min = np.nan
-            SPS.alph_min = np.nan
-            SPS.AV_min = np.nan
-            SPS.mass_to_light = np.nan
-            SPS.teff_min_mass = np.nan
-            SPS.logg_min_mass = np.nan
-            SPS.meta_min_mass = np.nan
-            SPS.alph_min_mass = np.nan
-            SPS.AV_min_mass = np.nan
-            SPS.e_teff_min = np.nan
-            SPS.e_logg_min = np.nan
-            SPS.e_meta_min = np.nan
-            SPS.e_alph_min = np.nan
-            SPS.e_AV_min = np.nan
-            SPS.e_teff_min_mass = np.nan
-            SPS.e_logg_min_mass = np.nan
-            SPS.e_meta_min_mass = np.nan
-            SPS.e_alph_min_mass = np.nan
-            SPS.e_AV_min_mass = np.nan
-            SPS.output(filename=out_file_ps, write_header=i==0, block_plot=False)
+
+        tab_i_coeffs=create_coeffs_table(i,SPS)
+        tab_i_elines=create_elines_table(i,SPS)
+        tab_i_rsp=create_rsp_table(i,SPS)
+
+            
         model_spectra.append(SPS.output_spectra_list) 
+        tab_coeffs.append(tab_i_coeffs)
+        tab_rsp.append(tab_i_rsp)   
+        tab_elines.append(tab_i_elines)
+
+    print("\n")
+    tab_elines = tab_vstack(tab_elines)
+    tab_rsp = tab_vstack(tab_rsp)
+    tab_coeffs = tab_vstack(tab_coeffs)
 
 
-
+    #
+    # This needs to be reevaluatdel']=='eline')
+    tab_elines = tab_elines[mask_elines]
+    
+    a_wl = np.unique(tab_elines['wl'])
+  
+    #print(f'a_wl: {a_wl}')
+    #print(f'#a_wl: {a_wl.shape}ed, but for now we just save the results
+    # 
     model_spectra = np.array(model_spectra).transpose(1, 0, 2)
 
     #
@@ -1472,9 +2766,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     model_spectra[4,:,:] = model_spectra[0,:,:] - model_spectra[2,:,:]
 
 
-    tab_rsp=read_rsp(file_ssp=out_file_ps)
-    tab_coeffs=read_coeffs_RSP(coeffs_file=out_file_coeffs)
-    tab_elines=read_elines_RSP(elines_file=out_file_elines)
+#    tab_rsp=read_rsp(file_ssp=out_file_ps)
+#    tab_coeffs=read_coeffs_RSP(coeffs_file=out_file_coeffs)
+#    tab_elines=read_elines_RSP(elines_file=out_file_elines)
 
     id_elines=[]    
     for id_fib in tab_elines['id_fib']:
@@ -1490,6 +2784,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print("# START: Flux_elines analysis on full RSS spectra ###")
     print("#####################################################")
 
+    ############################################################################################
+    # END: FIT all RSS spectra
+    ############################################################################################
+
+
     ############################################################################
     # Run flux_elines full SSP spectrum spectrum
     #
@@ -1503,6 +2802,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print("#####################")
     print(f'# START: Ord. ELINES table ###')
     print("#####################")
+#    print(tab_elines)
+#    print(a_wl)
+#    exit(0)
+
+
     I=0
     tab_PE_ord=Table()
     tab_PE_ord['id']=tab_PT['id']
@@ -1556,7 +2860,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                                            tab_el, vel__yx,\
                                               sigma__yx,eflux__wyx=rss_eflux,\
                                               flux_ssp__wyx=model_spectra[1,:,:],w_range=w_range_FE,\
-                                                sigma_we = sigma_we, verbose=False)
+                                                sigma_we = sigma_we, verbose=args.verbose)
 
     
     colnames=[]
@@ -1576,9 +2880,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       if (wave_now>=7545):
         colnames_I.append(colname)  
     colnames=np.array(colnames)
-    #colnames_B=np.array(colnames_B)
-    #colnames_R=np.array(colnames_R)
-    #colnames_I=np.array(colnames_I)
     tab_fe=Table(np.transpose(fe_data),names=colnames)
     tab_fe_B=tab_fe[colnames_B]
     tab_fe_R=tab_fe[colnames_R]
@@ -1595,13 +2896,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print("#####################################################")
     print("# START: KIN_ELINES analysis on full RSS spectra ###")
     print("#####################################################")
-    # out_file_kel = os.path.join(args.output_path, f"{args.label}.kel.txt")
-    #    fe_data, fe_hdr =flux_elines_RSS_EW_cl(model_spectra[0,:,:]-model_spectra[1,:,:], hdr_flux, 5,\
-    #    tab_el, vel__yx,\
-    #                                          sigma__yx,eflux__wyx=rss_eflux,\
-    #                                          flux_ssp__wyx=model_spectra[1,:,:],w_range=15,verbose=False)
-    #     vel_mean=np.nanmean(tab_PE_ord[f'vel_{w_Ha}'])
-    # disp_mean=np.nanmean(tab_PE_ord[f'disp_{w_Ha}'])
+ 
     cf = SPS.config
 
     # We use as guide the non-parametric derivation
@@ -1623,6 +2918,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     
 #    plot=1
+    tab_kel=[]
     for i_s in range(cf.n_systems):
       syst = cf.systems[i_s]
       z_fact = 1 + vel_mean/__c__
@@ -1645,6 +2941,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       elcf.links[0][_MODELS_ELINE_PAR['sigma']] = -1
       sel_wl_range = trim_waves(wl__w, [w_min_corr, w_max_corr])
       #out_file_kel = os.path.join(args.output_path, f"{args.label}.kel_{i_s}")
+
+      #
+      # This has to be re-evaluated, but for now we just save the results
+      #
       gas_spectra = (model_spectra[0,:,:]-model_spectra[1,:,:]-l_smooth_spectra)
       sec_flux = gas_spectra.T[sel_wl_range]
       sec_eflux = rss_eflux.T[sel_wl_range]
@@ -1655,19 +2955,19 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       if elcf.n_models > 1:
         _m_str += 's'
       print(f'# analyzing {elcf.n_models} {_m_str} in {w_minmax_prefix.replace("_", "-")} wavelength range')
-      kin_rss_elines_main(wl__w[sel_wl_range], \
+      tab_kel_now=kin_rss_elines_main_return(wl__w[sel_wl_range], \
                           sec_flux,\
-                          elcf, out_file=out_file_kel, \
+                          elcf, \
                           rss_eflux=sec_eflux, run_mode='BOTH', guided=False, memo=False, \
                           vel_map=vel_map, vel_mask_map=None, vel_fixed=kin_fixed,\
                           sigma_map=sigma_map, sigma_fixed=kin_fixed, \
                           n_MC=N_MC, n_loops=n_loops, scale_ini=0.15, \
                           fine_search=None, redefine_max=False, max_factor=2, \
                           redefine_min=False, min_factor=0.012, plot=args.plot)
-
-
-
-    tab_kel=read_elines_RSP(elines_file=out_file_kel)
+      
+      tab_kel.append(tab_kel_now)
+    tab_kel=tab_vstack(tab_kel)
+#    tab_kel=read_elines_RSP(elines_file=out_file_kel)
     id_kel=[]    
     for id_fib in tab_kel['id_fib']:
         id_kel.append(tab_PT['id'].value[id_fib])
@@ -1721,7 +3021,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     tab_DAP = get_DAP_tab(tab_PT.copy(),tab_rsp.copy(),tab_coeffs.copy(),\
                       tab_elines.copy(),tab_fe_B.copy(),tab_fe_R.copy(),\
-                        tab_fe_I.copy(),tab_kel.copy(), kel_ext = 1, verbose=False)
+                        tab_fe_I.copy(),tab_kel.copy(), kel_ext = 1, verbose=args.verbose)
     
 
     tab_el_chi = Table()
@@ -2033,7 +3333,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
       print("##################################################")
       print("# START: Plotting Ha and continous flux maps                                                   ###")
       print("##################################################")
-      tab_DAP=read_DAP_file(out_file_dap,verbose=True)
+      tab_DAP=read_DAP_file(out_file_dap,verbose=args.verbose)
       param='flux_Halpha_6562.85'
       try:
         map_plot_DAP(tab_DAP,line=param, \

@@ -2771,8 +2771,6 @@ def plot_spec_art_working(dir='output/',file='output.m_lvmSCFrame-00006109.fits.
     plt.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
 
-
-
 def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
               name='none',cmap=None,\
               x_min=3600,x_max=9600,y_min=-0.2,y_max=2,text='',\
@@ -2792,6 +2790,202 @@ def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     
 #    hdu[0].data=gamma_scale(hdu[0].data,0.5)
 #    gamma=1.0
+    
+    data=hdu[0].data
+    (ny,nx)=data.shape
+    
+    
+#    data=np.mean(data,axis=1)
+#    i0 = int(nx*0.45)
+#    i1 = int(nx*0.55)
+    i0 = int(nx*0.15)
+    i1 = int(nx*0.25)
+    hdr=hdu[0].header
+    crval = hdr['crval1']
+    cdelt = hdr['cdelt1']
+    crpix = hdr['crpix1']
+    #print(data.shape)
+    (ny,nx) = data.shape
+    wave = crval+cdelt*(np.arange(0,nx)-(crpix-1))
+    
+    med_sc = np.abs(np.nanmedian(data[0,i0:i1]))
+    std_sc = np.nanstd(data[0,i0:i1])
+    SN_sc = med_sc / std_sc
+    print(f'# S/N: {SN_sc} {med_sc} {std_sc}')
+    #     data = data / np.abs(np.nanmedian(data[0,i0:i1]))
+    data = data / (med_sc+0.05*std_sc)
+    if (ny==7):
+        ssp_model=data[6,:]
+    else:
+        gas = data[0,:] - data[5,:]
+        smooth = data[3,:] - data[4,:] - gas        
+        ssp_model = data[1,:]-smooth
+
+        mean_val_ssp = np.nanmean(ssp_model)
+        print(f'# mean_val_ssp : {mean_val_ssp}')
+        if (np.mean(ssp_model)<1e-5):
+            ssp_model = data[1,:]
+        
+        if ((n_ord>2) and (SN_sc>3)):
+            base = np.abs(data[0,:])
+            f_rat = ssp_model/base
+            #data[0,:]
+            c_rat0 = np.polyfit(wave, f_rat, n_ord)
+            p_rat0 = np.poly1d(c_rat0)(wave)
+            ssp_model = ssp_model*(1+1/p_rat0)*0.5
+            data[0,:]=(data[0,:]-smooth)*(1+1/p_rat0)*0.5
+#            print(data[1,:])
+            #except:
+            #    show_scale=False  
+            #    print('# Not scaling')
+        if (show_scale==True):
+            ssp_model = data[1,:]
+
+
+    fig = plt.figure(figsize=(19,11)) 
+    gs = fig.add_gridspec(nrows=10, ncols=6,  left=0.075, right=0.97, \
+                          hspace=0.0, wspace=0.05, bottom=0.15, top=0.9)
+
+    ax2 = fig.add_subplot(gs[:, :])
+    ax0 = fig.add_subplot(gs[0:3, :])#, sharex=ax2)   
+    ax2.set_xticks([])
+    ax2.set_yticks([])
+    plt.setp(ax2.spines.values(), color=None)
+    
+    
+    ax0.set_xlim(x_min,x_max)
+
+    if (y_min>=0):
+        sign=1
+    else:
+        sign=-1
+    ax0.set_ylim(sign*np.abs(y_min**gamma),y_max**gamma)        
+
+        
+ #   colors=['black','maroon','steelblue','darkorange','olive','grey']
+#    colors=['black','palegreen','steelblue','darkorange','olive','grey']
+#    colors=['black','lightsalmon','steelblue','darkorange','olive','grey']
+    colors=colors_in
+            #ax1.plot(wave,ssp_model,color=colors[1],alpha=1.0,linewidth=1.5,linestyle="solid")#,label=r'Model (M$_\lambda$)')
+    res = data[0,:]-data[1,:]+smooth
+    gas_model = data[2,:]-data[1,:]
+    ax0.plot(wave,gamma_scale((data[0,:]+smooth),gamma)-gamma_scale(data[1,:],gamma),color=colors[2],alpha=alpha,\
+             label=r'St. Residual (O$_\lambda$-M$_\lambda$)',linewidth=3)
+    if (no_model==False):
+        ax0.plot(wave,gamma_scale(data[2,:],gamma)-gamma_scale(data[1,:],gamma),color=colors[3],alpha=alpha,linewidth=1.5,\
+                 label=r'Em. Lines model (E$_\lambda$)',linestyle="solid")
+    if (plot_res==True):
+#        ax0.plot(wave,data[4,:]**gamma,color=colors[4],alpha=1.0,linewidth=1.5,\
+        ax0.plot(wave,gamma_scale((data[0,:]+smooth),gamma)-gamma_scale(data[1,:],gamma)-(gamma_scale(data[2,:],gamma)-gamma_scale(data[1,:],gamma)),color=colors[4],alpha=alpha,linewidth=1.5,\
+                 label=r'Final residual (R$_\lambda$)',linestyle="solid")
+    
+    std_res = np.std(res[2000:2500])
+    flux = np.median(data[1,2000:2500])
+
+    if (no_st==False):
+        ax0.plot(wave,gamma_scale(data[0,:],gamma),\
+                 color=colors[0],alpha=1.0,linewidth=3.0,\
+                 label=r'Obs. Spectrum (O$_\lambda$)')
+        if (no_model==False):
+            ax0.plot(wave,gamma_scale(ssp_model,gamma),color=colors[1],\
+                     alpha=alpha,linewidth=1.5,\
+                     label=r'St. Model (M$_\lambda$)',linestyle="solid")
+    
+
+    ax0.xaxis.set_minor_locator(MultipleLocator(100))
+    #ax0.axes.get_xaxis().set_visible(False)
+    handles, labels = ax0.get_legend_handles_labels()
+    if (do_legend):
+        ax0.legend(handles, labels,loc=(0.03,1.01),frameon=True,handlelength=1.5,\
+                   ncol=5,columnspacing=0.15, prop={'size': 22})
+    x = np.arange(x_min,1.1*x_max,100)
+    y1 = 5+0*x
+    y0 = -5+0*x
+
+    if (id_lines != None):
+        mask_lines = (id_lines['wl'].value>=x_min) & (id_lines['wl'].value<x_max)
+        tab_elines = id_lines[mask_lines]
+        even=0
+        for line in tab_elines:
+            ax0.text(line['wl'],y_max-0.16*(even+1)*(y_max-y_min),\
+                     f"{line['wl']}",color=colors[even],\
+                     fontsize='16',horizontalalignment='center',rotation='vertical')
+            even=even+1
+            if (even>2):
+                even=0
+        #print(tab_elines)
+        
+    if (insets != None):
+        for Iinst,inst in enumerate(insets):
+            #x1, x2, y1, y2 = -1.5, -0.9, -2.5, -1.9  # subregion of the original image
+            axins = ax0.inset_axes(
+                [inst[0], inst[1], inst[2], inst[3]],
+                xlim=(inst[4], inst[5]), ylim=(inst[6], inst[7]),yticklabels=[])#, xticklabels=[], yticklabels=[])
+            if ((Iinst==0)|(Iinst==9)):
+                axins.set_ylabel(r'Flux$_\lambda$', fontsize=23)
+
+            if (no_st==False):
+                axins.plot(wave,data[0,:],color=colors[0],alpha=1.0,linewidth=3,label=r'Observed (O$_\lambda$)')
+            if (no_model==False):
+                axins.plot(wave,ssp_model,color=colors[1],alpha=1.0,linewidth=1.5,label=r'Model (M$_\lambda$)',linestyle="solid")
+            axins.plot(wave,res,color=colors[2],alpha=1.0,linewidth=3,\
+                       label=r'Residual (O$_\lambda$-M$_\lambda$)')
+            if (no_model==False):
+                axins.plot(wave,gas_model,color=colors[3],alpha=1.0,linewidth=1.5,\
+                           label=r'E. lines model',linestyle="solid")
+            if (plot_res==True):
+                axins.plot(wave,data[4,:],color=colors[4],alpha=1.0,linewidth=1.5,\
+                           label=r'Em. lines model (E$_\lambda$)',linestyle="solid")
+                
+            if (plot_el == True):
+                tab_el_now=tab_el[(tab_el['wl']>inst[4]) & (tab_el['wl']<inst[5])]
+                for vals in tab_el_now:
+                    axins.plot([vals['wl'],vals['wl']],\
+                             [inst[7]-0.05*abs(inst[7]-inst[6]),\
+                              inst[7]-0.15*abs(inst[7]-inst[6])],\
+                             color='darkorange',linewidth=2)
+                axins.text(inst[4]+0.1*np.abs(inst[5]-inst[4]),\
+                           inst[7]-0.15*abs(inst[7]-inst[6]),fr'\bf {inst[8]}',bbox=props)#,\
+
+
+
+        
+
+    ax0.text(x_min+0.05*(x_max-x_min),y_min+0.85*(y_max-y_min),text,fontsize=21)
+    ax2.set_xlabel(r'rest-frame wavelength [\AA]', fontsize=23)
+    ax2.set_ylim(y0_d,y1_d)
+    if (plot_el == True):
+        for vals in tab_el:
+            ax0.plot([vals['wl'],vals['wl']],\
+                     [y_max**gamma-0.02*abs(y_max**gamma-y_min**gamma),y_max**gamma-0.10*abs(y_max**gamma-y_min**gamma)],\
+                     color='darkorange')
+    if (log==True):
+        ax0.set_yscale('log')
+    ax0.axvspan(5600, 5850, alpha=0.7, color='grey',zorder=10)
+    ax0.axvspan(7400, 7800, alpha=0.7, color='grey',zorder=10)        
+    sgamma=str(gamma)
+
+    ax0.set_ylabel(r'Norm. Flux$^{0.5}_\lambda$', fontsize=23)  
+    
+    plt.tight_layout()
+    fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+
+def plot_spec_art_hdu(dir='output/', hdu = None,\
+              name='none',cmap=None,\
+              x_min=3600,x_max=9600,y_min=-0.2,y_max=2,text='',\
+              no_st=False,no_model=False,log=False,\
+              id_lines=None,output='junk.pdf',c_map='carlos',do_legend=True, insets=None,y0_d=0.5,y1_d=2.5,plot_el=False,tab_el=None,
+              colors_in=['black','red','deepskyblue','blue','gold','forestgreen'],plot_res=False,\
+                  show_scale=True,n_ord=11,gamma=0.3, props=dict(facecolor='lightgrey', alpha=0.5, edgecolor='darkgrey'),\
+                  alpha=1.0):
+
+    
+    if (cmap==None):
+        color_cm_now = vel_map_CLC()
+        cmap=color_cm_now
+    if (hdu==None):
+        return 0
+    
     
     data=hdu[0].data
     (ny,nx)=data.shape
@@ -5243,3 +5437,666 @@ def interp2d_scattered(
 
 
 
+####################################################################################
+
+def process_elines_spec(
+    wl,
+    flux,
+    eflux,
+    eline_spec,
+    lsf,
+    tab_el,
+    z_guess=0.0,
+    peak_threshold=1.0,
+    n_cut_peaks=2.0,
+    smooth_size=5,
+    velocity_tolerance=150.0,
+    do_plot=0,
+    verbose=0
+):
+    """
+    Identify, model, and subtract emission lines from one spectrum.
+
+    Only peaks associated with the reference wavelengths in tab_el
+    are considered.
+
+    Parameters
+    ----------
+    wl : ndarray
+        Observed wavelength array in Angstrom.
+    flux : ndarray
+        Original observed spectrum.
+    eflux : ndarray
+        Flux error spectrum.
+    eline_spec : ndarray
+        Emission-line component obtained from spectral decomposition.
+    lsf : ndarray
+        Instrumental Gaussian sigma in Angstrom.
+    tab_el : astropy.table.Table
+        Reference emission-line table containing 'wl' and 'id'.
+    z_guess : float
+        Adopted redshift, used to shift reference wavelengths.
+    peak_threshold : float
+        Detection threshold passed to peak_finder.
+    n_cut_peaks : float
+        Minimum peak amplitude in units of local noise.
+    smooth_size : int
+        Smoothing width for estimating the noise.
+    velocity_tolerance : float
+        Maximum velocity separation (km/s) between a detected
+        peak and the expected wavelength of a reference line.
+    do_plot : int
+        Plotting mode.
+    verbose : int
+        Verbosity level.
+
+    Returns
+    -------
+    dict
+        emission_model : modeled emission-line spectrum.
+        stellar_spectrum : observed spectrum minus emission model.
+        w_peaks : wavelengths of detected peaks.
+        f_peaks : amplitudes of detected peaks.
+        mask_good_peaks : significant positive peak mask.
+        mask_matched_peaks : peaks matched to tab_el.
+        noise : estimated local noise spectrum.
+    """
+
+    wl = np.asarray(wl, dtype=float)
+    flux = np.asarray(flux, dtype=float)
+    eflux = np.asarray(eflux, dtype=float)
+    eline_spec = np.asarray(eline_spec, dtype=float)
+    lsf = np.asarray(lsf, dtype=float)
+
+    # ---------------------------------------------------------
+    # 1. Detect peaks in the emission-line spectrum
+    # ---------------------------------------------------------
+    #     i_peak,peaks,w_peaks,f_peaks=peak_finder(wave[mask_w], spec[mask_w]/nanmax, 1,\
+    #    peak_threshold=peak_threshold, dmin=2, plot=do_plot, verbose=0)
+    i_peak, peaks, w_peaks, f_peaks = peak_finder(
+        wl,
+        eline_spec,
+        2,
+        peak_threshold=peak_threshold,
+        dmin=2,
+        plot=do_plot,
+        verbose=verbose
+    )
+
+    w_peaks = np.asarray(w_peaks, dtype=float)
+    f_peaks = np.asarray(f_peaks, dtype=float)
+
+    # ---------------------------------------------------------
+    # 2. Estimate local noise
+    # ---------------------------------------------------------
+
+    std_spec = running_std_spec(
+        wl,
+        eline_spec,
+        width=smooth_size,
+        mode="pixels",
+        ddof=1
+    )
+
+    noise_input = 0.5 * (2.0 * std_spec + eflux)
+
+    abs_noise = median_fit_spectrum(
+        wl,
+        noise_input,
+        smooth_size,
+        method="spline",
+        degree=11,
+        spline_k=3,
+        spline_s=0.0,
+        min_points_bin=1,
+        return_nodes=False
+    )
+
+    abs_noise = np.asarray(abs_noise, dtype=float)
+
+    # ---------------------------------------------------------
+    # 3. Select significant positive peaks
+    # ---------------------------------------------------------
+
+    mask_good_peaks = np.zeros(len(w_peaks), dtype=bool)
+
+    if len(w_peaks) > 0:
+
+        peak_indices = np.array([
+            np.argmin(np.abs(wl - w))
+            for w in w_peaks
+        ], dtype=int)
+
+        mask_good_peaks = (
+            np.isfinite(w_peaks) &
+            np.isfinite(f_peaks) &
+            (f_peaks > 0) &
+            (f_peaks > n_cut_peaks * abs_noise[peak_indices])
+        )
+
+    # ---------------------------------------------------------
+    # 4. Match detected peaks with tab_el
+    # ---------------------------------------------------------
+
+    c_kms = 299792.458
+
+    rest_waves = np.asarray(tab_el['wl'], dtype=float)
+    observed_reference = rest_waves * (1.0 + z_guess)
+
+    mask_matched_peaks = np.zeros(len(w_peaks), dtype=bool)
+
+    for j, w_peak in enumerate(w_peaks):
+
+        if not mask_good_peaks[j]:
+            continue
+
+        for w_ref in observed_reference:
+
+            delta_v = (
+                c_kms * abs(w_peak - w_ref) / w_ref
+            )
+
+            if delta_v <= velocity_tolerance:
+                mask_matched_peaks[j] = True
+                break
+
+    # ---------------------------------------------------------
+    # 5. Construct the emission-line model
+    # ---------------------------------------------------------
+
+    emission_model = np.zeros_like(flux)
+
+    for w_now, f_now in zip(
+        w_peaks[mask_matched_peaks],
+        f_peaks[mask_matched_peaks]
+    ):
+
+        idx = np.argmin(np.abs(wl - w_now))
+
+        sigma_inst = lsf[idx]
+
+        if not np.isfinite(sigma_inst) or sigma_inst <= 0:
+            continue
+
+        # Gaussian integrated flux from peak amplitude
+        line_flux = (
+            np.sqrt(2.0 * np.pi)
+            * f_now
+            * sigma_inst
+        )
+
+        emission_model += eline(
+            wl,
+            w_now,
+            line_flux,
+            sigma_inst,
+            0.0,
+            dap_fwhm=1.0
+        )
+
+    # ---------------------------------------------------------
+    # 6. Subtract emission-line model
+    # ---------------------------------------------------------
+
+    stellar_spectrum = flux - emission_model
+
+    # ---------------------------------------------------------
+    # 7. Diagnostics
+    # ---------------------------------------------------------
+
+    if verbose:
+
+        print(f'# Detected peaks: {len(w_peaks)}')
+        print(f'# Significant peaks: {np.count_nonzero(mask_good_peaks)}')
+        print(f'# Matched emission lines: {np.count_nonzero(mask_matched_peaks)}')
+
+    # ---------------------------------------------------------
+    # 8. Return results
+    # ---------------------------------------------------------
+
+    return {
+        'emission_model': emission_model,
+        'stellar_spectrum': stellar_spectrum,
+        'w_peaks': w_peaks,
+        'f_peaks': f_peaks,
+        'mask_good_peaks': mask_good_peaks,
+        'mask_matched_peaks': mask_matched_peaks,
+        'noise': abs_noise
+    }
+
+
+
+def find_and_subtract_elines_spec(
+    wl,
+    flux,
+    eflux,
+    eline_spec,
+    lsf,
+    tab_el,
+    z_min,
+    z_max,
+    peak_threshold=1.0,
+    n_cut_peaks=2.0,
+    smooth_size=5,
+    velocity_tolerance=15.0,
+    min_matches=3,
+    line_groups=None,
+    subtract_mode="matched",
+    do_plot=0,
+    verbose=0
+):
+    """
+    Identify and subtract emission lines from one observed spectrum.
+
+    Parameters
+    ----------
+    wl : ndarray
+        Wavelength array in Angstrom.
+    flux : ndarray
+        Original observed spectrum.
+    eflux : ndarray
+        Flux uncertainty spectrum.
+    eline_spec : ndarray
+        Emission-line component obtained from spectral decomposition.
+    lsf : ndarray
+        Instrumental Gaussian sigma in Angstrom.
+    tab_el : astropy.table.Table
+        Emission-line reference table. Required columns:
+        'wl', 'id'.
+
+        Optional columns:
+        'weight'   : relative weight for redshift determination.
+        'use_for_z': whether to use the line for redshift matching.
+        'subtract' : whether the line should be subtracted.
+
+    z_min, z_max : float
+        Allowed redshift interval.
+    peak_threshold : float
+        Threshold passed to peak_finder.
+    n_cut_peaks : float
+        Minimum peak amplitude relative to local noise.
+    smooth_size : int
+        Smoothing width for the noise estimate.
+    velocity_tolerance : float
+        Redshift matching tolerance in km/s.
+    min_matches : int
+        Minimum number of matched emission lines.
+    line_groups : list, optional
+        Groups and bonuses passed to find_redshift_weights.
+    subtract_mode : str
+        'matched': subtract only peaks matching tab_el.
+        'all'    : subtract all significant positive peaks.
+    do_plot : int
+        Plotting mode.
+    verbose : int
+        Verbosity level.
+
+    Returns
+    -------
+    dict
+        Dictionary containing the stellar spectrum, emission-line
+        model, kinematic parameters and peak diagnostics.
+    """
+
+    wl = np.asarray(wl, dtype=float)
+    flux = np.asarray(flux, dtype=float)
+    eflux = np.asarray(eflux, dtype=float)
+    eline_spec = np.asarray(eline_spec, dtype=float)
+    lsf = np.asarray(lsf, dtype=float)
+
+    if not all(
+        arr.shape == wl.shape
+        for arr in (flux, eflux, eline_spec, lsf)
+    ):
+        raise ValueError("All spectral arrays must have the same shape")
+
+    if subtract_mode not in ("matched", "all"):
+        raise ValueError("subtract_mode must be 'matched' or 'all'")
+
+    # ---------------------------------------------------------
+    # 1. Read emission-line configuration
+    # ---------------------------------------------------------
+
+    rest_waves = np.asarray(tab_el["wl"], dtype=float)
+    rest_names = [str(name) for name in tab_el["id"]]
+
+    if "weight" in tab_el.colnames:
+        weights = np.asarray(tab_el["weight"], dtype=float)
+    else:
+        weights = np.ones(len(tab_el))
+
+    if "use_for_z" in tab_el.colnames:
+        use_for_z = np.asarray(tab_el["use_for_z"], dtype=bool)
+    else:
+        use_for_z = np.ones(len(tab_el), dtype=bool)
+
+    if "subtract" in tab_el.colnames:
+        use_for_subtraction = np.asarray(
+            tab_el["subtract"], dtype=bool
+        )
+    else:
+        use_for_subtraction = np.ones(len(tab_el), dtype=bool)
+
+    line_weights = {
+        name: float(weight)
+        for name, weight, use in zip(
+            rest_names, weights, use_for_z
+        )
+        if use
+    }
+
+    rest_waves_z = rest_waves[use_for_z]
+    rest_names_z = [
+        name for name, use in zip(rest_names, use_for_z) if use
+    ]
+
+    # Only retain line groups compatible with selected lines
+    if line_groups is None:
+        line_groups = []
+
+    selected_names = set(rest_names_z)
+
+    active_groups = [
+        (group_name, members, bonus)
+        for group_name, members, bonus in line_groups
+        if set(members).issubset(selected_names)
+    ]
+
+    # ---------------------------------------------------------
+    # 2. Detect emission-line peaks
+    # ---------------------------------------------------------
+
+    i_peak, peaks, w_peaks, f_peaks = peak_finder(
+        wl,
+        eline_spec,
+        2,
+        peak_threshold=peak_threshold,
+        dmin=0.3,
+        plot=do_plot,
+        verbose=verbose
+    )
+
+    w_peaks = np.asarray(w_peaks, dtype=float)
+    f_peaks = np.asarray(f_peaks, dtype=float)
+
+    # ---------------------------------------------------------
+    # 3. Estimate local noise
+    # ---------------------------------------------------------
+
+    std_spec = running_std_spec(
+        wl,
+        eline_spec,
+        width=smooth_size,
+        mode="pixels",
+        ddof=1
+    )
+
+    noise_input = 0.5 * (2.0 * std_spec + eflux)
+
+    abs_noise = median_fit_spectrum(
+        wl,
+        noise_input,
+        smooth_size,
+        method="spline",
+        degree=11,
+        spline_k=3,
+        spline_s=0.0,
+        min_points_bin=1,
+        return_nodes=False
+    )
+
+    abs_noise = np.asarray(abs_noise, dtype=float)
+
+    # ---------------------------------------------------------
+    # 4. Select significant positive peaks
+    # ---------------------------------------------------------
+
+    if len(w_peaks) > 0:
+
+        peak_indices = np.array([
+            np.argmin(np.abs(wl - w))
+            for w in w_peaks
+        ], dtype=int)
+
+        mask_good_peaks = (
+            np.isfinite(w_peaks) &
+            np.isfinite(f_peaks) &
+            (f_peaks > 0) &
+            (f_peaks > abs_noise[peak_indices] * n_cut_peaks)
+        )
+
+    else:
+        mask_good_peaks = np.zeros(0, dtype=bool)
+
+    good_waves = w_peaks[mask_good_peaks]
+    good_fluxes = f_peaks[mask_good_peaks]
+
+    if verbose:
+        print(
+            f'# Found {len(w_peaks)} peaks, '
+            f'{len(good_waves)} significant'
+        )
+
+    # ---------------------------------------------------------
+    # 5. Determine redshift using selected reference lines
+    # ---------------------------------------------------------
+
+    find_z_out = []
+
+    if (len(good_waves) >= min_matches and
+            len(rest_waves_z) >= min_matches):
+
+        find_z_out = find_redshift_weights(
+            rest_waves=rest_waves_z,
+            obs_waves=good_waves,
+            rest_names=rest_names_z,
+            line_weights=line_weights,
+            line_groups=active_groups,
+            zmin=z_min,
+            zmax=z_max,
+            velocity_tolerance=velocity_tolerance,
+            min_matches=min_matches
+        )
+
+    velocity = np.nan
+    velocity_error = np.nan
+    velocity_score = 0.0
+    velocity_valid = False
+    z_best = np.nan
+
+    if len(find_z_out) > 0:
+
+        best = find_z_out[0]
+
+        z_best = float(best.z)
+        velocity = float(best.velocity_kms)
+        velocity_error = float(best.rms_velocity_kms)
+        velocity_score = float(best.score)
+        velocity_valid = True
+
+    # ---------------------------------------------------------
+    # 6. Select peaks for emission-line subtraction
+    # ---------------------------------------------------------
+
+    subtraction_mask = np.zeros(
+        len(good_waves), dtype=bool
+    )
+
+    if subtract_mode == "all":
+
+        subtraction_mask[:] = True
+
+    else:
+
+        # Use the best measured z when available.
+        # Otherwise use the midpoint of the search interval.
+        if np.isfinite(z_best):
+            z_reference = z_best
+        else:
+            z_reference = 0.5 * (z_min + z_max)
+
+        for j, w_obs in enumerate(good_waves):
+
+            for w_rest, selected in zip(
+                rest_waves, use_for_subtraction
+            ):
+
+                if not selected:
+                    continue
+
+                w_expected = w_rest * (1.0 + z_reference)
+
+                delta_v = (
+                    299792.458 *
+                    abs(w_obs - w_expected) / w_expected
+                )
+
+                if delta_v <= velocity_tolerance:
+                    subtraction_mask[j] = True
+                    break
+
+    # ---------------------------------------------------------
+    # 7. Construct Gaussian emission-line model
+    # ---------------------------------------------------------
+
+    emission_model = np.zeros_like(flux)
+
+    for w_now, f_now in zip(
+        good_waves[subtraction_mask],
+        good_fluxes[subtraction_mask]
+    ):
+
+        idx = np.argmin(np.abs(wl - w_now))
+
+        sigma_inst = lsf[idx]
+
+        if not np.isfinite(sigma_inst) or sigma_inst <= 0:
+            continue
+
+        # Convert Gaussian peak amplitude to integrated flux
+        line_flux = (
+            np.sqrt(2.0 * np.pi)
+            * f_now
+            * sigma_inst
+        )
+
+        emission_model += eline(
+            wl,
+            w_now,
+            line_flux,
+            sigma_inst,
+            0.0,
+            dap_fwhm=1.0
+        )
+
+    # ---------------------------------------------------------
+    # 8. Subtract emission-line model
+    # ---------------------------------------------------------
+
+    stellar_spectrum = flux - emission_model
+
+    # ---------------------------------------------------------
+    # 9. Return results
+    # ---------------------------------------------------------
+
+    return {
+        "stellar_spectrum": stellar_spectrum,
+        "emission_model": emission_model,
+        "velocity": velocity,
+        "velocity_error": velocity_error,
+        "velocity_score": velocity_score,
+        "velocity_valid": velocity_valid,
+        "redshift": z_best,
+        "redshift_solutions": find_z_out,
+        "w_peaks": w_peaks,
+        "f_peaks": f_peaks,
+        "mask_good_peaks": mask_good_peaks,
+        "subtraction_mask": subtraction_mask,
+        "noise": abs_noise
+    }
+
+
+def cluster_emission_lines(
+    tab_el,
+    max_cluster_span=100.0,
+    max_adjacent_distance=30.0,
+    wl_col="wl",
+):
+    """
+    Cluster emission lines by wavelength using two criteria:cluster_emission_lines
+
+    1) Maximum total cluster span:
+           wl_current - wl_first <= max_cluster_span
+
+    2) Maximum separation between adjacent lines:
+           wl_current - wl_previous <= max_adjacent_distance
+
+    Every line belongs to exactly one cluster.
+
+    Parameters
+    ----------
+    tab_el : astropy.table.Table
+        Input emission-line table.
+
+    max_cluster_span : float
+        Maximum wavelength span of a cluster [Angstrom].
+
+    max_adjacent_distance : float
+        Maximum wavelength separation between adjacent lines in
+        the same cluster [Angstrom].
+
+    wl_col : str
+        Name of wavelength column.
+
+    Returns
+    -------
+    clusters : list
+        List of astropy Tables, one per cluster.
+
+    cluster_id : ndarray
+        Cluster ID for every row in the original table.
+    """
+
+    wl = np.asarray(tab_el[wl_col], dtype=float)
+
+    # Sort by wavelength
+    order = np.argsort(wl)
+    tab = tab_el[order]
+    wl_sorted = np.asarray(tab[wl_col], dtype=float)
+
+    n = len(tab)
+
+    if n == 0:
+        return [], np.array([], dtype=int)
+
+    cid_sorted = np.zeros(n, dtype=int)
+
+    cluster_id = 0
+    cluster_start = wl_sorted[0]
+
+    for i in range(1, n):
+
+        dist_from_start = wl_sorted[i] - cluster_start
+        dist_from_previous = wl_sorted[i] - wl_sorted[i - 1]
+
+        # Start a new cluster if EITHER criterion fails
+        if (
+            dist_from_start > max_cluster_span
+            or dist_from_previous > max_adjacent_distance
+        ):
+            cluster_id += 1
+            cluster_start = wl_sorted[i]
+
+        cid_sorted[i] = cluster_id
+
+    # Build cluster tables
+    clusters = [
+        tab[cid_sorted == k]
+        for k in range(cluster_id + 1)
+    ]
+
+    # Restore cluster IDs to original row order
+    ids_original = np.empty(n, dtype=int)
+    ids_original[order] = cid_sorted
+
+    return clusters, ids_original
