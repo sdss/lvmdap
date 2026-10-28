@@ -51,6 +51,8 @@ from scipy.optimize import linear_sum_assignment
 from dataclasses import dataclass
 from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator,    RBFInterpolator
 
+from packaging.version import Version, InvalidVersion
+
 #from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 #
 # Fit emission line systems given emission lines
@@ -59,11 +61,11 @@ from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator,    RB
 #import numpy as np
 #import matplotlib.pyplot as plt
 
-from pyFIT3D.common.gas_tools import (
+from lvmdap.pyFIT3D.common.gas_tools import (
     fit_elines_main,
     ConfigEmissionModel,
 )
-from pyFIT3D.common.constants import (
+from lvmdap.pyFIT3D.common.constants import (
     _MODELS_ELINE_PAR,
     __n_models_params__,
     __c__,
@@ -98,6 +100,7 @@ def fit_emission_line_system(
     plot=False,
     ax=None,
     bg_order=2,
+    verbose=False,
 ):
     """
     Fit a system of emission lines using pyFIT3D.
@@ -448,6 +451,7 @@ def fit_emission_line_system(
         run_mode=run_mode,
         fine_search=fine_search,
         scale_ini=scale_ini,
+        verbose=verbose
     )
 
     # --------------------------------------------------------------
@@ -3014,7 +3018,9 @@ def plot_spec_art_hdu(dir='output/', hdu = None,\
         ssp_model=data[6,:]
     else:
         gas = data[0,:] - data[5,:]
-        smooth = data[3,:] - data[4,:] - gas        
+#        smooth = data[3,:] - data[4,:] - gas        
+        smooth = np.zeros_like(data[3,:])
+#        smooth = data[3,:] - data[4,:] - gas        
         ssp_model = data[1,:]-smooth
 
         mean_val_ssp = np.nanmean(ssp_model)
@@ -3038,7 +3044,7 @@ def plot_spec_art_hdu(dir='output/', hdu = None,\
             ssp_model = data[1,:]
 
 
-    fig = plt.figure(figsize=(19,11)) 
+    fig = plt.figure(figsize=(21,11)) 
     gs = fig.add_gridspec(nrows=10, ncols=6,  left=0.075, right=0.97, \
                           hspace=0.0, wspace=0.05, bottom=0.15, top=0.9)
 
@@ -3336,7 +3342,223 @@ def bin1D(data,width):
    return bindata
 
 
-def read_DAP_file(dap_file,verbose=False):
+
+def read_DAP_file(dap_file, verbose=False):
+    """
+    Read an LVM-DAP FITS product and return the combined per-fiber table.
+
+    FITS primary-header DAP_VER determines the format:
+      < 2.0.0 : legacy PT, RSP, COEFFS, PM_ELINES, NP_ELINES_{B,R,I}
+      >=2.0.0 : same extensions plus wide PM_ELINES_{B,R,I}
+
+    Optional in either format: PM_KEL and ELINES_SIGMA_CHI.
+    Missing DAP_VER is treated as legacy, for backwards compatibility.
+
+    Legacy output column names are preserved where possible:
+      RSP: 'Av_st', 'z_st', 'flux_st', etc.
+      PM_ELINES (long): 'flux_pe_<wavelength>', etc.
+      PM_KEL (long): 'flux_pek_<wavelength>', etc.
+      COEFFS: 'n_W_rsp_<rsp index>', etc.
+      NP_ELINES bands: original wide column names.
+      New PM_ELINES bands: original wide column names ('*_pm').
+
+    Returns
+    -------
+    astropy.table.Table
+        One row per PT fiber, with the stellar properties, spectral-line
+        measurements, and SSP-template coefficients merged on 'id'.
+    """
+
+    def renamed(tab, mapping):
+        for before, after in mapping.items():
+            if before in tab.colnames and after not in tab.colnames:
+                tab.rename_column(before, after)
+        return tab
+
+    def text_values(col):
+        array = np.asarray(col)
+        if array.dtype.kind == 'S':
+            array = np.char.decode(array, encoding='utf-8')
+        return np.char.strip(array.astype(str))
+
+    def right_join(left, right, extension_name):
+        """Join on id without repeated id_fib or accidental column renaming."""
+        if 'id' not in right.colnames:
+            raise KeyError(f"{extension_name}: missing 'id' column")
+
+        # RSP already supplies the per-fiber id_fib; do not duplicate it.
+        right = right[[col for col in right.colnames
+                       if col != 'id_fib' or 'id_fib' not in left.colnames]]
+
+        # Guard against accidentally multiplying rows when joining.
+        if len(np.unique(text_values(right['id']))) != len(right):
+            raise ValueError(f"{extension_name}: duplicate fiber IDs in input")
+
+        duplicates = (set(right.colnames) & set(left.colnames)) - {'id'}
+        if duplicates:
+            raise ValueError(
+                f"{extension_name}: conflicting columns: {sorted(duplicates)[:10]}"
+            )
+        return join(left, right, keys='id', join_type='left')
+
+    def wide_by_key(long_tab, group_col, values, group_fmt='{}'):
+        """Pivot long emission-line/template rows to one row per id."""
+        if len(long_tab) == 0:
+            return None
+        if 'id' not in long_tab.colnames:
+            raise KeyError("Input long table lacks the 'id' column")
+
+        result = None
+        for group in np.unique(long_tab[group_col]):
+            if group_col == 'wl' and (not np.isfinite(group) or group <= 0):
+                continue
+            rows = long_tab[long_tab[group_col] == group]
+            suffix = group_fmt.format(group)
+            temp = rows[['id'] + values].copy()
+            for col in values:
+                temp.rename_column(col, f'{col}_{suffix}')
+            if result is None:
+                result = temp
+            else:
+                result = right_join(result, temp, f'{group_col}={suffix}')
+        return result
+
+    with fits.open(dap_file, memmap=True) as dap_hdu:
+        version_string = str(dap_hdu[0].header.get('DAP_VER', '0.0.0')).strip()
+        try:
+            is_v2 = Version(version_string) >= Version('2.0.0')
+        except InvalidVersion as exc:
+            raise ValueError(
+                f"Invalid DAP_VER in primary header: {version_string!r}"
+            ) from exc
+
+        if verbose:
+            print(f'# LVM-DAP version: {version_string} ({"2.x" if is_v2 else "legacy"})')
+
+        tab_PT = Table(dap_hdu['PT'].data)
+        tab_RSP = Table(dap_hdu['RSP'].data)
+        tab_COEFFS = Table(dap_hdu['COEFFS'].data)
+        tab_PE = Table(dap_hdu['PM_ELINES'].data)
+        tab_NPE_B = Table(dap_hdu['NP_ELINES_B'].data)
+        tab_NPE_R = Table(dap_hdu['NP_ELINES_R'].data)
+        tab_NPE_I = Table(dap_hdu['NP_ELINES_I'].data)
+
+        # Read optional tables for either version.
+        tab_KEL = (Table(dap_hdu['PM_KEL'].data)
+                   if 'PM_KEL' in dap_hdu else None)
+        tab_SIGMA = (Table(dap_hdu['ELINES_SIGMA_CHI'].data)
+                     if 'ELINES_SIGMA_CHI' in dap_hdu else None)
+
+        # New in DAP 2.0.0: parametric line measurements in B/R/I wide tables.
+        tab_PM_bands = {}
+        if is_v2:
+            for band in ('B', 'R', 'I'):
+                ext = f'PM_ELINES_{band}'
+                if ext not in dap_hdu:
+                    raise KeyError(
+                        f'DAP_VER={version_string}: missing required extension {ext}'
+                    )
+                tab_PM_bands[band] = Table(dap_hdu[ext].data)
+
+    # Rename stellar-population properties (old and new format).
+    renamed(tab_RSP, {
+        'Av': 'Av_st', 'e_Av': 'e_Av_st',
+        'z': 'z_st', 'e_z': 'e_z_st',
+        'disp': 'disp_st', 'e_disp': 'e_disp_st',
+        'flux': 'flux_st', 'redshift': 'redshift_st',
+        'med_flux': 'med_flux_st', 'e_med_flux': 'e_med_flux_st',
+        'sys_vel': 'vel_st',
+    })
+
+    # Long-form parametric emission-line values.
+    pe_columns = ('flux', 'e_flux', 'disp', 'e_disp', 'vel', 'e_vel')
+    renamed(tab_PE, {col: f'{col}_pe' for col in pe_columns})
+    pe_values = [f'{col}_pe' for col in pe_columns]
+
+    if tab_KEL is not None:
+        renamed(tab_KEL, {col: f'{col}_pek' for col in pe_columns})
+        pek_values = [f'{col}_pek' for col in pe_columns]
+
+    # SSP-template coefficient names (old and new format).
+    renamed(tab_COEFFS, {
+        'rsp': 'id_rsp', 'TEFF': 'Teff_rsp', 'LOGG': 'Log_g_rsp',
+        'META': 'Fe_rsp', 'ALPHAM': 'alpha_rsp',
+        'COEFF': 'W_rsp', 'Min.Coeff': 'min_W_rsp',
+        'log(M/L)': 'log_ML_rsp', 'AV': 'Av_rsp',
+        'N.Coeff': 'n_W_rsp', 'Err.Coeff': 'e_W_rsp',
+    })
+    coeff_values = [
+        'Teff_rsp', 'Log_g_rsp', 'Fe_rsp', 'alpha_rsp',
+        'W_rsp', 'min_W_rsp', 'log_ML_rsp', 'Av_rsp',
+        'n_W_rsp', 'e_W_rsp',
+    ]
+
+    # Begin with one entry per original pointing-table fiber.
+    tab_DAP = tab_PT.copy()
+    tab_DAP = right_join(tab_DAP, tab_RSP, 'RSP')
+
+    for band, tab in zip(('B', 'R', 'I'), (tab_NPE_B, tab_NPE_R, tab_NPE_I)):
+        tab_DAP = right_join(tab_DAP, tab, f'NP_ELINES_{band}')
+
+    # Preserve the original PM_ELINES long-table pivot for both versions.
+    if is_v2:
+        if (verbose):
+            print(f'# Pivoting PM_ELINES long table to wide format')
+        tab_PE_ord = None
+    else:
+        pe_eline = tab_PE[text_values(tab_PE['model']) == 'eline']
+        tab_PE_ord = wide_by_key(pe_eline, 'wl', pe_values)
+        if tab_PE_ord is not None:
+            tab_DAP = right_join(tab_DAP, tab_PE_ord, 'PM_ELINES (pivot)')
+
+    # For DAP 2.0.0+, add all three new parametric wide tables as well.
+    if is_v2:
+        for band in ('B', 'R', 'I'):
+            tab_DAP = right_join(
+                tab_DAP, tab_PM_bands[band], f'PM_ELINES_{band}'
+            )
+
+    tab_KEL_ord = None
+    if tab_KEL is not None:
+        pek_eline = tab_KEL[text_values(tab_KEL['model']) == 'eline']
+        tab_KEL_ord = wide_by_key(pek_eline, 'wl', pek_values)
+        if tab_KEL_ord is not None:
+            tab_DAP = right_join(tab_DAP, tab_KEL_ord, 'PM_KEL (pivot)')
+
+    tab_C_ord = wide_by_key(tab_COEFFS, 'id_rsp', coeff_values)
+    if tab_C_ord is not None:
+        tab_DAP = right_join(tab_DAP, tab_C_ord, 'COEFFS (pivot)')
+
+    if tab_SIGMA is not None:
+        tab_DAP = right_join(tab_DAP, tab_SIGMA, 'ELINES_SIGMA_CHI')
+
+    if verbose:
+        print(f'# PT fibers: {len(tab_PT)}')
+        print(f'# Combined table: {len(tab_DAP)} rows, '
+              f'{len(tab_DAP.colnames)} columns')
+        for name, table in (
+            ('PT', tab_PT), ('RSP', tab_RSP),
+            ('NP_ELINES_B', tab_NPE_B),
+            ('NP_ELINES_R', tab_NPE_R),
+            ('NP_ELINES_I', tab_NPE_I),
+            ('PM_ELINES (pivot)', tab_PE_ord),
+            ('PM_KEL (pivot)', tab_KEL_ord),
+            ('COEFFS (pivot)', tab_C_ord),
+            ('ELINES_SIGMA_CHI', tab_SIGMA),
+        ):
+            if table is not None:
+                print(f'\n---- {name}: {len(table.colnames)} columns ----')
+                print(*table.colnames, sep='\n')
+        if is_v2:
+            for band, table in tab_PM_bands.items():
+                print(f'\n---- PM_ELINES_{band}: '
+                      f'{len(table.colnames)} columns ----')
+                print(*table.colnames, sep='\n')
+
+    return tab_DAP
+
+
+def read_DAP_file_v120(dap_file,verbose=False):
     dap_hdu=fits.open(dap_file)
     tab_PT=Table(dap_hdu['PT'].data)
     tab_RSP=Table(dap_hdu['RSP'].data)
@@ -5452,7 +5674,7 @@ def process_elines_spec(
     smooth_size=5,
     velocity_tolerance=150.0,
     do_plot=0,
-    verbose=0
+    verbose=False
 ):
     """
     Identify, model, and subtract emission lines from one spectrum.
@@ -6100,3 +6322,397 @@ def cluster_emission_lines(
     ids_original[order] = cid_sorted
 
     return clusters, ids_original
+
+def plot_rss_spectrum_colored(
+        wave,
+        rss,
+        cmap='turbo',
+        percentile=(2, 99.5),
+        figsize=(14, 7),
+        mean_method='median',
+        log_image=False,
+        ylabel='Spectrum #',
+        flux_label=r'$\mathrm{sign}(F)\sqrt{|F|}$',
+        z=0.0,
+        n_lines=12,
+        line_window=5.0,
+        label_lines=True,
+        line_list=None,
+        gamma = 0.5
+    ):
+    """
+    Plot an RSS spectrum with wavelength encoded as colour.
+
+    Upper panel:
+        RSS image. Hue is determined by wavelength and brightness by flux.
+
+    Lower panel:
+        Representative spectrum plotted as
+
+            sign(F) * sqrt(abs(F))
+
+        using exactly the same wavelength -> colour mapping.
+
+    Bright emission lines can optionally be labelled.
+
+    Parameters
+    ----------
+    wave : ndarray, shape (n_wave,)
+        Wavelength array [Angstrom].
+
+    rss : ndarray, shape (n_spec, n_wave)
+        RSS array: axis 0 = spectrum, axis 1 = wavelength.
+
+    cmap : str
+        Matplotlib colour map.
+
+    percentile : tuple
+        Percentiles used to normalize the RSS image.
+
+    figsize : tuple
+        Figure size.
+
+    mean_method : {'mean', 'median'}
+        How to combine RSS spectra.
+
+    log_image : bool
+        Apply an arcsinh stretch to the RSS intensity.
+
+    z : float
+        Redshift used for line positions.
+
+    n_lines : int
+        Maximum number of lines to label.
+
+    line_window : float
+        Half-width [Angstrom] around each expected line used
+        to estimate its observed strength.
+
+    label_lines : bool
+        Label emission lines.
+
+    line_list : dict or None
+        Dictionary {label: wavelength}.
+        If None, a default optical list is used.
+
+    Returns
+    -------
+    fig, (ax_img, ax_spec)
+    """
+
+    wave = np.asarray(wave, dtype=float)
+    rss = np.asarray(rss, dtype=float)
+
+    if rss.ndim != 2:
+        raise ValueError("rss must have shape (n_spec, n_wave)")
+
+    if rss.shape[1] != wave.size:
+        raise ValueError(
+            f"rss.shape[1]={rss.shape[1]}, wave.size={wave.size}"
+        )
+
+    # ============================================================
+    # Default emission-line list
+    # ============================================================
+
+    if line_list is None:
+        line_list = {
+            r'[O II] 3727': 3727.0,
+            r'[Ne III] 3869': 3869.0,
+            r'H$\delta$': 4101.74,
+            r'H$\gamma$': 4340.47,
+            r'[O III] 4363': 4363.21,
+            r'He II 4686': 4685.68,
+            r'H$\beta$': 4861.33,
+            r'[O III] 4959': 4958.91,
+            r'[O III] 5007': 5006.84,
+            r'He I 5876': 5875.62,
+            r'[O I] 6300': 6300.30,
+            r'[S III] 6312': 6312.06,
+            r'[O I] 6364': 6363.78,
+            r'[N II] 6548': 6548.05,
+            r'H$\alpha$': 6562.80,
+            r'[N II] 6583': 6583.45,
+            r'He I 6678': 6678.15,
+            r'[S II] 6716': 6716.44,
+            r'[S II] 6731': 6730.82,
+            r'[Ar III] 7136': 7135.79,
+            r'[O II] 7320': 7319.99,
+            r'[O II] 7330': 7330.73,
+            r'[S III] 9069': 9068.6,
+            r'[S III] 9531': 9530.6,
+        }
+
+    # ============================================================
+    # Representative spectrum
+    # ============================================================
+
+    if mean_method == 'mean':
+        spec = np.nanmean(rss, axis=0)
+
+    elif mean_method == 'median':
+        spec = np.nanmedian(rss, axis=0)
+
+    else:
+        raise ValueError(
+            "mean_method must be 'mean' or 'median'"
+        )
+
+    # ============================================================
+    # Image intensity normalization
+    # ============================================================
+
+    good = np.isfinite(rss)
+
+    vmin, vmax = np.nanpercentile(
+        rss[good],
+        percentile
+    )
+
+    intensity = (rss - vmin) / (vmax - vmin)
+
+    intensity = np.clip(
+        intensity,
+        0.0,
+        1.0
+    )
+
+    if log_image:
+        intensity = (
+            np.arcsinh(5.0 * intensity) /
+            np.arcsinh(5.0)
+        )
+
+    intensity[~np.isfinite(intensity)] = 0.0
+
+    # ============================================================
+    # wavelength -> RGB
+    # ============================================================
+
+    wave_norm = Normalize(
+        vmin=np.nanmin(wave),
+        vmax=np.nanmax(wave)
+    )
+
+    cmap_obj = cm.get_cmap(cmap)
+
+    # (n_wave, 3)
+    wavelength_rgb = cmap_obj(
+        wave_norm(wave)
+    )[:, :3]
+
+    # (n_spec, n_wave, 3)
+    rgb = (
+        intensity[:, :, None] *
+        wavelength_rgb[None, :, :]
+    )
+
+    # ============================================================
+    # Figure
+    # ============================================================
+
+    fig, (ax_img, ax_spec) = plt.subplots(
+        2, 1,
+        figsize=figsize,
+        sharex=True,
+        gridspec_kw={
+            'height_ratios': [2.0, 2.0],
+            'hspace': 0.04
+        }
+    )
+
+    # ============================================================
+    # Upper: RSS
+    # ============================================================
+
+    extent = [
+        wave[0],
+        wave[-1],
+        0,
+        rss.shape[0]
+    ]
+
+    ax_img.imshow(
+        rgb,
+        origin='lower',
+        aspect='auto',
+        extent=extent,
+        interpolation='nearest'
+    )
+
+    ax_img.set_ylabel(ylabel, fontsize=14)
+
+    # ============================================================
+    # Lower spectrum:
+    #
+    #       sign(F) sqrt(|F|)
+    # ============================================================
+
+    spec_plot = (
+        np.sign(spec) *
+        (np.abs(spec))**gamma
+    )
+
+    # Convert curve into individual segments
+    points = np.column_stack(
+        [wave, spec_plot]
+    )
+
+    segments = np.stack(
+        [points[:-1], points[1:]],
+        axis=1
+    )
+
+    # colour each segment according to wavelength
+    lc = LineCollection(
+        segments,
+        cmap=cmap_obj,
+        norm=wave_norm,
+        linewidth=1.5
+    )
+
+    lc.set_array(
+        0.5 * (wave[:-1] + wave[1:])
+    )
+
+    ax_spec.add_collection(lc)
+
+    # autoscaling is not automatic for LineCollection
+    finite = np.isfinite(spec_plot)
+
+    ymin = np.nanmin(spec_plot[finite])
+    ymax = np.nanmax(spec_plot[finite])
+
+    dy = ymax - ymin
+
+    if dy <= 0:
+        dy = 1.0
+
+    ax_spec.set_ylim(
+        ymin - 0.05 * dy,
+        ymax + 0.7 * dy
+    )
+
+    ax_spec.set_xlim(
+        wave[0],
+        wave[-1]
+    )
+
+    ax_spec.axhline(
+        0,
+        color='0.5',
+        lw=0.5,
+        alpha=0.5
+    )
+
+    # ============================================================
+    # Identify strongest known emission lines
+    # ============================================================
+
+    if label_lines:
+
+        line_strength = []
+
+        for name, wl0 in line_list.items():
+
+            wl_obs = wl0 * (1.0 + z)
+
+            # skip lines outside wavelength range
+            if not (wave[0] <= wl_obs <= wave[-1]):
+                continue
+
+            mask = (
+                (wave >= wl_obs - line_window) &
+                (wave <= wl_obs + line_window)
+            )
+
+            if not np.any(mask):
+                continue
+
+            local_spec = spec[mask]
+
+            if not np.any(np.isfinite(local_spec)):
+                continue
+
+            # peak flux around expected wavelength
+            peak_index_local = np.nanargmax(local_spec)
+
+            indexes = np.where(mask)[0]
+            peak_index = indexes[peak_index_local]
+
+            peak_flux = spec[peak_index]
+
+            line_strength.append(
+                (
+                    peak_flux,
+                    name,
+                    wl_obs,
+                    wave[peak_index],
+                    spec_plot[peak_index]
+                )
+            )
+
+        # strongest first
+        line_strength.sort(
+            key=lambda x: x[0],
+            reverse=True
+        )
+
+        line_strength = line_strength[:n_lines]
+
+        # --------------------------------------------------------
+        # labels
+        # --------------------------------------------------------
+
+        label_y = ymax + 0.10 * dy
+
+        for (
+            strength,
+            name,
+            wl_expected,
+            wl_peak,
+            y_peak
+        ) in line_strength:
+
+            # use EXACTLY the colour corresponding to wavelength
+            color = cmap_obj(
+                wave_norm(wl_expected)
+            )
+
+            # vertical dotted indicator
+            ax_spec.plot(
+                [wl_expected, wl_expected],
+                [y_peak, label_y - 0.02 * dy],
+                color=color,
+                lw=0.8,
+                alpha=0.75,
+                ls=':'
+            )
+
+            ax_spec.text(
+                wl_expected,
+                label_y,
+                name,
+                rotation=90,
+                rotation_mode='anchor',
+                ha='left',
+                va='center',
+                fontsize=12,
+                color=color
+            )
+
+    # ============================================================
+    # Labels
+    # ============================================================
+
+    ax_spec.set_xlabel(
+        r'Longitud de onda [$\AA$] ~ color', fontsize=14
+    )
+
+    ax_spec.set_ylabel(
+        flux_label, fontsize=14
+    )
+
+    plt.tight_layout()
+
+    return fig, (ax_img, ax_spec)

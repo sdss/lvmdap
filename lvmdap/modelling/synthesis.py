@@ -232,6 +232,7 @@ class StellarSynthesis(StPopSynt):
 #        self._MC_averages()
         self.coeffs_ssp_MC=coeffs_single        
         self.spectra['model_ssp_min']=model_min*norm_median_flux
+        self.spectra['model_ssp_min_uncorr']=model_min*norm_median_flux
         self.spectra['model_min']=model_min*norm_median_flux
 #        self.resume_results()
 #        self.output_coeffs_MC_to_screen()
@@ -324,26 +325,12 @@ class StellarSynthesis(StPopSynt):
         self.coeffs_ssp_MC=coeffs_single
         
         self.spectra['model_ssp_min']=model_min
+        self.spectra['model_ssp_min_uncorr']=model_min
         self.spectra['model_min']=model_min
 
 
         
-        #res_ssp = s['raw_flux_no_gas'] - model_ssp_min
-        # smooth model_ssp_min (not tested)
-        #ratio = np.divide(s['raw_flux_no_gas'], model_ssp_min, where=model_ssp_min!=0)
-        #ratio = np.where(np.isfinite(ratio), ratio, 0)
-        #ratio = np.where(model_ssp_min == 0, 0, ratio)
-        #sm_rat = smooth_ratio(ratio, int(self.sigma_mean))
-       # model_ssp_min *= sm_rat
-       # model_joint = model_ssp_min + s['raw_model_elines']
-        # _rat = (s['orig_flux_ratio']/self.ratio_master)
-        # _rat = np.where(self.ratio_master > 0, _rat, s['orig_flux_ratio'])
-        #res_joint = (res_ssp - s['raw_model_elines'])
 
-        #s['model_joint'] = model_joint
-        #s['res_joint'] = res_joint
-        #s['res_ssp'] = res_ssp
-        #s['res_ssp_no_corr'] = s['orig_flux'] - s['model_ssp_min_uncorr']
      
         tbl_row = []
         tbl_row.append(i_C_mean_min)
@@ -433,6 +420,7 @@ class StellarSynthesis(StPopSynt):
         else:
             self.sigma_mean = np.sqrt(self.sigma_inst**2 + (5000*self.best_sigma/__c__)**2)
         sm_rat = smooth_ratio(ratio, int(self.sigma_mean))
+        s['model_ssp_min_uncorr'] = model_ssp_min.copy()
         model_ssp_min *= sm_rat
         model_joint = model_ssp_min + s['raw_model_elines']
         # _rat = (s['orig_flux_ratio']/self.ratio_master)

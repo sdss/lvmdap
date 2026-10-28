@@ -3285,6 +3285,8 @@ class StPopSynt(object):
         print_verbose(f'coeffs_now ------------------ {coeffs_now}', verbose=self.verbose)
 
         model_ssp_min = s['model_ssp_min']
+        s['model_ssp_min_uncorr'] = copy(model_ssp_min)
+
         res_ssp = s['raw_flux_no_gas'] - model_ssp_min
 
         # smooth model_ssp_min (not tested)
@@ -3558,7 +3560,31 @@ class StPopSynt(object):
             Output FITS filename.
         """
         s = self.spectra
+
+        try:
+            self.output_spectra_list = [
+                s['orig_flux_ratio'],
+                s['model_ssp_min'],
+                s['model_joint'],
+                s['res_ssp_no_corr'],
+                s['orig_flux_ratio'] - s['model_joint'],
+                s['orig_flux_ratio'] - (s['model_joint'] - s['model_ssp_min']),
+                s['gas_model_NP'],
+                s['raw_model_elines']
+            ]
+        except:
+            self.output_spectra_list = [
+                s['orig_flux_ratio'],
+                s['model_ssp_min'],
+                s['model_joint'],
+                s['res_ssp_no_corr'],
+                s['orig_flux_ratio'] - s['model_joint'],
+                s['orig_flux_ratio'] - (s['model_joint'] - s['model_ssp_min']),
+            ]
+
         table = np.array(self.output_spectra_list)
+
+
         hdu = array_to_hdu('output_spectra', table, overwrite=True)
         h = {}
         h['CRPIX1'] = 1
@@ -3570,6 +3596,8 @@ class StPopSynt(object):
         h['NAME3'] = 'gas_spec'
         h['NAME4'] = 'res_joint_spec'
         h['NAME5'] = 'no_gas_spec'
+        h['NAME6'] = 'gas_model_NP'
+        h['NAME7'] = 'gas_model_PM'
         h['COMMENT'] = f'OUTPUT {basename(sys.argv[0])} FITS'
         hdu[0].header.update(h)
         return hdu

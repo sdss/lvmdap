@@ -99,7 +99,7 @@ def auto_rsp_elines_rnd(
     input_redshift=None, delta_redshift=None, min_redshift=None, max_redshift=None,
     input_sigma=None, delta_sigma=None, min_sigma=None, max_sigma=None, sigma_gas=None,
     input_AV=None, delta_AV=None, min_AV=None, max_AV=None, ratio=True, y_ratio=None,
-    fit_sigma_rnd=True, out_path=None, SPS_master=None, SN_CUT=2):
+    fit_sigma_rnd=True, out_path=None, SPS_master=None, bin_AV=51, SN_CUT=2):
 
   #
   # If there is no RSP for the Non-Linear (nl) fitting, they it is 

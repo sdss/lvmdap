@@ -567,7 +567,7 @@ def model_rsp_elines_single_main(
     SPS.best_sigma = cf.sigma
     SPS.e_sigma = 0.0
     print_verbose(f'- Sigma:    {SPS.best_sigma:.8f} +- {SPS.e_sigma:.8f}', verbose=self.verbose)
-    SPS.best_Av = cf.Afit_emission_line_systemV
+    SPS.best_Av = cf.AV
     SPS.e_Av = 0.0
     print_verbose(f'- Av:    {SPS.best_Av:.8f} +- {SPS.e_Av:.8f}', verbose=self.verbose)
     SPS.spectra['raw_flux_no_gas']=SPS.spectra['orig_flux']
@@ -1066,7 +1066,8 @@ def auto_rsp_elines_rnd(
     input_redshift=None, delta_redshift=None, min_redshift=None, max_redshift=None,
     input_sigma=None, delta_sigma=None, min_sigma=None, max_sigma=None, sigma_gas=None,
     input_AV=None, delta_AV=None, min_AV=None, max_AV=None, ratio=True, y_ratio=None,
-    fit_sigma_rnd=True, out_path=None, SPS_master=None, SN_CUT=2, verbose=False, full_verbose=False):
+    fit_sigma_rnd=True, out_path=None, SPS_master=None, bin_AV=51, 
+    SN_CUT=2, verbose=False, full_verbose=False):
 
     ssp_nl_fit_file = ssp_file if ssp_nl_fit_file is None else ssp_nl_fit_file
     cc_redshift_boundaries = [min_redshift, max_redshift]
@@ -1088,7 +1089,8 @@ def auto_rsp_elines_rnd(
         input_sigma=input_sigma, delta_sigma=delta_sigma, min_sigma=min_sigma, max_sigma=max_sigma,
         input_AV=input_AV, delta_AV=delta_AV, min_AV=min_AV, max_AV=max_AV,
         plot=plot, single_ssp=False, ratio=ratio, y_ratio=y_ratio, fit_sigma_rnd=fit_sigma_rnd,
-        sps_class=StellarSynthesis, SPS_master=SPS_master , SN_CUT=  SN_CUT, verbose = verbose, full_verbose=full_verbose 
+        sps_class=StellarSynthesis, SPS_master=SPS_master , bin_AV = bin_AV, 
+        SN_CUT=  SN_CUT, verbose = verbose, full_verbose=full_verbose 
     )
     print_verbose(f"# END: fitting the continuum+emission lines, fit_gas:{fit_gas} ...", verbose=verbose);
     print_verbose("##############################", verbose=verbose);

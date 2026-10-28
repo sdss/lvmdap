@@ -78,7 +78,7 @@ def flux_elines_RSS_EW(flux__wyx, input_header, n_MC, elines_list, vel__yx, sigm
                     wave_now=float(tmp_line[0])
                     if ((wave_now>w_min)&(wave_now<w_max)):
                         wavelengths = np.append(wavelengths, float(tmp_line[0]))
-                        name_elines = np.append(name_elines, tmp_line[1])
+                        name_elines = np.append(name_elines, tmp_oline[1])
                         ne += 1
 #                else:
 #                    wavelengths = np.append(wavelengths, 0)
@@ -197,7 +197,7 @@ def flux_elines_RSS_EW_cl_250427(flux__wyx, input_header, n_MC, tab_el, vel__yx,
     
     fe_m_data, fe_m_hdr = flux_elines_RSS_EW_tab(flux__wyx, input_header, n_MC, tab_el, vel__yx,\
                                               sigma__yx, eflux__wyx=eflux__wyx, flux_ssp__wyx=flux_ssp__wyx,\
-                                                 w_range=w_range, plot=plot, verbose=False)
+                                                 w_range=w_range, plot=plot, verbose=verbose)
 
 
      
@@ -372,7 +372,6 @@ def flux_elines_RSS_EW_tab(flux__wyx, input_header, n_MC, tab_elines, vel__yx, s
                            eflux__wyx=None, flux_ssp__wyx=None, w_range=60, plot=0, 
                            figsize=(8,4), f_width=2, sigma_we = 2, verbose=False):
     nx, nw = flux__wyx.shape
-    print(nx,nw,plot)
     crpix = input_header['CRPIX1']
     crval = input_header['CRVAL1']
     cdelt = input_header['CDELT1']
@@ -406,11 +405,13 @@ def flux_elines_RSS_EW_tab(flux__wyx, input_header, n_MC, tab_elines, vel__yx, s
 #    print(f'*** ne = {ne}')
     NZ_out = ne * 4 * 2
     out = np.zeros([NZ_out, nx])
-    print('{} emission lines'.format(ne))
+    if (verbose==True):
+        print('{} emission lines'.format(ne))
     labels = ['flux', 'vel', 'disp', 'EW','e_flux', 'e_vel', 'e_disp', 'e_EW']
 #    print('PASO fe')
     for i, name in enumerate(name_elines):
-        print(i,name,wavelengths[i])
+        if (verbose==True):
+            print(i,name,wavelengths[i])
         _tmp = [i, i + ne, i + 2*ne, i + 3*ne, i + 4*ne, i + 5*ne, i + 6*ne, i + 7*ne]
         for j, I in enumerate(_tmp):
             header_label = 'NAME{}'.format(I)
@@ -516,8 +517,8 @@ def flux_elines_RSS_EW_tab(flux__wyx, input_header, n_MC, tab_elines, vel__yx, s
             out[7*ne + k, i] = e_EW
             if (verbose==True):
                 print('# :',I0,vel_I1, 1.217*(I2/2.354)**2, EW, s_I0, s_vel_I1, s_I2, e_EW)
-        
-        print('{}/{}, {},{} blended: {} DONE'.format(k + 1, ne, str(wavelengths[k]), name_elines[k], tab_elines['blended'][k] ))
+        if (verbose==True):
+            print('{}/{}, {},{} blended: {} DONE'.format(k + 1, ne, str(wavelengths[k]), name_elines[k], tab_elines['blended'][k] ))
     
     return out, input_header
 
@@ -537,7 +538,7 @@ def flux_elines_RSS_EW_cl(flux__wyx, input_header, n_MC, tab_el, vel__yx, sigma_
     fe_m_data, fe_m_hdr = flux_elines_RSS_EW_tab(flux__wyx, input_header, n_MC, tab_el, vel__yx,\
                                               sigma__yx, eflux__wyx=eflux__wyx, flux_ssp__wyx=flux_ssp__wyx,\
                                                  w_range=w_range, plot=plot, f_width=f_width, 
-                                                 sigma_we = sigma_we, verbose=False)
+                                                 sigma_we = sigma_we, verbose=verbose)
 
 
      
