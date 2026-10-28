@@ -3550,7 +3550,7 @@ class StPopSynt(object):
         h['COMMENT'] = f'OUTPUT {basename(sys.argv[0])} FITS'
         write_img_header(filename, list(h.keys()), list(h.values()))
 
-    def output_fits_hdu(self):
+    def output_fits_hdu(self, gas_model_NP=False, gas_model_PM=False):
         """
         Generate the FITS HDU with the output spectra (original, model, residual and joint).
 
@@ -3561,7 +3561,7 @@ class StPopSynt(object):
         """
         s = self.spectra
 
-        try:
+        if ((gas_model_NP == True) and (gas_model_PM == True)):
             self.output_spectra_list = [
                 s['orig_flux_ratio'],
                 s['model_ssp_min'],
@@ -3572,15 +3572,38 @@ class StPopSynt(object):
                 s['gas_model_NP'],
                 s['raw_model_elines']
             ]
-        except:
-            self.output_spectra_list = [
-                s['orig_flux_ratio'],
-                s['model_ssp_min'],
-                s['model_joint'],
-                s['res_ssp_no_corr'],
-                s['orig_flux_ratio'] - s['model_joint'],
-                s['orig_flux_ratio'] - (s['model_joint'] - s['model_ssp_min']),
-            ]
+        else:
+            if ((gas_model_NP == False) and (gas_model_PM == False)):
+                self.output_spectra_list = [
+                    s['orig_flux_ratio'],
+                    s['model_ssp_min'],
+                    s['model_joint'],
+                    s['res_ssp_no_corr'],
+                    s['orig_flux_ratio'] - s['model_joint'],
+                    s['orig_flux_ratio'] - (s['model_joint'] - s['model_ssp_min']),
+                ]
+            else: 
+                if ((gas_model_NP == True) and (gas_model_PM == False)):
+                    self.output_spectra_list = [
+                        s['orig_flux_ratio'],
+                        s['model_ssp_min'],
+                        s['model_joint'],
+                        s['res_ssp_no_corr'],
+                        s['orig_flux_ratio'] - s['model_joint'],
+                        s['orig_flux_ratio'] - (s['model_joint'] - s['model_ssp_min']),
+                        s['gas_model_NP'],
+                    ]
+                else:
+                    self.output_spectra_list = [
+                        s['orig_flux_ratio'],
+                        s['model_ssp_min'],
+                        s['model_joint'],
+                        s['res_ssp_no_corr'],
+                        s['orig_flux_ratio'] - s['model_joint'],
+                        s['orig_flux_ratio'] - (s['model_joint'] - s['model_ssp_min']),
+                        s['raw_model_elines']
+                    ]
+                 
 
         table = np.array(self.output_spectra_list)
 

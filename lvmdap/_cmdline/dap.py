@@ -2653,7 +2653,7 @@ def fit_individual_rss_spectrum(
     SPS.spectra['gas_model_NP'] = create_elines_model_pm(
         wl, tab_fe, dap_fwhm=dap_fwhm, verbose=verbose
     )[0]
-    hdu_sps = SPS.output_fits_hdu()
+    hdu_sps = SPS.output_fits_hdu(gas_models=True)
 
 
     # Add original PT ID to other tables without changing integer id_fib.
@@ -3240,8 +3240,8 @@ def fit_individual_rss_spectrum_or_adopt_result(
     else:
         tab_rsp = create_rsp_table(i_fib, SPS)
         tab_coeffs = create_coeffs_table(i_fib, SPS)
-    tab_elines = create_elines_table(i_fib, SPS)
-    hdu_sps = SPS.output_fits_hdu()
+    tab_elines = create_elines_table(i_fib, SPS)    
+
 
     # ------------------------------------------------------------
     # 8. Nonparametric flux / equivalent-width measurements.
@@ -3280,6 +3280,9 @@ def fit_individual_rss_spectrum_or_adopt_result(
         if len(tab_fe) != 1:
             raise ValueError(f'Expected one flux/EW row, got {len(tab_fe)}')
         tab_fe.add_column(np.array([i_fib], dtype=np.int64), name='id_fib', index=0)
+        SPS.spectra['gas_model_NP'] = create_elines_model_pm(
+            wl, tab_fe, dap_fwhm=dap_fwhm, verbose=verbose
+        )[0]
     else:
         tab_fe = Table()
         tab_fe.add_column(np.array([i_fib], dtype=np.int64), name='id_fib', index=0)
@@ -3289,6 +3292,8 @@ def fit_individual_rss_spectrum_or_adopt_result(
         if 'id' not in tab.colnames:
             tab.add_column([pt_id] * len(tab), name='id', index=0)
 
+
+    hdu_sps = SPS.output_fits_hdu(gas_model_NP=fit_NP, gas_model_PM=fit_PM)
     # ------------------------------------------------------------
     # 9. Optional diagnostic plot; no file output requested.
     # SPS.spectra['model_ssp_min_uncorr']
@@ -4654,8 +4659,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     tab_coeffs = tab_vstack(tab_coeffs)
     tab_fe = tab_vstack(tab_fe)
     tab_PM = tab_vstack(tab_PM)
-    output_model = np.swapaxes(np.array(output_model), 2, 3)
-
+    output_model = np.array(output_model)
+    output_model = np.swapaxes(np.array(output_model), 1, 0)
 
 #    print(tab_rsp_interp.colnames)
 #    print(tab_coeffs_interp.colnames)
@@ -4700,16 +4705,13 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #######################################################
     # Write output model
     ########################################################
-    print(f'SHAPE models: {output_model.shape}')
-    print(f'NAXIS1 {hdu_i_sps[0].header["NAXIS1"]}')
-    print(f'NAXIS2 {hdu_i_sps[0].header["NAXIS2"]}')
     if (args.dump_model==True):
         if (args.verbose==True):
             print("##############################################")
             print("# Writing output model to fits file ##########")
             print("##############################################")
         out_file_model = os.path.join(args.output_path, f"{args.label}.model.fits.gz") 
-        hdi_i_sps[0].header['NAXIS'] = 3              
+        hdu_i_sps[0].header['NAXIS'] = 3              
         hdu_i_sps[0].header['NAXIS1'] = output_model.shape[2]
         hdu_i_sps[0].header['NAXIS2'] = output_model.shape[1]
         hdu_i_sps[0].header['NAXIS3'] = output_model.shape[0]
