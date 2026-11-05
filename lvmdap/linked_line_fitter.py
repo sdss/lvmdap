@@ -210,8 +210,25 @@ def fit_linked_lines(wl, flux, eflux, rest_waves, lsf_spectrum, *,
         rhs = (y - constant) / ey
         if not A.shape[1]:
             return np.empty(0), (constant - y) / ey, 0
-        coefs, _, rank, _ = np.linalg.lstsq(wA, rhs, rcond=None)
-        return coefs, (A @ coefs + constant - y) / ey, rank
+        # Normalize every weighted design column and the right-hand side.
+        # This does NOT alter the least-squares objective or the signed flux
+        # solution, but prevents a mix of tiny Gaussian basis functions and
+        # high-contrast continua from destabilizing the SVD.
+        col_scale = np.max(np.abs(wA), axis=0)
+        if np.any(~np.isfinite(col_scale)) or np.any(col_scale == 0):
+            raise FloatingPointError('Nonfinite or zero weighted design column')
+        rhs_scale = max(float(np.max(np.abs(rhs))), 1.0)
+        if not np.isfinite(rhs_scale):
+            raise FloatingPointError('Nonfinite weighted data')
+        normalized = wA / col_scale[None, :]
+        coeff_norm, _, rank, _ = np.linalg.lstsq(
+            normalized, rhs / rhs_scale, rcond=None)
+        with np.errstate(over='raise', invalid='raise'):
+            coefs = (coeff_norm * rhs_scale) / col_scale
+            resid = (A @ coefs + constant - y) / ey
+        if not np.all(np.isfinite(resid)):
+            raise FloatingPointError('Nonfinite weighted model residual')
+        return coefs, resid, rank
 
     def objective(pars):
         return linear_solution(pars)[1]
@@ -220,7 +237,7 @@ def fit_linked_lines(wl, flux, eflux, rest_waves, lsf_spectrum, *,
         if len(start):
             opt = least_squares(objective, start, bounds=(lower, upper),
                                 method='trf', loss='linear',
-                                max_nfev=int(max_nfev))
+                                max_nfev=int(max_nfev), x_scale='jac')
             solution = opt.x
             result['message'] = str(opt.message)
             result['success'] = bool(opt.success)

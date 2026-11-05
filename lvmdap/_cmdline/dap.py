@@ -4020,34 +4020,81 @@ def estimate_gas_redshift(
 
 
 def fit_pm_cluster_scipy(wl, gas_spec, eflux, lsf, cluster, z, args,
-                         bad_pixel_mask=None):
-    """Optional FIT3D-independent PM replacement for one emission-line group.
+                         bad_pixel_mask=None, sigma_bounds=None):
+    """Fit a PM cluster with empirical LSF and the existing FIT3D bounds.
 
-    Returns line parameters in the original FIT3D array convention:
-    rest wavelength, *integrated flux*, observed Gaussian sigma [Angstrom],
-    line velocity [km/s].  This enables reuse of the existing PM table,
-    continuum, equivalent-width, and weak-line reconstruction paths.
+    In the DAP PM loop ``sigma_bounds`` contains the same *observed* widths
+    [Angstrom] passed to FIT3D. Convert that interval into the common
+    intrinsic velocity-dispersion interval of the SciPy model. The conversion
+    accounts for the empirical LSF separately for every line over the allowed
+    centroid range. If no intrinsic interval can represent these FIT3D limits,
+    the SciPy candidate is unavailable; FIT3D is still independently usable.
 
-    A single intrinsic gas velocity dispersion and velocity are tied within
-    the cluster. The empirical instrumental LSF is interpolated separately
-    at the observed position of every line. No additional flux-sign or S/N
-    restrictions, no rescaled pixel noise, and no invented precision.
+    Optimize the gas-only model: its line fluxes, widths and velocities are
+    precisely what the PM table and the downstream model reconstruction save.
+    A fitted constant background would not be saved and can otherwise cancel
+    an arbitrarily broad, large-amplitude Gaussian.
     """
     rest = np.asarray(cluster['wl'], dtype=float)
+    wave = np.asarray(wl, dtype=float)
+    empirical_lsf = np.asarray(lsf, dtype=float)
+    c_kms = 299792.458
+    velocity_0 = float(z) * c_kms
+    velocity_bounds = getattr(args, 'pm_scipy_velocity_bounds', None)
+    if velocity_bounds is None:
+        # FIT3D uses velocity_range=30 km/s around the current redshift.
+        velocity_bounds = (velocity_0 - 30.0, velocity_0 + 30.0)
+    velocity_bounds = tuple(map(float, velocity_bounds))
+    sigma_kms_bounds = getattr(args, 'pm_scipy_sigma_kms_bounds', None)
+
+    if sigma_kms_bounds is None and sigma_bounds is not None:
+        sigma_min, sigma_max = map(float, sigma_bounds)
+        if not (0 < sigma_min < sigma_max):
+            raise ValueError('Invalid existing FIT3D observed-sigma bounds')
+        # Account for all LSF samples between the two allowed line centers.
+        # Using the minimum and maximum LSF over that interval guarantees
+        # that the derived intrinsic bounds respect the FIT3D observed-width
+        # interval across the centroid search, rather than just at its start.
+        required_lower = 0.0
+        allowed_upper = np.inf
+        for rest_wave in rest:
+            centers = rest_wave * (1.0 + np.asarray(velocity_bounds) / c_kms)
+            cmin, cmax = float(np.min(centers)), float(np.max(centers))
+            sample = empirical_lsf[(wave >= cmin) & (wave <= cmax)]
+            sample = np.concatenate((sample, np.interp([cmin, cmax], wave, empirical_lsf)))
+            if not np.all(np.isfinite(sample)) or np.any(sample <= 0):
+                raise RuntimeError('SciPy PM: invalid LSF in allowed centroid interval')
+            inst_min, inst_max = float(np.min(sample)), float(np.max(sample))
+            # Width is sqrt(LSF**2 + (lambda_obs * sigma_kms/c)**2).
+            low = c_kms * np.sqrt(max(0.0, sigma_min**2-inst_min**2)) / cmin
+            if inst_max >= sigma_max:
+                raise RuntimeError('SciPy PM: LSF exceeds the FIT3D observed-width maximum')
+            high = c_kms * np.sqrt(sigma_max**2-inst_max**2) / cmax
+            required_lower = max(required_lower, low)
+            allowed_upper = min(allowed_upper, high)
+        if required_lower >= allowed_upper:
+            raise RuntimeError('SciPy PM: no intrinsic sigma obeys FIT3D width bounds')
+        sigma_kms_bounds = (required_lower, allowed_upper)
+
     ans = fit_linked_lines(
         wl, gas_spec, eflux, rest, lsf,
-        initial_velocity=float(z) * 299792.458,
+        initial_velocity=velocity_0,
         initial_sigma_kms=float(getattr(args, 'pm_scipy_initial_sigma_kms', 30.0)),
-        velocity_bounds=getattr(args, 'pm_scipy_velocity_bounds', None),
-        sigma_kms_bounds=getattr(args, 'pm_scipy_sigma_kms_bounds', None),
+        velocity_bounds=velocity_bounds,
+        sigma_kms_bounds=sigma_kms_bounds,
         bad_pixel_mask=bad_pixel_mask,
         fit_padding=30.0,
         max_nfev=int(getattr(args, 'pm_scipy_max_nfev', 150)),
-        background_degree=0,
+        background_degree=-1,
     )
-    if not ans['success'] or not np.all(np.isfinite(ans['flux'])):
-        raise RuntimeError('SciPy PM cluster fit unsuccessful: ' + ans['message'])
+    # A non-converged least-squares status or rank-deficient *covariance*
+    # does not disqualify an otherwise finite gas-only solution. Errors that
+    # cannot be determined remain NaN.
     pars = np.column_stack((rest, ans['flux'], ans['disp'], ans['vel']))
+    if (not np.all(np.isfinite(pars[:, 1:])) or
+            not np.all(pars[:, 2] > 0)):
+        raise RuntimeError('SciPy PM cluster has no evaluable line model: '
+                           + ans['message'])
     errs = np.column_stack((np.full(len(rest), np.nan),
                             ans['e_flux'], ans['e_disp'], ans['e_vel']))
     return pars, errs
@@ -4056,19 +4103,13 @@ def fit_pm_cluster_scipy(wl, gas_spec, eflux, lsf, cluster, z, args,
 def score_pm_cluster_common_pixels(wl, gas_spec, eflux, rest_waves,
                                    fit_params, z, bad_pixel_mask=None,
                                    fit_padding=30.0):
-    """Compare PM engines on identical original pixels using fitted line profiles.
+    """Rank FIT3D/SciPy using the *saved* Gaussian-only PM spectral model.
 
-    Both candidates are evaluated over one fixed cluster interval, centered
-    at the *same input redshift*, with original error weights and bad-pixel
-    mask. Each line uses its fitted integrated flux, velocity and observed
-    Gaussian sigma (Angstrom); no instrumental-resolution approximation is
-    introduced here. A constant background is re-estimated in each candidate
-    *only for scoring*, because both engines fit a nuisance background that
-    is absent from the saved gas-only PM table/model.
-
-    The nominal degrees of freedom are N - (N_lines + 2 kinematics + 1
-    background), equal for the two single-component linked-kinematic models.
-    Returns NaN if the model or number of valid pixels is undefined.
+    Both fits use the same pixels, original error spectrum and bad-pixel mask.
+    No unconstrained nuisance background is fitted during scoring, because
+    it is absent from the PM line table and from create_elines_model_pm().
+    Such a background could hide a huge pathological Gaussian and cause it to
+    win despite catastrophically incorrect downstream reconstructed spectra.
     """
     wave = np.asarray(wl, dtype=float)
     obs = np.asarray(gas_spec, dtype=float)
@@ -4094,7 +4135,9 @@ def score_pm_cluster_common_pixels(wl, gas_spec, eflux, rest_waves,
            & ~bad & np.isfinite(wave) & np.isfinite(obs)
            & np.isfinite(errors) & (errors > 0))
     n = int(np.count_nonzero(use))
-    dof = n - (len(rest) + 3)
+    # Both models have the same nominal free Gaussian parameters; the
+    # background is no longer an extra fitted parameter in this statistic.
+    dof = n - (len(rest) + 2)
     if dof <= 0:
         return np.nan
     x = wave[use]
@@ -4104,11 +4147,12 @@ def score_pm_cluster_common_pixels(wl, gas_spec, eflux, rest_waves,
                               / sigma[None, :])**2) / (
                                   np.sqrt(2.0 * np.pi) * sigma[None, :])
     model = profiles @ pars[:, 1]
-    # Weighted nuisance constant is evaluated identically for both engines.
-    invvar = 1.0 / errors[use]**2
-    residual = obs[use] - model
-    background = np.sum(invvar * residual) / np.sum(invvar)
-    return float(np.sum(invvar * (residual - background)**2) / dof)
+    # Directly score what is written to the PM model, with no background
+    # cancellation or flux-sign restrictions.
+    with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+        residual = (obs[use] - model) / errors[use]
+        score = np.dot(residual, residual) / dof
+    return float(score) if np.isfinite(score) else np.nan
 
 
 def select_pm_strong_clusters(tab_el, tab_el_strong, max_cluster_span,
@@ -4196,7 +4240,17 @@ def reconstruct_pm_from_strong(wl, gas_spec, eflux, lsf, bad_pixel_mask,
                                float(tab_PM_strong[f'e_vel_{key}_pm'][0]),
                                float(tab_PM_strong[f'e_disp_{key}_pm'][0])))
     if not strong_anchors:
-        raise ValueError('No finite strong-line PM velocity/dispersion anchors')
+        # A fiber can have no evaluable strong PM fit at all. Preserve all its
+        # undefined measurements and continue with NP/PEK/BEST; do not derive
+        # weak-line kinematics from nonexistent anchors or abort the RSS run.
+        for line in tab_el:
+            key = f"{line['id']}_{float(line['wl']):.2f}"
+            for field in ('flux', 'e_flux', 'vel', 'e_vel',
+                          'disp', 'e_disp', 'EW', 'e_EW'):
+                col = f'{field}_{key}_pm'
+                if col not in result.colnames:
+                    result[col] = np.nan
+        return result
     anchors = np.asarray(strong_anchors, dtype=float)
 
     # Preserve the measured FIT3D strong columns; populate only missing lines.
@@ -4632,6 +4686,16 @@ def fit_individual_rss_spectrum_or_adopt_result(
 
 
     tab_PM = Table({'id_fib': np.array([i_fib], dtype=np.int64)})
+    # In the integrated dual-engine run, retain FIT3D's *independent* strong
+    # solution for the subsequent RSS strong-line bootstrap. Otherwise a SciPy
+    # winner changes the lines FIT3D is asked to fit in every RSS fiber.
+    # This transient table is NOT added to the DAP FITS products.
+    fit3d_bootstrap_strong = (
+        Table({'id_fib': np.array([i_fib], dtype=np.int64), 'id': [pt_id]})
+        if (fit_PM and SPS_master is None
+            and str(getattr(args, 'pm_fit_engine', 'both')).lower() == 'both')
+        else None
+    )
     # Only the selected strong clusters are sent to FIT3D when configured.
     # The full el_clusters and tab_el remain available for NP and PM recovery.
     pm_clusters = el_clusters if pm_strong_clusters is None else pm_strong_clusters
@@ -4715,7 +4779,8 @@ def fit_individual_rss_spectrum_or_adopt_result(
                 try:
                     candidates['scipy'] = fit_pm_cluster_scipy(
                         wl, gas_spec, eflux, lsf, cluster, z, args,
-                        bad_pixel_mask=bad_pixel_mask)
+                        bad_pixel_mask=bad_pixel_mask,
+                        sigma_bounds=(sigma_min, sigma_max))
                 except Exception as exc:
                     if engine == 'scipy':
                         raise
@@ -4729,10 +4794,21 @@ def fit_individual_rss_spectrum_or_adopt_result(
                 valid_scores = {name: score for name, score in scores.items()
                                 if np.isfinite(score)}
                 if not valid_scores:
-                    raise RuntimeError(
-                        f'Fiber {i_fib}, PM cluster {i_cl}: neither engine '
-                        f'produced a valid common-pixel fit; '
-                        f'scores={scores}, failures={failures}')
+                    # No model can be compared on the original pixels. Do not
+                    # abort the RSS or invent an NP/PM solution for this cluster.
+                    # Explicit NaNs also prevent the weak-line reconstruction
+                    # from silently reclassifying failed strong lines as weak.
+                    if verbose:
+                        print(f'# Fiber {i_fib}, PM cluster {i_cl}: '
+                              f'no evaluable FIT3D/SciPy model; '
+                              f'scores={scores}, failures={failures}; '
+                              'retaining undefined PM measurements')
+                    for line in cluster:
+                        line_name = f"{line['id']}_{float(line['wl']):.2f}"
+                        for field in ('flux', 'e_flux', 'vel', 'e_vel',
+                                      'disp', 'e_disp', 'EW', 'e_EW'):
+                            tab_PM[f'{field}_{line_name}_pm'] = np.nan
+                    continue
                 # Deterministic tie: retain the FIT3D result.
                 winner = min(valid_scores,
                              key=lambda name: (valid_scores[name],
@@ -4746,6 +4822,42 @@ def fit_individual_rss_spectrum_or_adopt_result(
                 winner = engine
             fit_params, fit_errors = candidates[winner]
             use_scipy_pm = winner == 'scipy'
+
+            if fit3d_bootstrap_strong is not None:
+                # The reference uses exactly the FIT3D measurements, including
+                # the same empirical-error calculation as FIT3D-only PM.
+                # Compute this for the integrated spectrum only; FIT3D/SciPy
+                # are still compared independently for the final PM table.
+                ref_candidate = candidates.get('fit3d')
+                if ref_candidate is not None:
+                    fit3d_pars, fit3d_errs = ref_candidate
+                    fit3d_flux_err = np.full(len(cluster), np.nan)
+                    fit3d_vel_err = np.nan
+                    fit3d_disp_err = np.nan
+                    if empirical_errors:
+                        fit3d_flux_err, fit3d_vel_err, fit3d_disp_err = pm_cluster_weighted_errors(
+                            wl=wl, eflux=eflux, rest_waves=rest_waves,
+                            fluxes=np.asarray(fit3d_pars, float)[:len(cluster), 1],
+                            vel=float(fit3d_pars[0, 3]),
+                            sigma=float(fit3d_pars[0, 2]),
+                            bad_pixel_mask=bad_pixel_mask,
+                            fit_padding=30.0, fit_background=True,
+                        )
+                for i_line, line in enumerate(cluster):
+                    line_name = f"{line['id']}_{float(line['wl']):.2f}"
+                    for ip, field in ((1, 'flux'), (2, 'disp'), (3, 'vel')):
+                        value = (float(ref_candidate[0][i_line, ip])
+                                 if ref_candidate is not None else np.nan)
+                        fit3d_bootstrap_strong[f'{field}_{line_name}_pm'] = value
+                        evalue = (float(ref_candidate[1][i_line, ip])
+                                  if ref_candidate is not None else np.nan)
+                        if empirical_errors and ref_candidate is not None:
+                            override = ({1: fit3d_flux_err[i_line],
+                                         2: fit3d_disp_err,
+                                         3: fit3d_vel_err})[ip]
+                            if np.isfinite(override):
+                                evalue = float(override)
+                        fit3d_bootstrap_strong[f'e_{field}_{line_name}_pm'] = evalue
 
             # Joint heteroscedastic covariance for this whole emission-line
             # cluster. Uses the SAME per-wavelength eflux as the NP MC.
@@ -4908,6 +5020,32 @@ def fit_individual_rss_spectrum_or_adopt_result(
     else:
         tab_fe = Table()
         tab_fe.add_column(np.array([i_fib], dtype=np.int64), name='id_fib', index=0)
+
+    if fit3d_bootstrap_strong is not None:
+        # Reconstruct the independent FIT3D integrated reference using its
+        # own continuum correction, rather than the hybrid PM correction.
+        # This reproduces the strong-line S/N ranking in fit3d-only mode.
+        fit3d_model = create_elines_model_pm(
+            wl, fit3d_bootstrap_strong, dap_fwhm=dap_fwhm, verbose=verbose
+        )[0]
+        fit3d_res_smooth = median_fit_spectrum(
+            wl,
+            SPS.spectra['orig_flux'] -
+            (SPS.spectra['model_ssp_min_uncorr'] + fit3d_model),
+            11,
+            method=str(getattr(args, 'smooth_method', 'spline')),
+            degree=11, spline_k=3, spline_s=0.0, min_points_bin=3,
+            return_nodes=False,
+        )
+        fit3d_stellar = SPS.spectra['model_ssp_min_uncorr'] + fit3d_res_smooth
+        SPS._pm_fit3d_bootstrap = reconstruct_pm_from_strong(
+            wl=wl,
+            gas_spec=np.asarray(SPS.spectra['orig_flux'], float) - fit3d_stellar,
+            eflux=eflux, lsf=lsf, bad_pixel_mask=bad_pixel_mask,
+            tab_el=tab_el, el_clusters=el_clusters,
+            tab_PM_strong=fit3d_bootstrap_strong,
+            stellar_model=fit3d_stellar, fit_padding=30.0,
+        )
 
     # Fast reconstruction AFTER the final stellar correction and NP run.
     # The FIT3D strong table is retained as tab_PM_strong. This deliberately
@@ -6167,12 +6305,16 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print(f'### END RSP fitting the integrated spectrum ###')
 
     label_strongest_line = 'Halpha_6562.85_pm'
+    # In 'both' mode, use the original FIT3D-only integrated bootstrap for
+    # choosing the RSS strong-line list and the shared PEK reference line.
+    # The official PM table and MODEL still contain the chi-square winners.
+    tab_m_PM_anchor = getattr(SPS, '_pm_fit3d_bootstrap', tab_m_PM)
 
     f_strongest = []
     name_strongest = []
-    for column in tab_m_PM.colnames:        
+    for column in tab_m_PM_anchor.colnames:
         if (column.startswith('flux_') and column.endswith('_pm')) and (column.find('[OI]') == -1):
-            f_strongest.append(tab_m_PM[column][0])
+            f_strongest.append(tab_m_PM_anchor[column][0])
             name_strongest.append(column)
     f_strongest = np.array(f_strongest)
     name_strongest = np.array(name_strongest)
@@ -6182,7 +6324,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print(f'# Strongest PM line label: {label_strongest_line}')
 
     tab_el_strong_dynamic = select_tab_el_strong(
-        tab_el, tab_m_PM,
+        tab_el, tab_m_PM_anchor,
         sn_min=float(getattr(args, "pm_strong_sn_min", 10.0)),
         max_lines=float(getattr(args, "pm_strong_max_lines", 10.0)),
         min_separation=float(getattr(args, "pm_strong_min_separation", 5.0)),
