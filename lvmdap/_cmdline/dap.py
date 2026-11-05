@@ -101,6 +101,69 @@ from astropy.table import vstack as tab_vstack
 from scipy.spatial import cKDTree, Delaunay
 
 import re
+
+####################################################################
+# Apply thread limits to BLAS/OpenMP pools that may have been loaded
+# before the early environment-variable setup (e.g., by a launcher
+# or lvmdap/__init__.py).  The environment controls future imports.
+# Keep the limiter alive for the entire DAP process.
+####################################################################
+def _limit_lvmdap_loaded_threadpools():
+    """Apply the configured thread limits to *already loaded* libraries.
+
+    LVMDAP_NUM_THREADS overrides all supported BLAS/OpenMP libraries. If
+    unset, respect each library's environment variable independently.
+    threadpoolctl does not manage NumExpr or Apple's Accelerate library;
+    their environment variables are configured above, before imports.
+    """
+    try:
+        from threadpoolctl import threadpool_info, threadpool_limits
+    except ImportError:
+        import warnings
+        warnings.warn(
+            'threadpoolctl is not installed: already-loaded BLAS/OpenMP '
+            'thread pools cannot be adjusted dynamically. Install '
+            'threadpoolctl to enable this safeguard.',
+            RuntimeWarning, stacklevel=2,
+        )
+        return None
+
+    master = os.environ.get('LVMDAP_NUM_THREADS')
+    if master is not None:
+        # Already validated and normalized in _configure_lvmdap_threads().
+        return threadpool_limits(limits=int(master))
+
+    # A single global threadpool_limits(1) here would incorrectly override
+    # individually configured library limits.  Target each loaded library.
+    env_by_api = {
+        'openblas': 'OPENBLAS_NUM_THREADS',
+        'mkl': 'MKL_NUM_THREADS',
+        'blis': 'BLIS_NUM_THREADS',
+        'openmp': 'OMP_NUM_THREADS',
+    }
+    limits_by_prefix = {}
+    for pool in threadpool_info():
+        env_name = env_by_api.get(pool.get('internal_api'))
+        prefix = pool.get('prefix')
+        if not env_name or not prefix:
+            continue
+        value = os.environ.get(env_name)
+        try:
+            n_threads = int(value)
+        except (ValueError, TypeError):
+            # Preserve valid library-specific syntax we cannot represent
+            # via threadpoolctl (e.g., OMP_NUM_THREADS='4,2').
+            continue
+        if n_threads > 0:
+            limits_by_prefix[prefix] = n_threads
+
+    if limits_by_prefix:
+        return threadpool_limits(limits=limits_by_prefix)
+    return None
+
+
+_lvmdap_threadpool_limiter = _limit_lvmdap_loaded_threadpools()
+
 ####################################################################
 # Define the default values for the fitting using pyFIT3D          #
 ####################################################################
