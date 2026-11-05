@@ -101,6 +101,7 @@ def fit_emission_line_system(
     ax=None,
     bg_order=2,
     verbose=False,
+    initial_velocity=None,
 ):
     """
     Fit a system of emission lines using pyFIT3D.
@@ -124,6 +125,9 @@ def fit_emission_line_system(
 
     velocity_range : float, optional
         Allowed velocity interval around ``redshift * c``, in km/s.
+    initial_velocity : float or None, optional
+        Alternative initial velocity in km/s, clipped to the existing bounds.
+        Does not move the fitted interval, permitted velocity range, or data.
 
     fit_padding : float, optional
         Wavelength padding added before the first line and after the last
@@ -288,6 +292,19 @@ def fit_emission_line_system(
     i_v0 = _MODELS_ELINE_PAR["v0"]
 
     central_velocity = redshift * __c__
+    # An optional alternate initial velocity changes only the FIT3D starting
+    # point, never the redshift-centered velocity bounds or fitting window.
+    if initial_velocity is None:
+        velocity_guess = central_velocity
+    else:
+        velocity_guess = float(initial_velocity)
+        if not np.isfinite(velocity_guess):
+            raise ValueError('initial_velocity must be finite')
+        velocity_guess = np.clip(
+            velocity_guess,
+            central_velocity - velocity_range,
+            central_velocity + velocity_range,
+        )
 
     config_model = ConfigEmissionModel(
         filename=None,
@@ -378,7 +395,7 @@ def fit_emission_line_system(
             pars_1[i_sigma] = sigma_bounds[1]
             to_fit[i_sigma] = True
 
-            guess[i_v0] = central_velocity
+            guess[i_v0] = velocity_guess
             pars_0[i_v0] = central_velocity - velocity_range
             pars_1[i_v0] = central_velocity + velocity_range
             to_fit[i_v0] = True
