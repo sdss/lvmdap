@@ -642,6 +642,64 @@ def replace_nan_inf_with_adjacent_avg(arr):
 
 
         
+
+def repair_masked_rss_spectra(flux, eflux, bad_pixels, error_inflation=1e6):
+    """Repair RSS values but keep original bad-pixel map separate.
+
+    Each flagged pixel is replaced by linear interpolation along its fiber's
+    wavelength coordinate (pixel index). Bad pixels are never interpolation
+    anchors. Full-invalid fibers use a cross-fiber median fallback, retaining
+    enormous errors and their original mask for downstream exclusion.
+
+    Interpolated flux is ONLY for numerical continuity; it is not a measurement.
+    Thus the returned error at masked pixels is inflated to suppress their
+    statistical weight in models which cannot ingest a pixel mask directly.
+    """
+    flux = np.asarray(flux, dtype=float).copy()
+    eflux = np.asarray(eflux, dtype=float).copy()
+    bad_pixels = np.asarray(bad_pixels, dtype=bool)
+    if flux.ndim != 2 or flux.shape != eflux.shape or flux.shape != bad_pixels.shape:
+        raise ValueError('flux, eflux, bad_pixels must have identical 2D shapes')
+
+    good = (~bad_pixels) & np.isfinite(flux) & np.isfinite(eflux) & (eflux > 0)
+    typical_errors = eflux[good]
+    base_error = float(np.nanmedian(typical_errors)) if typical_errors.size else 1.0
+    if not np.isfinite(base_error) or base_error <= 0:
+        base_error = 1.0
+
+    fallback = None
+    x = np.arange(flux.shape[1])
+    for j in range(flux.shape[0]):
+        bad_j = ~good[j]
+        if not bad_j.any():
+            continue
+        valid_idx = x[good[j]]
+        if valid_idx.size:
+            # np.interp also uses nearest valid endpoint for edge pixels.
+            flux[j, bad_j] = np.interp(
+                x[bad_j], valid_idx, flux[j, good[j]]
+            )
+        else:
+            # Fiber with no usable pixels; never treated as a measurement.
+            if fallback is None:
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore', category=RuntimeWarning)
+                    fallback = np.nanmedian(np.where(good, flux, np.nan), axis=0)
+                good_wave = np.flatnonzero(np.isfinite(fallback))
+                if good_wave.size:
+                    fallback = np.interp(x, good_wave, fallback[good_wave])
+                else:
+                    fallback = np.zeros(flux.shape[1])
+            flux[j] = fallback
+
+        local_errors = eflux[j, good[j]]
+        local_error = (float(np.median(local_errors))
+                       if local_errors.size else base_error)
+        eflux[j, bad_j] = max(local_error, base_error) * error_inflation
+
+    return flux, eflux
+
+
 def nanaverage(A,weights,axis):
     return np.nansum(A*weights,axis=axis)/((~np.isnan(A))*weights).sum(axis=axis)
 
@@ -653,7 +711,7 @@ def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
 
     rc.update({'font.size': 19,\
                'font.weight': 900,\
-               'text.usetex': True,\
+               'text.usetex': False,\
                'path.simplify'           :   True,\
                'xtick.labelsize' : 19,\
                'ytick.labelsize' : 19,\
@@ -684,7 +742,7 @@ def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
     if (vmin==vmax):
         vmin=np.nanmin(C)
         vmax=np.nanmax(C)
-    print(line,vmin,vmax)
+#    print(line,vmin,vmax)
     fig,ax = plt.subplots(1,1,figsize=(fsize,fsize))
     norm=mpl_colors.PowerNorm(vmin=vmin,vmax=vmax,gamma=gamma)
     scat=scatter(X, Y, ax, size=sf*35.6/3600, c=C, cmap=cmap, norm=norm)
@@ -700,13 +758,9 @@ def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
         for tap_pt_now in tab_pt:
             ax.text(tab_pt['ra'],tab_pt['dec'],tab_pt['id'])
 #    ax.set_aspect('equal', adjustable='box')
-    try:
-        plt.show()
-    except:
-        plt_show=False
     fig.tight_layout()
     fig.savefig(f'{figs_dir}/{filename}.{fig_type}')
-    plt.close()
+    plt.close(fig)
 
 
 def map_plot_DAP_rgb(tab_DAP,\
@@ -718,7 +772,7 @@ def map_plot_DAP_rgb(tab_DAP,\
 
     rc.update({'font.size': fs*fsize/5,\
                'font.weight': 900,\
-               'text.usetex': True,\
+               'text.usetex': False,\
                'path.simplify'           :   True,\
                'xtick.labelsize' : fs*fsize/5,\
                'ytick.labelsize' : fs*fsize/5,\
@@ -742,17 +796,25 @@ def map_plot_DAP_rgb(tab_DAP,\
     
     X= tab_DAP['ra'].value
     Y= tab_DAP['dec'].value
-    R=tab_DAP[rgb_key[2]].value  
-    G=tab_DAP[rgb_key[1]].value    
-    B=tab_DAP[rgb_key[0]].value 
-    R = R * rgb_scale[2]
+    # rgb_key and rgb_scale are in conventional (red, green, blue) order.
+    # The original implementation had the first and third channels reversed.
+    R=tab_DAP[rgb_key[0]].value
+    G=tab_DAP[rgb_key[1]].value
+    B=tab_DAP[rgb_key[2]].value
+    R = R * rgb_scale[0]
     G = G * rgb_scale[1]
-    B = B * rgb_scale[0]
+    B = B * rgb_scale[2]
     RGB = np.stack((R, G, B), axis=1)
     if (vmin==vmax):
-        vmin=np.nanmin(RGB)
-        vmax=np.nanmax(RGB)
-    print(f'min/max:{vmin}/{vmax}')
+        finite_rgb = RGB[np.isfinite(RGB)]
+        if not finite_rgb.size:
+            print('# RGB map skipped: no finite channel fluxes')
+            return
+        vmin=np.min(finite_rgb)
+        vmax=np.max(finite_rgb)
+    if not (np.isfinite(vmin) and np.isfinite(vmax) and vmax > vmin):
+        print('# RGB map skipped: no usable flux dynamic range')
+        return
     r = (R-vmin)/(vmax-vmin)
     g = (G-vmin)/(vmax-vmin)
     b = (B-vmin)/(vmax-vmin)
@@ -761,17 +823,19 @@ def map_plot_DAP_rgb(tab_DAP,\
     r[r<0]=0
     b[b>1]=1
     b[b<0]=0
-    r[r>1]=1
-    r[r<0]=0    
+    g[g>1]=1
+    g[g<0]=0    
     
     r = np.ma.filled(r, fill_value=0.0)
     g = np.ma.filled(g, fill_value=0.0)
     b = np.ma.filled(b, fill_value=0.0)
 
 
-    r=gamma_scale(r,gamma)
-    g=gamma_scale(g,gamma)
-    b=gamma_scale(b,gamma)
+    # gamma_scale(0, gamma) divides 0 by 0; power is equivalent on
+    # nonnegative RGB channels and correctly maps a zero flux to black.
+    r=np.nan_to_num(np.power(r, gamma), nan=0.0, posinf=1.0, neginf=0.0)
+    g=np.nan_to_num(np.power(g, gamma), nan=0.0, posinf=1.0, neginf=0.0)
+    b=np.nan_to_num(np.power(b, gamma), nan=0.0, posinf=1.0, neginf=0.0)
 
 #    r=r**gamma
 #    g=g**gamma
@@ -805,13 +869,9 @@ def map_plot_DAP_rgb(tab_DAP,\
             ax.text(tab_pt['ra'],tab_pt['dec'],tab_pt['id'])
     if (equal == True):
         ax.set_aspect('equal', adjustable='box')
-    try:
-        plt.show()
-    except:
-        plt_show=False
     fig.tight_layout()
     fig.savefig(f'{figs_dir}/{filename}.{fig_type}', facecolor='white')
-    plt.close()
+    plt.close(fig)
 
     
     
@@ -1078,13 +1138,16 @@ def eline(w,W,F,D,V,dap_fwhm=2.354):
 # Load an standard LVM RSS file
 #
 # m2a=10e9 : Pre v1.0 reduction!
-def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True,nx_range=None, get_lsf=False):
+def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack=True, nx_range=None, get_lsf=False, get_mask=False):
     """Return the RSS from the given and LVM filename in the parsed command line arguments"""
     hdu = fits.open(lvm_file, memmap=False)
     rss_0_hdr = hdu[0].header
     rss_f_spectra = hdu['FLUX'].data
     rss_f_hdr = hdu['FLUX'].header
-    mask = hdu['MASK'].data
+    # Preserve the native DRP bitmask: 0=valid, nonzero=flagged.
+    # When missing (generic/older files), supply an all-good mask.
+    mask = (np.array(hdu['MASK'].data, copy=True) if 'MASK' in hdu
+            else np.zeros(rss_f_spectra.shape, dtype=np.uint8))
     if (get_lsf == True):
         LSF_rss = np.float32(hdu['LSF'].data/2.354)
     else:
@@ -1154,6 +1217,7 @@ def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True
         print(f'# X-axis trimmed: {nx_range}')
         rss_f_spectra=rss_f_spectra[:,nx_range[0]:nx_range[1]]
         rss_e_spectra=rss_e_spectra[:,nx_range[0]:nx_range[1]]
+        mask=mask[:,nx_range[0]:nx_range[1]]
         LSF_rss=LSF_rss[:,nx_range[0]:nx_range[1]]
         wl__w=wl__w[nx_range[0]:nx_range[1]]
         rss_f_hdr['NAXIS1']=nx_range[1]-nx_range[0]+1
@@ -1163,14 +1227,18 @@ def load_LVM_rss(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True
         print(f'# Y-axis trimmed: {ny_range}')
         rss_f_spectra=rss_f_spectra[ny_range[0]:ny_range[1],:]
         rss_e_spectra=rss_e_spectra[ny_range[0]:ny_range[1],:]
+        mask=mask[ny_range[0]:ny_range[1],:]
         LSF_rss=LSF_rss[ny_range[0]:ny_range[1],:]
         rss_f_hdr['NAXIS2']=ny_range[1]-ny_range[0]+1
 
     rss_e_spectra=np.abs(rss_e_spectra)
-    if (get_lsf == True):
-        return wl__w, rss_f_spectra, rss_e_spectra, rss_f_hdr, rss_0_hdr,LSF_rss
-    else:
-        return wl__w, rss_f_spectra, rss_e_spectra, rss_f_hdr, rss_0_hdr
+    hdu.close()
+    result = (wl__w, rss_f_spectra, rss_e_spectra, rss_f_hdr, rss_0_hdr)
+    if get_lsf:
+        result += (LSF_rss,)
+    if get_mask:
+        result += (mask,)
+    return result
 
 
 def load_LVM_rss_old(lvm_file, m2a=1, flux_scale=1e16, ny_range=None, sky_hack= True,nx_range=None):
@@ -1495,7 +1563,8 @@ def Table_mean_rows(input_table):
 #
 
 def read_tab_EL(el_file='_legacy/emission_lines_long_list.LVM'):
-    tab_el=Table(names=('id','wl'), dtype=('S2', 'f4'))
+    # Use a wide string column: S2 silently truncates e.g. Halpha -> Ha.
+    tab_el=Table(names=('id','wl'), dtype=('U64', 'f4'))
     with open(el_file) as my_file:
         for line in my_file:
             line=line.replace('\n','')
@@ -3349,7 +3418,7 @@ def read_DAP_file(dap_file, verbose=False):
 
     FITS primary-header DAP_VER determines the format:
       < 2.0.0 : legacy PT, RSP, COEFFS, PM_ELINES, NP_ELINES_{B,R,I}
-      >=2.0.0 : same extensions plus wide PM_ELINES_{B,R,I}
+      >=2.0.0 : wide PM_ELINES_{B,R,I}; the long PM_ELINES is optional
 
     Optional in either format: PM_KEL and ELINES_SIGMA_CHI.
     Missing DAP_VER is treated as legacy, for backwards compatibility.
@@ -3361,6 +3430,10 @@ def read_DAP_file(dap_file, verbose=False):
       COEFFS: 'n_W_rsp_<rsp index>', etc.
       NP_ELINES bands: original wide column names.
       New PM_ELINES bands: original wide column names ('*_pm').
+      Global output diagnostics: X_sq/RMS (NP), X_sq_pm/RMS_pm (PM),
+      X_sq_PEK/RMS_PEK (PEK), and optional X_sq_BEST/RMS_BEST.
+      Optional BEST_ELINES_{B,R,I} include line-by-line method provenance.
+      Older files with unsuffixed PM/PEK globals are also supported.
 
     Returns
     -------
@@ -3401,6 +3474,67 @@ def read_DAP_file(dap_file, verbose=False):
             )
         return join(left, right, keys='id', join_type='left')
 
+    def normalize_line_identifiers(tab, suffix=''):
+        """Use exactly two decimal places in NP and PM wavelength identifiers.
+
+        Examples: NP 6562.85009765625 -> 6562.85;
+                  PM 3758.9_pm -> 3758.90_pm.
+        Values are unchanged; collisions are rejected instead of overwritten.
+        """
+        import re
+        pattern = r'_(\d+(?:\.\d+)?)' + re.escape(suffix) + r'$'
+        for col in list(tab.colnames):
+            match = re.search(pattern, col)
+            if not match:
+                continue
+            old = match.group(1)
+            new = col[:match.start(1)] + f'{float(old):.2f}' + suffix
+            if new != col:
+                if new in tab.colnames:
+                    raise ValueError(f'Line wavelength-name collision: {col} -> {new}')
+                tab.rename_column(col, new)
+        return tab
+
+    def combine_band_global_metrics(tables, method):
+        """Keep one global diagnostic per method when joining B/R/I.
+
+        New FITS products store NP X_sq/RMS, PM X_sq_pm/RMS_pm, and PEK
+        X_sq_PEK/RMS_PEK. Older products stored unsuffixed globals in all
+        three methods; normalize those to the new names on read.
+        """
+        if not tables:
+            return
+        if method not in ('np', 'pm', 'pek', 'best'):
+            raise ValueError(f'Unknown emission-line method: {method}')
+        ending = {'np': '', 'pm': '_pm', 'pek': '_PEK', 'best': '_BEST'}[method]
+        for metric in ('X_sq', 'RMS'):
+            target = metric + ending
+            # Support both new files and the previous diagnostic schema.
+            legacy = [metric]
+            if method == 'np':
+                legacy.append(metric + '_np')
+            if method == 'pek':
+                legacy.append(metric + '_pek')
+            candidates = [target] + [name for name in legacy if name != target]
+            present = [name for name in candidates if name in tables['B'].colnames]
+            if not present:
+                continue  # Original products without these diagnostics.
+            if len(present) != 1:
+                raise ValueError(f'{method}: ambiguous global metric names {present}')
+            source = present[0]
+            reference = np.asarray(tables['B'][source], dtype=float)
+            for band in ('R', 'I'):
+                available = [name for name in candidates if name in tables[band].colnames]
+                if len(available) != 1:
+                    raise ValueError(f'{method}: inconsistent {metric} columns in {band}')
+                comparison = np.asarray(tables[band][available[0]], dtype=float)
+                if not np.allclose(reference, comparison, equal_nan=True,
+                                   rtol=1e-10, atol=1e-12):
+                    raise ValueError(f'{method}: inconsistent global {metric} across bands')
+                tables[band].remove_column(available[0])
+            if source != target:
+                tables['B'].rename_column(source, target)
+
     def wide_by_key(long_tab, group_col, values, group_fmt='{}'):
         """Pivot long emission-line/template rows to one row per id."""
         if len(long_tab) == 0:
@@ -3413,7 +3547,8 @@ def read_DAP_file(dap_file, verbose=False):
             if group_col == 'wl' and (not np.isfinite(group) or group <= 0):
                 continue
             rows = long_tab[long_tab[group_col] == group]
-            suffix = group_fmt.format(group)
+            suffix = (f'{float(group):.2f}' if group_col == 'wl'
+                      else group_fmt.format(group))
             temp = rows[['id'] + values].copy()
             for col in values:
                 temp.rename_column(col, f'{col}_{suffix}')
@@ -3438,10 +3573,16 @@ def read_DAP_file(dap_file, verbose=False):
         tab_PT = Table(dap_hdu['PT'].data)
         tab_RSP = Table(dap_hdu['RSP'].data)
         tab_COEFFS = Table(dap_hdu['COEFFS'].data)
-        tab_PE = Table(dap_hdu['PM_ELINES'].data)
-        tab_NPE_B = Table(dap_hdu['NP_ELINES_B'].data)
-        tab_NPE_R = Table(dap_hdu['NP_ELINES_R'].data)
-        tab_NPE_I = Table(dap_hdu['NP_ELINES_I'].data)
+        tab_PE = (Table(dap_hdu['PM_ELINES'].data)
+                  if 'PM_ELINES' in dap_hdu else None)
+        tab_NPE_B = normalize_line_identifiers(Table(dap_hdu['NP_ELINES_B'].data))
+        tab_NPE_R = normalize_line_identifiers(Table(dap_hdu['NP_ELINES_R'].data))
+        tab_NPE_I = normalize_line_identifiers(Table(dap_hdu['NP_ELINES_I'].data))
+
+        # The long SPS PM_ELINES extension is optional for 2.x files; it is
+        # not the same product as the wide PM_ELINES_B/R/I measurements.
+        if tab_PE is None and not is_v2:
+            raise KeyError('Legacy DAP product missing required PM_ELINES')
 
         # Read optional tables for either version.
         tab_KEL = (Table(dap_hdu['PM_KEL'].data)
@@ -3458,7 +3599,35 @@ def read_DAP_file(dap_file, verbose=False):
                     raise KeyError(
                         f'DAP_VER={version_string}: missing required extension {ext}'
                     )
-                tab_PM_bands[band] = Table(dap_hdu[ext].data)
+                tab_PM_bands[band] = normalize_line_identifiers(
+                    Table(dap_hdu[ext].data), suffix='_pm'
+                )
+
+        # Optional BEST measurements, chosen per line and fiber using X_sq.
+        tab_BEST_bands = {}
+        for band in ('B', 'R', 'I'):
+            ext = f'BEST_ELINES_{band}'
+            if ext in dap_hdu:
+                tab_BEST_bands[band] = normalize_line_identifiers(
+                    Table(dap_hdu[ext].data), suffix='_best')
+
+        # Optional PEK second-pass output (wide, suffix '_pek').
+        tab_PEK_bands = {}
+        for band in ('B', 'R', 'I'):
+            ext = f'PEK_ELINES_{band}'
+            if ext in dap_hdu:
+                tab_PEK_bands[band] = normalize_line_identifiers(
+                    Table(dap_hdu[ext].data), suffix='_pek')
+
+    np_bands = {'B': tab_NPE_B, 'R': tab_NPE_R, 'I': tab_NPE_I}
+    combine_band_global_metrics(np_bands, 'np')
+    combine_band_global_metrics(tab_PM_bands, 'pm')
+    if set(tab_PEK_bands) == {'B', 'R', 'I'}:
+        combine_band_global_metrics(tab_PEK_bands, 'pek')
+    if tab_BEST_bands:
+        if set(tab_BEST_bands) != {'B', 'R', 'I'}:
+            raise KeyError('Incomplete BEST_ELINES_B/R/I extensions')
+        combine_band_global_metrics(tab_BEST_bands, 'best')
 
     # Rename stellar-population properties (old and new format).
     renamed(tab_RSP, {
@@ -3472,7 +3641,8 @@ def read_DAP_file(dap_file, verbose=False):
 
     # Long-form parametric emission-line values.
     pe_columns = ('flux', 'e_flux', 'disp', 'e_disp', 'vel', 'e_vel')
-    renamed(tab_PE, {col: f'{col}_pe' for col in pe_columns})
+    if tab_PE is not None:
+        renamed(tab_PE, {col: f'{col}_pe' for col in pe_columns})
     pe_values = [f'{col}_pe' for col in pe_columns]
 
     if tab_KEL is not None:
@@ -3500,16 +3670,14 @@ def read_DAP_file(dap_file, verbose=False):
     for band, tab in zip(('B', 'R', 'I'), (tab_NPE_B, tab_NPE_R, tab_NPE_I)):
         tab_DAP = right_join(tab_DAP, tab, f'NP_ELINES_{band}')
 
-    # Preserve the original PM_ELINES long-table pivot for both versions.
-    if is_v2:
-        if (verbose):
-            print(f'# Pivoting PM_ELINES long table to wide format')
-        tab_PE_ord = None
-    else:
+    # Preserve the legacy flux_pe_6562.85 columns in BOTH formats.
+    # The new 2.x PM_ELINES_{B,R,I} columns end in _pm, so names do not collide.
+    tab_PE_ord = None
+    if tab_PE is not None:
         pe_eline = tab_PE[text_values(tab_PE['model']) == 'eline']
         tab_PE_ord = wide_by_key(pe_eline, 'wl', pe_values)
-        if tab_PE_ord is not None:
-            tab_DAP = right_join(tab_DAP, tab_PE_ord, 'PM_ELINES (pivot)')
+    if tab_PE_ord is not None:
+        tab_DAP = right_join(tab_DAP, tab_PE_ord, 'PM_ELINES (pivot)')
 
     # For DAP 2.0.0+, add all three new parametric wide tables as well.
     if is_v2:
@@ -3517,6 +3685,12 @@ def read_DAP_file(dap_file, verbose=False):
             tab_DAP = right_join(
                 tab_DAP, tab_PM_bands[band], f'PM_ELINES_{band}'
             )
+
+    # Wide PEK has '_pek' suffix; historical PM_KEL has 'flux_pek_<wl>'.
+    for band, pek_band in tab_PEK_bands.items():
+        tab_DAP = right_join(tab_DAP, pek_band, f'PEK_ELINES_{band}')
+    for band, best_band in tab_BEST_bands.items():
+        tab_DAP = right_join(tab_DAP, best_band, f'BEST_ELINES_{band}')
 
     tab_KEL_ord = None
     if tab_KEL is not None:
@@ -3552,6 +3726,10 @@ def read_DAP_file(dap_file, verbose=False):
         if is_v2:
             for band, table in tab_PM_bands.items():
                 print(f'\n---- PM_ELINES_{band}: '
+                      f'{len(table.colnames)} columns ----')
+                print(*table.colnames, sep='\n')
+            for band, table in tab_PEK_bands.items():
+                print(f'\n---- PEK_ELINES_{band}: '
                       f'{len(table.colnames)} columns ----')
                 print(*table.colnames, sep='\n')
 
@@ -4463,6 +4641,192 @@ def decompose_spectrum(
         "res_bg_spec": res_bg_spec,
     }
 
+
+
+def decompose_spectrum_masked_iterative(
+    wl,
+    int_flux_cw,
+    n_narrow=3,
+    n_medium=5,
+    n_broad=11,
+    *,
+    tab_el=None,
+    redshift=0.0,
+    mask_nsigma=2.0,
+    config=None,
+    n_iter=11,
+    method="spline",
+    degree=11,
+    spline_k=3,
+    spline_s=0.0,
+    min_points_bin=1,
+    fit_func=None,
+):
+    """Decompose a spectrum with LSF-masked trend fits and iterative line removal.
+
+    This is an alternative to ``decompose_spectrum``; the original function
+    and existing pipeline calls are intentionally unchanged.
+
+    Parameters
+    ----------
+    wl, int_flux_cw : 1D array
+        Wavelengths (Angstrom) and integrated spectral flux density.
+    n_narrow, n_medium, n_broad : float
+        The three median-fit bin widths, as in ``decompose_spectrum``.
+    tab_el : Astropy Table, optional
+        *Selected/detected* emission lines, with ``wl`` (rest Angstrom) and
+        ``lsf`` (empirically measured instrumental Gaussian sigma, Angstrom).
+        Every supplied line is masked, with no additional S/N or flux cut.
+        Passing the entire catalogue masks even undetected catalogue lines.
+    redshift : float, optional
+        Shift reference line wavelengths into the observed frame using
+        ``lambda_obs = lambda_rest * (1 + redshift)``. Default is zero.
+    mask_nsigma : float, optional
+        Exclude +/- this many measured instrumental sigmas from the trend
+        and background fits. Default 2.0 (no assumed analytic LSF law).
+    config, n_iter, method, degree, spline_k, spline_s, min_points_bin, fit_func
+        As in ``decompose_spectrum``. Each erosion iteration now also updates
+        the pseudo-continuum and therefore ``eline_only``.
+
+    Returns
+    -------
+    dict
+        The original seven fields (``trend_cw``, ``trend_cw_broad``,
+        ``eline_only``, ``st_flux_cw``, ``pos_abs_flux_cw``, ``bg_spec``,
+        ``res_bg_spec``), plus ``line_mask`` (Boolean array, True inside the
+        excluded line windows). Original input values are never modified.
+
+    Notes
+    -----
+    The mask affects *only the fit inputs*: excluded pixels are temporarily
+    set to NaN for ``median_fit_spectrum``, which already ignores non-finite
+    values. Fitted trends are evaluated at every original wavelength.
+
+    First fit masked medium- and broad-scale trends. For every iteration:
+    (1) subtract the current positive emission estimate to obtain a line-free
+    proxy; (2) erode its lower envelope and fit it ignoring line windows;
+    (3) refit a masked medium-scale trend on the line-free proxy; and
+    (4) recompute the emission-only component relative to the new trend.
+    This avoids treating the *lower background envelope* as the stellar
+    continuum, which would misclassify continuum as line emission.
+
+    The original negative-residual replacement by the minimum positive
+    residual is preserved, including its zero/warning fallback.
+    """
+    fit = fit_func if fit_func is not None else median_fit_spectrum
+    if fit is None:
+        raise ImportError('median_fit_spectrum is unavailable; pass fit_func=')
+
+    wave = np.asarray(wl, dtype=float)
+    flux = np.asarray(int_flux_cw, dtype=float)
+    if wave.ndim != 1 or flux.ndim != 1 or wave.shape != flux.shape:
+        raise ValueError('wl and int_flux_cw must be 1D arrays of equal length')
+    if not np.all(np.isfinite(wave)):
+        raise ValueError('wl must contain finite wavelengths')
+    if not np.isfinite(redshift) or redshift <= -1:
+        raise ValueError('redshift must be finite and greater than -1')
+    if not np.isfinite(mask_nsigma) or mask_nsigma < 0:
+        raise ValueError('mask_nsigma must be finite and nonnegative')
+
+    s_narrow, s_medium, s_broad = n_narrow, n_medium, n_broad
+    if config is not None and 'smooth_size' in config:
+        s = config['smooth_size']
+        warnings.warn(
+            f"config['smooth_size']={s} overrides n_narrow={n_narrow}, "
+            f"n_medium={n_medium} and n_broad={n_broad}: all three stages "
+            f"will use {s}. Drop 'smooth_size' from config to use the three "
+            'separate scales.',
+            stacklevel=2,
+        )
+        s_narrow = s_medium = s_broad = s
+
+    # tab_el['lsf'] holds *measured* instrumental sigma in Angstrom, not FWHM.
+    # Do not infer LSF from resolution, wavelength, or a constant R.
+    line_mask = np.zeros(wave.shape, dtype=bool)
+    if tab_el is not None:
+        names = (tab_el.colnames if hasattr(tab_el, 'colnames') else
+                 tab_el.dtype.names if getattr(tab_el, 'dtype', None) is not None
+                 and tab_el.dtype.names else tab_el.keys())
+        if 'wl' not in names or 'lsf' not in names:
+            raise ValueError("tab_el must contain the 'wl' and 'lsf' columns")
+        rest = np.asarray(tab_el['wl'], dtype=float)
+        sigma_inst = np.asarray(tab_el['lsf'], dtype=float)
+        if rest.ndim != 1 or sigma_inst.shape != rest.shape:
+            raise ValueError("tab_el['wl'] and tab_el['lsf'] must be 1D arrays of equal length")
+        if not np.all(np.isfinite(rest)) or not np.all(np.isfinite(sigma_inst)) or np.any(sigma_inst <= 0):
+            raise ValueError('tab_el wavelengths and measured LSF must be finite; LSF must be positive')
+        for center, sigma in zip(rest * (1.0 + redshift), sigma_inst):
+            line_mask |= np.abs(wave - center) <= mask_nsigma * sigma
+
+    def _fit(y, bin_width):
+        # Fit to the continuum pixels, but interpolate over *all* wavelengths.
+        fit_y = np.where(line_mask, np.nan, y)
+        out = np.asarray(fit(
+            wave, fit_y, bin_width,
+            method=method, degree=degree,
+            spline_k=spline_k, spline_s=spline_s,
+            min_points_bin=min_points_bin, return_nodes=False,
+        ), dtype=float)
+        if out.shape != wave.shape or not np.all(np.isfinite(out[np.isfinite(flux)])):
+            raise ValueError(
+                'Masked median_fit_spectrum returned an invalid trend. '
+                'Check whether tab_el leaves sufficient unmasked continuum '
+                'pixels for the requested smoothing method.'
+            )
+        return out
+
+    def _emission_from_trend(trend):
+        line = flux - trend
+        neg = line < 0
+        if np.any(neg):
+            pos = line[(line > 0) & np.isfinite(line)]
+            if pos.size:
+                line[neg] = np.nanmin(pos)
+            else:
+                warnings.warn(
+                    'No positive residual in int_flux_cw - trend_cw; clipping '
+                    'eline_only at 0 instead of the minimum positive value.',
+                    stacklevel=2,
+                )
+                line[neg] = 0.0
+        return line
+
+    trend_cw = _fit(flux, s_medium)
+    eline_only = _emission_from_trend(trend_cw)
+    line_free = flux - eline_only
+
+    # Erosion operates on a line-cleaned proxy, not on unmasked emission peaks.
+    bg_input = np.minimum(trend_cw, line_free)
+    bg_spec = bg_input.copy()
+    for _ in range(int(n_iter)):
+        bg_spec = _fit(bg_input, s_narrow)
+        bg_input = np.minimum(bg_spec, line_free)
+        trend_cw = _fit(line_free, s_medium)
+        eline_only = _emission_from_trend(trend_cw)
+        line_free = flux - eline_only
+        # Apply each new emission estimate at the next erosion iteration.
+        bg_input = np.minimum(bg_input, line_free)
+
+    st_flux_cw = flux - eline_only
+    pos_abs_flux_cw = trend_cw - st_flux_cw
+    trend_cw_broad = _fit(st_flux_cw, s_broad)
+
+    # The final masked fit is evaluated everywhere, including the line cores.
+    bg_spec = np.minimum(bg_input, trend_cw_broad)
+    bg_spec = np.minimum(bg_spec, st_flux_cw)
+    bg_spec = _fit(bg_spec, s_narrow)
+    res_bg_spec = flux - bg_spec
+
+    return {
+        'trend_cw': trend_cw,
+        'trend_cw_broad': trend_cw_broad,
+        'eline_only': eline_only,
+        'st_flux_cw': st_flux_cw,
+        'pos_abs_flux_cw': pos_abs_flux_cw,
+        'bg_spec': bg_spec,
+        'res_bg_spec': res_bg_spec,
+        'line_mask': line_mask,
+    }
 
 #
 # Redshift match emission lines
