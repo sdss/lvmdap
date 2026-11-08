@@ -8,6 +8,8 @@ before any of its NumPy/FIT3D imports.
 
 from lvmdap.dap_core import *  # noqa: F401,F403 - preserve original CLI namespace
 
+from lvmdap import memory_diagnostics as _mem
+
 def _main(cmd_args=sys.argv[1:]):
     print("########################################")
     print("### Do nothing")
@@ -35,6 +37,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #####################################################################
     # START: Initialize DAP configuration
     #####################################################################
+    _mem.report('after_imports')
     args = parse_dap_arguments(cmd_args)
     args = initialize_dap_parameters(args)
     hdu_info = create_dap_info_hdu(args)
@@ -85,6 +88,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
          mask_to_val=mask_to_val,
          flux_scale=flux_scaling
      )
+    _mem.report('after_load_input', arrays={'rss_flux_org': rss_flux_org, 'rss_eflux_org': rss_eflux_org, 'LSF_rss_org': LSF_rss_org, 'input_mask_org': input_mask_org, 'bad_pixels_org': bad_pixels_org})
     ###############################################################################
     # This is the default tab_el_strong. We dynamically select later a better list
     ###############################################################################
@@ -101,6 +105,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     hdr_flux=copy(hdr_flux_org)
     hdr_flux['NAXIS2']=len(tab_PT)
     print(f'# Number of spectra to analyze : {len(tab_PT)}')
+    _mem.report('after_fiber_selection', arrays={'rss_flux_org': rss_flux_org, 'rss_flux': rss_flux, 'rss_eflux_org': rss_eflux_org, 'rss_eflux': rss_eflux, 'LSF_rss_org': LSF_rss_org, 'LSF_rss': LSF_rss, 'input_mask': input_mask, 'bad_pixels': bad_pixels})
 
     #####################################################################################
     # Reading the emission lines file and identify the instrumental LSF and blended lines
@@ -186,6 +191,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #####################################################################
     # END: Generate integrated spectra
     #####################################################################
+    _mem.report('after_integrated', arrays={'rss_flux': rss_flux, 'rss_eflux': rss_eflux, 'LSF_rss': LSF_rss, 'bad_pixels': bad_pixels, 'int_flux': int_flux, 'int_eflux': int_eflux})
+
     # Initialize kinematics
     vel__yx = np.zeros(1)
     sigma__yx = 0.8
@@ -545,6 +552,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     print("\n")
 
 
+    _mem.report('after_integrated_fit', arrays={'rss_flux': rss_flux, 'rss_eflux': rss_eflux, 'SPS_model': hdu_m_sps[0].data}, sps=SPS)
     print(f'### START analyzing the RSS for the strong stellar component ###')
 
     #
@@ -566,8 +574,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     if (len_mask_st==0):
         print("# No spectra with strong stellar component: END ALL")
-        tab_rsp_interp = []
-        tab_coeffs_interp = []
+        tab_rsp_interp = TableAccumulator(batch_size=64)
+        tab_coeffs_interp = TableAccumulator(batch_size=64)
         for (i,id_fib) in enumerate(tab_PT['id']):
             tab_m_rsp_now = tab_m_rsp.copy()
             tab_m_coeffs_now = tab_m_coeffs.copy()
@@ -576,8 +584,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             tab_rsp_interp.append(tab_m_rsp_now)
             tab_coeffs_interp.append(tab_m_coeffs_now)
 
-        tab_rsp_interp = tab_vstack(tab_rsp_interp)
-        tab_coeffs_interp = tab_vstack(tab_coeffs_interp)
+        tab_rsp_interp = tab_rsp_interp.finish()
+        tab_coeffs_interp = tab_coeffs_interp.finish()
         ############################################################
         # We will assume that all spaxels have as similar stellar component as the integrated spectrum
         ############################################################
@@ -592,11 +600,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         z_org = args.redshift[0]
         z_min = args.redshift[1]
         z_max = args.redshift[2]
-        tab_rsp_st = []
-        tab_coeffs_st = []
-        tab_elines_st = []
-        tab_PM_st = []
-        tab_fe_st = [] 
+        tab_rsp_st = TableAccumulator(batch_size=64)
+        tab_coeffs_st = TableAccumulator(batch_size=64)
+        tab_elines_st = TableAccumulator(batch_size=64)
+        tab_PM_st = TableAccumulator(batch_size=64)
+        tab_fe_st = TableAccumulator(batch_size=64)
         nspec = rss_flux_st.shape[0]
         for i, (f__w, ef__w) in enumerate(zip(rss_flux_st, rss_eflux_st)):
             if (args.verbose==True):
@@ -637,12 +645,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             tab_PM_st.append(tab_i_PM)
             tab_fe_st.append(tab_i_fe)
 
-        tab_rsp_st = tab_vstack(tab_rsp_st)
-        tab_coeffs_st = tab_vstack(tab_coeffs_st)
-        tab_elines_st = tab_vstack(tab_elines_st)
-        tab_coeffs_st = tab_vstack(tab_coeffs_st)
-        tab_fe_st = tab_vstack(tab_fe_st)
-        tab_PM_st = tab_vstack(tab_PM_st)
+        tab_rsp_st = tab_rsp_st.finish()
+        tab_coeffs_st = tab_coeffs_st.finish()
+        tab_elines_st = tab_elines_st.finish()
+        tab_fe_st = tab_fe_st.finish()
+        tab_PM_st = tab_PM_st.finish()
         ####################################################################################
         # Now we propagate the velocity map for the remaining spaxels with low stellar S/N
         ####################################################################################
@@ -690,6 +697,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             ax[0].scatter(tab_PT['ra'], tab_PT['dec'], color='None', alpha = 0.5 , s = 150, edgecolor='Black')
             ax[1].scatter(tab_PT['ra'], tab_PT['dec'], color='None', alpha = 0.5 , s = 150,edgecolor='Black')
             fig.savefig(f'vel_map_interp_{args.label}.png', dpi=300)
+            plt.close(fig)
         #plt.show()
 
         print("##########################################################################")
@@ -711,19 +719,27 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # START: Fitting the full RSS spectra using the interpolated RSPs and coefficients
     ##############################################################################
 
+    _mem.report('before_full_rss', arrays={'rss_flux': rss_flux, 'rss_eflux': rss_eflux, 'LSF_rss': LSF_rss, 'bad_pixels': bad_pixels, 'tab_rsp_interp': tab_rsp_interp, 'tab_coeffs_interp': tab_coeffs_interp}, sps=SPS)
     print("##############################################")
     print("# Start fitting full RSS spectra with interpolated RSPs and coefficients ##")
     print("##############################################")
 
-    tab_rsp = []
-    tab_coeffs = []
-    tab_elines = []
-    tab_PM = []
-    tab_fe = [] 
+    tab_rsp = TableAccumulator(batch_size=64)
+    tab_coeffs = TableAccumulator(batch_size=64)
+    tab_elines = TableAccumulator(batch_size=64)
+    tab_PM = TableAccumulator(batch_size=64)
+    tab_fe = TableAccumulator(batch_size=64)
     output_model = []
     gas_spectra_for_pek = []
     nspec = len(rss_flux)
     for i, (f__w, ef__w) in enumerate(zip(rss_flux, rss_eflux)):
+        if _mem.enabled() and (i % _mem.every() == 0 or i+1 == nspec):
+            _mem.report(f'before_rss_fiber_{i+1}_of_{nspec}',
+                lists={'output_model': output_model,
+                       'gas_spectra_for_pek': gas_spectra_for_pek,
+                       'tab_rsp': tab_rsp, 'tab_coeffs': tab_coeffs,
+                       'tab_elines': tab_elines, 'tab_PM': tab_PM, 'tab_fe': tab_fe},
+                sps=SPS)
         if (args.verbose==True):
             print(f"\n### EL Fitting spaxel {i+1}/{nspec} (ID: {tab_PT['id'][i]})")
         else:
@@ -757,6 +773,13 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             empirical_errors = empirical_errors,
             pm_strong_clusters=pm_strong_clusters,
         )
+        if _mem.enabled() and (i % _mem.every() == 0 or i+1 == nspec):
+            _mem.report(f'after_fit_before_retain_{i+1}_of_{nspec}',
+                arrays={'last_model_hdu': hdu_i_sps[0].data},
+                lists={'output_model': output_model,
+                       'gas_spectra_for_pek': gas_spectra_for_pek,
+                       'tab_rsp': tab_rsp, 'tab_PM': tab_PM, 'tab_fe': tab_fe},
+                sps=SPS)
         tab_rsp.append(tab_i_rsp)
         tab_coeffs.append(tab_i_coeffs)
         tab_elines.append(tab_i_elines)
@@ -772,14 +795,23 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                 (np.asarray(f__w, float) -
                  np.asarray(SPS.spectra['model_ssp_min'], float)).copy()
             )
+        if _mem.enabled() and (i % _mem.every() == 0 or i+1 == nspec):
+            _mem.report(f'rss_fiber_{i+1}_of_{nspec}',
+                arrays={'last_model_hdu': hdu_i_sps[0].data, 'fitted_flux': f__w,
+                        'fitted_eflux': ef__w, 'lsf_row': LSF_rss[i]},
+                lists={'output_model': output_model,
+                       'gas_spectra_for_pek': gas_spectra_for_pek,
+                       'tab_rsp': tab_rsp, 'tab_coeffs': tab_coeffs,
+                       'tab_elines': tab_elines, 'tab_PM': tab_PM, 'tab_fe': tab_fe},
+                sps=SPS)
 
 
-    tab_rsp = tab_vstack(tab_rsp)
-    tab_coeffs = tab_vstack(tab_coeffs)
-    tab_elines = tab_vstack(tab_elines)
-    tab_coeffs = tab_vstack(tab_coeffs)
-    tab_fe = tab_vstack(tab_fe)
-    tab_PM = tab_vstack(tab_PM)
+    _mem.report('after_rss_fits_before_stack', arrays={'rss_flux': rss_flux}, lists={'output_model': output_model, 'gas_spectra_for_pek': gas_spectra_for_pek, 'tab_rsp': tab_rsp, 'tab_coeffs': tab_coeffs, 'tab_elines': tab_elines, 'tab_PM': tab_PM, 'tab_fe': tab_fe}, sps=SPS)
+    tab_rsp = tab_rsp.finish()
+    tab_coeffs = tab_coeffs.finish()
+    tab_elines = tab_elines.finish()
+    tab_fe = tab_fe.finish()
+    tab_PM = tab_PM.finish()
 
     ########################################################################
     # START: Interpolating the velocity map of the emission lines for the spaxels with low S/N
@@ -837,6 +869,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
 
 
+    _mem.report('after_rss_table_stack', arrays={'tab_rsp': tab_rsp, 'tab_coeffs': tab_coeffs, 'tab_elines': tab_elines, 'tab_PM': tab_PM, 'tab_fe': tab_fe}, lists={'output_model': output_model, 'gas_spectra_for_pek': gas_spectra_for_pek}, sps=SPS)
     output_model = np.asarray(output_model)
     output_model = np.swapaxes(output_model, 1, 0)  # (n_plane, n_fiber, n_wave)
     # Apply the ORIGINAL mask to every plane only AFTER all computations.
@@ -858,6 +891,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
 
 
+    _mem.report('after_model_cube', arrays={'output_model': output_model, 'rss_flux': rss_flux, 'rss_eflux': rss_eflux}, lists={'gas_spectra_for_pek': gas_spectra_for_pek})
     # PEK: constrained Gaussian + constant-background fits, independent of pyFIT3D.
     # Reuse the Halpha velocity/dispersion maps computed immediately above.
     tab_PEK = None
@@ -1043,6 +1077,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                 except Exception as exc:
                     print(f'# Unable to plot PEK RGB map: {exc}')
 
+    _mem.report('after_pm_pek_best', arrays={'output_model': output_model, 'pek_model': pek_model, 'gas_model_best': gas_model_best, 'tab_PEK': tab_PEK, 'tab_best': tab_best})
     # Optional first/last RSS diagnostic spectra.  The average-RSS quality
     # comparison above is always stored in the AVG_EL_FIT_QA FITS extension.
     if args.do_plots == 1:
@@ -1073,6 +1108,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     # Mean each channel over valid fibers, without a full-sized temporary cube.
     # The original bad-pixel mask has already been applied to output_model.
+    _mem.report('before_average_model', arrays={'output_model': output_model, 'bad_pixels': bad_pixels})
     avg_output_model = average_model_channels(output_model)
     if avg_output_model.shape != (output_model.shape[0], len(wl__w)):
         raise ValueError('Average MODEL has an unexpected spectral shape')

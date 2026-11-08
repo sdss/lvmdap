@@ -128,9 +128,20 @@ from lvmdap.pyFIT3D.modelling.dust import spec_apply_dust
 from lvmdap.pek_tools import print_progress_bar
 from lvmdap.linked_line_fitter import fit_linked_lines
 from astropy.table import vstack as tab_vstack
+from lvmdap.table_accumulator import TableAccumulator
+
 from scipy.spatial import cKDTree, Delaunay
 
 import re
+
+
+def _close_fit_diagnostic_figure(result):
+    """Release pyplot-owned FIT3D diagnostic figures after values are copied."""
+    fig = result.get('figure') if result is not None else None
+    if fig is not None:
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
 
 ####################################################################
 # Apply thread limits to BLAS/OpenMP pools that may have been loaded
@@ -3690,6 +3701,7 @@ def fit_individual_rss_spectrum(
 
     args.redshift[0] = z
     abs_out = out_fit_abs_lines["fit"]
+    _close_fit_diagnostic_figure(out_fit_abs_lines)
     cf_Ca_HK = out_fit_abs_lines["config"]
     sel_wl_Ca_HK = out_fit_abs_lines["mask"]
     vel_mask_st = True
@@ -3823,6 +3835,7 @@ def fit_individual_rss_spectrum(
             verbose=verbose,
         )
         EL = fit_result['fit']
+        _close_fit_diagnostic_figure(fit_result)
 
         for i_line, line in enumerate(cluster):
             pars = np.asarray(EL.final_fit_params_mean[i_line], dtype=float)
@@ -3947,6 +3960,7 @@ def fit_individual_rss_spectrum(
         ax.legend()
         fig.tight_layout()
         plt.show()
+        plt.close(fig)
 
     if verbose:
         print(f'# END single-spectrum fit: i_fib={i_fib}, id={pt_id}')
@@ -4740,6 +4754,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
 
         args.redshift[0] = z
         abs_out = out_fit_abs_lines["fit"]
+        _close_fit_diagnostic_figure(out_fit_abs_lines)
         cf_Ca_HK = out_fit_abs_lines["config"]
         sel_wl_Ca_HK = out_fit_abs_lines["mask"]
         vel_mask_st = True
@@ -4955,6 +4970,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
                         verbose=verbose,
                     )
                     EL = fit_result['fit']
+                    _close_fit_diagnostic_figure(fit_result)
                     candidates['fit3d'] = (
                         np.asarray(EL.final_fit_params_mean, dtype=float),
                         np.asarray(EL.final_fit_params_std, dtype=float))
@@ -5003,6 +5019,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
                             verbose=verbose,
                         )
                         second_el = second_fit['fit']
+                        _close_fit_diagnostic_figure(second_fit)
                         second = (
                             np.asarray(second_el.final_fit_params_mean, dtype=float),
                             np.asarray(second_el.final_fit_params_std, dtype=float),
@@ -5366,6 +5383,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
         ax.legend()
         fig.tight_layout()
         plt.show()
+        plt.close(fig)
 
     if verbose:
         print(f'# END single-spectrum fit: i_fib={i_fib}, id={pt_id}')

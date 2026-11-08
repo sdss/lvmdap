@@ -1965,6 +1965,7 @@ def plot_spec_simple(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
         ax0.set_yscale('log')
 #    fig.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+    plt.close(fig)
 
 
 #
@@ -2082,6 +2083,7 @@ def plot_spectra_simple(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz
         ax0.set_yscale('log')
 #    fig.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+    plt.close(fig)
 
 def read_rsp(file_ssp = 'output/m_lvmSCFrame-00006109'):
     col_SSP=header_columns_space(file_ssp,2)
@@ -2347,6 +2349,7 @@ def plot_spec(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
         ax0.set_yscale('log')
     plt.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+    plt.close(fig)
 
 
 
@@ -2509,6 +2512,7 @@ def plot_spec_no_sc(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
         ax0.set_yscale('log')
     plt.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+    plt.close(fig)
 
 def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=0,\
                  name='none',cmap=None,\
@@ -2671,6 +2675,7 @@ def plot_spectra(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',n_sp=
         ax0.set_yscale('log')
     plt.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+    plt.close(fig)
 
 
 #    
@@ -2860,6 +2865,7 @@ def plot_spec_art_working(dir='output/',file='output.m_lvmSCFrame-00006109.fits.
     
     plt.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+    plt.close(fig)
 
 def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
               name='none',cmap=None,\
@@ -3059,6 +3065,7 @@ def plot_spec_art(dir='output/',file='output.m_lvmSCFrame-00006109.fits.gz',\
     
     plt.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+    plt.close(fig)
 
 def plot_spec_art_hdu(dir='output/', hdu = None,\
               name='none',cmap=None,\
@@ -3257,6 +3264,7 @@ def plot_spec_art_hdu(dir='output/', hdu = None,\
     
     plt.tight_layout()
     fig.savefig(output, transparent=False, facecolor='white', edgecolor='white')#.pdf")
+    plt.close(fig)
 
 
 def adaptive_smooth(data, start_width, end_width):
