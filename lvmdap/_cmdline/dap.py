@@ -9,6 +9,7 @@ before any of its NumPy/FIT3D imports.
 from lvmdap.dap_core import *  # noqa: F401,F403 - preserve original CLI namespace
 
 from lvmdap import memory_diagnostics as _mem
+from lvmdap.cube_io import write_dap_parameter_cubes
 
 def _main(cmd_args=sys.argv[1:]):
     print("########################################")
@@ -969,15 +970,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     hdr_0['dap_ver']=dap_ver
     hdr_0['dap_date']=dap_date   
     hdu_hdr_0 = fits.PrimaryHDU(header=hdr_0) 
-    hdu_PT = fits.BinTableHDU(tab_PT,name='PT')
-    hdu_FE_B = fits.BinTableHDU(tab_fe_B,name='NP_ELINES_B')
-    hdu_FE_R = fits.BinTableHDU(tab_fe_R,name='NP_ELINES_R')
-    hdu_FE_I = fits.BinTableHDU(tab_fe_I,name='NP_ELINES_I')
-    hdu_PM_B = fits.BinTableHDU(tab_PM_B,name='PM_ELINES_B')
-    hdu_PM_R = fits.BinTableHDU(tab_PM_R,name='PM_ELINES_R')
-    hdu_PM_I = fits.BinTableHDU(tab_PM_I,name='PM_ELINES_I')
-    hdu_RSP = fits.BinTableHDU(tab_rsp,name='RSP')
-    hdu_COEFFS = fits.BinTableHDU(tab_coeffs,name='COEFFS')
     # Averages of all scalar measurements with an associated error column.
     # COEFFS is split by template (rsp); source tables are not modified.
     tab_avg_param_stats = build_average_measurement_statistics_table(
@@ -994,10 +986,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         tab_avg_param_stats, name='AVG_PARAM_STATS')
     hdu_avg_param_stats.header['COMMENT'] = (
         'Fiber mean, sample std and combined mean error per measured parameter')
-    hdu_mask = fits.ImageHDU(data=input_mask, name='MASK')
-    hdu_mask.header['COMMENT'] = 'Original DRP bitmask; nonzero marks a flagged pixel'
-    hdu_badpix = fits.ImageHDU(data=bad_pixels.astype(np.uint8), name='BADPIX')
-    hdu_badpix.header['COMMENT'] = 'Effective bad-pixel mask; 1=excluded/filled'
     # Compare the masked mean RSS gas spectrum to NP, PM and (when
     # available) PEK gas models. This QA is stored in every RSS DAP file,
     # even when plots and separate model output are disabled.
@@ -1012,21 +1000,71 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         tab_avg_el_fit_qa, name='AVG_EL_FIT_QA')
     hdu_avg_el_fit_qa.header['COMMENT'] = (
         'Mean RSS gas-spectrum quality by line; NP, PM, PEK compared')
-    hdu_dap =fits.HDUList([hdu_hdr_0,hdu_PT,hdu_RSP,hdu_COEFFS,\
-                           hdu_FE_B,hdu_FE_R,hdu_FE_I,hdu_PM_B,hdu_PM_R,hdu_PM_I])
-    out_file_dap = os.path.join(args.output_path, f"{args.label}.dap.fits.gz")
-    if tab_PEK is not None:
-        for band, table in (('B', tab_PEK_B), ('R', tab_PEK_R), ('I', tab_PEK_I)):
-            hdu_dap.append(fits.BinTableHDU(table, name=f'PEK_ELINES_{band}'))
-    for band, table in (('B', tab_best_B), ('R', tab_best_R),
-                        ('I', tab_best_I)):
-        hdu_dap.append(fits.BinTableHDU(table, name=f'BEST_ELINES_{band}'))
-    hdu_dap.append(hdu_avg_el_fit_qa)
-    hdu_dap.append(hdu_avg_param_stats)
-    hdu_dap.append(hdu_mask)
-    hdu_dap.append(hdu_badpix)
-    hdu_dap.append(hdu_info)
-    hdu_dap.writeto(out_file_dap,overwrite=True)
+    if getattr(args, 'in_cube', False):
+        # Same measured scalar columns as the normal DAP, now arranged as
+        # WCS-registered [parameter, y, x] image cubes. The integrated and
+        # averaged products remain in their existing formats.
+        parameter_tables = {
+            'PT_MAP': tab_PT,
+            'RSP': tab_rsp,
+            'COEFFS': tab_coeffs,
+            'NP_ELINES_B': tab_fe_B,
+            'NP_ELINES_R': tab_fe_R,
+            'NP_ELINES_I': tab_fe_I,
+            'PM_ELINES_B': tab_PM_B,
+            'PM_ELINES_R': tab_PM_R,
+            'PM_ELINES_I': tab_PM_I,
+        }
+        if tab_PEK is not None:
+            parameter_tables.update({
+                'PEK_ELINES_B': tab_PEK_B,
+                'PEK_ELINES_R': tab_PEK_R,
+                'PEK_ELINES_I': tab_PEK_I,
+            })
+        parameter_tables.update({
+            'BEST_ELINES_B': tab_best_B,
+            'BEST_ELINES_R': tab_best_R,
+            'BEST_ELINES_I': tab_best_I,
+        })
+        out_file_dap = os.path.join(
+            args.output_path, f'{args.label}.cube.dap.fits.gz')
+        write_dap_parameter_cubes(
+            out_file_dap, args.lvm_file, tab_PT, parameter_tables,
+            primary_header=hdr_0, info=hdu_info,
+            avg_param_stats=tab_avg_param_stats,
+            avg_el_fit_qa=tab_avg_el_fit_qa,
+            bad_pixel_mask=bad_pixels,
+        )
+        print(f'# Wrote WCS-registered parameter cubes: {out_file_dap}')
+    else:
+        hdu_PT = fits.BinTableHDU(tab_PT,name='PT')
+        hdu_FE_B = fits.BinTableHDU(tab_fe_B,name='NP_ELINES_B')
+        hdu_FE_R = fits.BinTableHDU(tab_fe_R,name='NP_ELINES_R')
+        hdu_FE_I = fits.BinTableHDU(tab_fe_I,name='NP_ELINES_I')
+        hdu_PM_B = fits.BinTableHDU(tab_PM_B,name='PM_ELINES_B')
+        hdu_PM_R = fits.BinTableHDU(tab_PM_R,name='PM_ELINES_R')
+        hdu_PM_I = fits.BinTableHDU(tab_PM_I,name='PM_ELINES_I')
+        hdu_RSP = fits.BinTableHDU(tab_rsp,name='RSP')
+        hdu_COEFFS = fits.BinTableHDU(tab_coeffs,name='COEFFS')
+        hdu_mask = fits.ImageHDU(data=input_mask, name='MASK')
+        hdu_mask.header['COMMENT'] = 'Original DRP bitmask; nonzero marks a flagged pixel'
+        hdu_badpix = fits.ImageHDU(data=bad_pixels.astype(np.uint8), name='BADPIX')
+        hdu_badpix.header['COMMENT'] = 'Effective bad-pixel mask; 1=excluded/filled'
+        hdu_dap =fits.HDUList([hdu_hdr_0,hdu_PT,hdu_RSP,hdu_COEFFS,\
+                               hdu_FE_B,hdu_FE_R,hdu_FE_I,hdu_PM_B,hdu_PM_R,hdu_PM_I])
+        out_file_dap = os.path.join(args.output_path, f"{args.label}.dap.fits.gz")
+        if tab_PEK is not None:
+            for band, table in (('B', tab_PEK_B), ('R', tab_PEK_R), ('I', tab_PEK_I)):
+                hdu_dap.append(fits.BinTableHDU(table, name=f'PEK_ELINES_{band}'))
+        for band, table in (('B', tab_best_B), ('R', tab_best_R),
+                            ('I', tab_best_I)):
+            hdu_dap.append(fits.BinTableHDU(table, name=f'BEST_ELINES_{band}'))
+        hdu_dap.append(hdu_avg_el_fit_qa)
+        hdu_dap.append(hdu_avg_param_stats)
+        hdu_dap.append(hdu_mask)
+        hdu_dap.append(hdu_badpix)
+        hdu_dap.append(hdu_info)
+        hdu_dap.writeto(out_file_dap,overwrite=True)
 
     # A standalone, compact summary with the same primary header as the
     # full DAP file.  Both the per-fiber X_sq statistics (AVG_PARAM_STATS)
@@ -1043,7 +1081,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     # Restored final spatial maps. Keep independent of --dump_model and avoid
     # executing the legacy RSS analysis that remains below exit(0).
-    if args.do_plots == 1:
+    if args.do_plots == 1 and not getattr(args, 'in_cube', False):
         try:
             tab_DAP = read_DAP_file(out_file_dap, verbose=False)
         except Exception as exc:
@@ -1177,8 +1215,17 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         if args.verbose == True:
             print("# Writing output model to FITS file")
         out_file_model = os.path.join(args.output_path, f"{args.label}.model.fits.gz")
+        model_header = hdu_i_sps[0].header.copy()
+        if getattr(args, 'in_cube', False):
+            # Avoid an extra multi-GiB allocation for a dense 4-D image.
+            # (plane,RSS row,wavelength) is indexed via SPAXEL_INDEX in
+            # <label>.cube.dap.fits.gz; no model pixels are rearranged.
+            model_header['CUBEMODE'] = True
+            model_header['MAPFILE'] = f'{args.label}.cube.dap.fits.gz'
+            model_header['COMMENT'] = ('MODEL is plane/RSS-row/wave; '
+                                       'SPAXEL_INDEX provides xpix/ypix mapping')
         hdu_model = fits.PrimaryHDU(
-            header=hdu_i_sps[0].header, data=output_model)
+            header=model_header, data=output_model)
         hdu_model.writeto(out_file_model, overwrite=True)
 
     print("#******   ALL DONE ******#")

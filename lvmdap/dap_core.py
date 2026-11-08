@@ -129,6 +129,7 @@ from lvmdap.pek_tools import print_progress_bar
 from lvmdap.linked_line_fitter import fit_linked_lines
 from astropy.table import vstack as tab_vstack
 from lvmdap.table_accumulator import TableAccumulator
+from lvmdap.cube_io import load_3dcubegen_cube
 
 from scipy.spatial import cKDTree, Delaunay
 
@@ -1154,6 +1155,7 @@ def load_input_data(args, ny_range=None, nx_range=None,
       - LVM RSS / LVMCFrame (default)
       - Generic RSS (args.in_rss)
       - LVM Simulator (args.lvmsim)
+      - 3DCubeGen spatial cube (args.in_cube; WCS-derived PT)
 
     Parameters
     ----------
@@ -1194,7 +1196,20 @@ def load_input_data(args, ny_range=None, nx_range=None,
     # 1. Load spectra according to the input format
     # ---------------------------------------------------------
 
-    if not args.lvmsim:
+    if getattr(args, 'in_cube', False):
+        if args.lvmsim or args.in_rss:
+            raise ValueError('--in_cube cannot be combined with --lvmsim or --in_rss')
+        print('# Reading reconstructed 3DCubeGen cube...')
+        (wl__w, rss_flux_org, rss_eflux_org, hdr_flux_org, hdr_0,
+         LSF_rss_org, tab_PT_org, input_mask) = load_3dcubegen_cube(
+            args.lvm_file,
+            flux_scaling=flux_scale,
+            cube_input_scale=getattr(args, 'cube_input_scale', None),
+            cube_lsf_sigma=getattr(args, 'cube_lsf_sigma', None),
+            cube_x_range=getattr(args, 'cube_x_range', None),
+            cube_y_range=getattr(args, 'cube_y_range', None),
+        )
+    elif not args.lvmsim:
 
         if not args.in_rss:
 
@@ -1281,16 +1296,23 @@ def load_input_data(args, ny_range=None, nx_range=None,
     # 2. Determine the mean instrumental LSF
     # ---------------------------------------------------------
 
-    try:
-        with fits.open(args.lvm_file) as hdu_LSF:
-            LSF_mean = np.nanmedian(
-                hdu_LSF['LSF'].data, axis=0
-            ) / 2.354
+    if getattr(args, 'in_cube', False):
+        # The cube does not preserve an LSF. An explicit cube_lsf_sigma
+        # is an instrumental Gaussian *sigma*, unlike a DRP FWHM extension.
+        cube_sigma = getattr(args, 'cube_lsf_sigma', None)
+        LSF_mean = np.full(rss_flux_org.shape[1],
+                           float(args.sigma_gas if cube_sigma is None else cube_sigma))
+    else:
+        try:
+            with fits.open(args.lvm_file) as hdu_LSF:
+                LSF_mean = np.nanmedian(
+                    hdu_LSF['LSF'].data, axis=0
+                ) / 2.354
 
-    except Exception:
-        LSF_mean = args.sigma_gas * np.ones(
-            rss_flux_org.shape[1]
-        )
+        except Exception:
+            LSF_mean = args.sigma_gas * np.ones(
+                rss_flux_org.shape[1]
+            )
 
     # ---------------------------------------------------------
     # 3. Preserve DRP bitmask, plus unusable flux/error pixels.
@@ -1436,6 +1458,12 @@ def parse_dap_arguments(cmd_args=None):
     )
 
     parser.add_argument(
+        "--in_cube", "--in-cube",
+        action="store_true",
+        help="Input is a 3DCubeGen (wavelength,y,x) FITS cube; output spatial parameter cubes"
+    )
+
+    parser.add_argument(
         "--plot",
         type=np.int64,
         default=0,
@@ -1573,6 +1601,13 @@ def initialize_dap_parameters(args):
     defaults = {
         'ny_range': None,
         'nx_range': None,
+        # Spatial crop in original cube pixels: zero-based [first,stop).
+        'cube_x_range': None,
+        'cube_y_range': None,
+        # No instrumental LSF is preserved in a reconstructed cube.
+        'cube_lsf_sigma': None,
+        # Override automatic scaling from the original cube BUNIT.
+        'cube_input_scale': None,
         'out_plot_format': 'png',
         'only_integrated': False,
         'sky_hack': False,
