@@ -106,6 +106,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     hdr_flux['NAXIS2']=len(tab_PT)
     print(f'# Number of spectra to analyze : {len(tab_PT)}')
     _mem.report('after_fiber_selection', arrays={'rss_flux_org': rss_flux_org, 'rss_flux': rss_flux, 'rss_eflux_org': rss_eflux_org, 'rss_eflux': rss_eflux, 'LSF_rss_org': LSF_rss_org, 'LSF_rss': LSF_rss, 'input_mask': input_mask, 'bad_pixels': bad_pixels})
+    # Boolean fiber selection made independent copies of these arrays.
+    # The selected rss_flux/rss_eflux/LSF_rss/masks are retained unchanged.
+    del rss_flux_org, rss_eflux_org, LSF_rss_org, input_mask_org, bad_pixels_org
+    _mem.report('after_original_rss_release', arrays={'rss_flux': rss_flux, 'rss_eflux': rss_eflux, 'LSF_rss': LSF_rss})
 
     #####################################################################################
     # Reading the emission lines file and identify the instrumental LSF and blended lines
@@ -923,6 +927,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         tab_PEK_B, tab_PEK_R, tab_PEK_I = split_fe_table(
             tab_PEK, w_br=FIT_QUALITY_W_BR, w_ri=FIT_QUALITY_W_RI)
 
+    # PEK has finished both fitting and computing per-line quality metrics.
+    # No later stage needs these full-resolution gas residual spectra.
+    del gas_spectra_for_pek
+    _mem.report('after_pek_input_release', arrays={'pek_model': pek_model})
+
     #################################################################################
     # Writting DAP file
     #################################################################################
@@ -1102,6 +1111,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         hdu_i_sps[0].header['NAME7'] = 'gas_model_PEK'
     output_model = adopt_best_model_planes(output_model, gas_model_best)
     hdu_i_sps[0].header['NAME8'] = 'gas_model_best'
+    # Both gas-model arrays have been consumed by the final MODEL planes.
+    # PEK/BEST quality statistics and optional plots were completed above.
+    del pek_model, gas_model_best
+    _mem.report('after_final_gas_model_release', arrays={'output_model': output_model})
     # Original DRP masks must apply to every final MODEL channel, including
     # the PEK-replaced and newly constructed BEST channels.
     output_model[:, bad_pixels] = np.nan
