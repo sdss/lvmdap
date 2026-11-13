@@ -179,7 +179,7 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 dispersion_tolerance=1.0, fit_padding=20.0,
                 max_cluster_span=75.0, max_adjacent_distance=25.0,
                 min_valid_pixels=8, max_nfev=120, verbose=False,
-                reference_line='Halpha_6562.85'):
+                reference_line='Halpha_6562.85', fixed_velocity=None):
     """Fit Gaussian emission lines plus a constant per cluster.
 
     Inputs
@@ -250,8 +250,12 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
         raise ValueError('wl must be a finite, strictly increasing 1D wavelength array')
     if len(tab_PM) != nf or len(tab_fe) != nf:
         raise ValueError('PM and NP tables must have exactly one row per RSS fiber in the same order')
-    vs = np.broadcast_to(np.asarray(vel_interp, float), (nf,))
+    vs = np.broadcast_to(np.asarray(vel_interp, float), (nf,)).copy()
     ss = np.broadcast_to(np.asarray(disp_interp, float), (nf,))
+    fixed_vel = (np.full(nf, np.nan) if fixed_velocity is None else
+                 np.broadcast_to(np.asarray(fixed_velocity, float), (nf,)))
+    fixed_now = np.isfinite(fixed_vel)
+    vs[fixed_now] = fixed_vel[fixed_now]
     if velocity_tolerance <= 0 or dispersion_tolerance <= 0 or fit_padding <= 0:
         raise ValueError('Tolerances and fit_padding must be positive')
     if bad_pixel_mask is None:
@@ -322,7 +326,7 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
         np_chi = _table_value(tab_fe, i, 'X_sq', reference_line)
         pm_chi = _table_value(tab_PM, i, 'X_sq', reference_line, '_pm')
         start_from_np = (
-            np.isfinite(np_chi)
+            not fixed_now[i] and np.isfinite(np_chi)
             and (not np.isfinite(pm_chi) or np_chi < pm_chi)
             and np.isfinite(np_velocity)
             and np.isfinite(np_dispersion) and np_dispersion > 0
@@ -340,7 +344,7 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
 
         velocity_lo = vs[i] - velocity_tolerance
         velocity_hi = vs[i] + velocity_tolerance
-        if np.isfinite(np_velocity):
+        if np.isfinite(np_velocity) and not fixed_now[i]:
             velocity_lo = min(vs[i], np_velocity) - velocity_tolerance
             velocity_hi = max(vs[i], np_velocity) + velocity_tolerance
 
@@ -448,7 +452,8 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
             # kinematic parameters. Fluxes and constant background are solved
             # exactly, with their signs free, at every (velocity, variance).
             def residual(kinematics):
-                velocity, intrinsic_var = kinematics
+                velocity, intrinsic_var = ((fixed_vel[i], kinematics[0])
+                                           if fixed_now[i] else kinematics)
                 coefficients, _, design = _pek_weighted_linear_fit(
                     x, y, ey, rest_fit, inst_fit, velocity, intrinsic_var,
                     reference_wavelength
@@ -456,17 +461,23 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 return (design @ coefficients - y) / ey
 
             try:
-                fit = least_squares(
-                    residual, np.array([start_velocity, var0]),
-                    bounds=(np.array([velocity_lo, var_lo]),
-                            np.array([velocity_hi, var_hi])),
-                    x_scale='jac', max_nfev=max_nfev, method='trf'
-                )
+                if fixed_now[i]:
+                    fit = least_squares(
+                        residual, np.array([var0]),
+                        bounds=(np.array([var_lo]), np.array([var_hi])),
+                        x_scale='jac', max_nfev=max_nfev, method='trf')
+                else:
+                    fit = least_squares(
+                        residual, np.array([start_velocity, var0]),
+                        bounds=(np.array([velocity_lo, var_lo]),
+                                np.array([velocity_hi, var_hi])),
+                        x_scale='jac', max_nfev=max_nfev, method='trf')
             except (ValueError, RuntimeError, FloatingPointError, np.linalg.LinAlgError):
                 continue
             if not fit.success or not np.all(np.isfinite(fit.x)):
                 continue
-            velocity, intrinsic_var = fit.x
+            velocity, intrinsic_var = ((fixed_vel[i], float(fit.x[0]))
+                                       if fixed_now[i] else fit.x)
             coefficients, rank, design = _pek_weighted_linear_fit(
                 x, y, ey, rest_fit, inst_fit, velocity, intrinsic_var,
                 reference_wavelength
@@ -509,12 +520,14 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 (delta**2 - 1.0) * ratio_fit_sq[None, :] /
                 (2.0 * sig_out[None, :]**2), axis=1
             )
-            full_jac = np.column_stack((profiles, d_velocity, d_var,
-                                        np.ones(len(x)))) / ey[:, None]
-            uncertainty = np.full(n_fit + 3, np.nan)
+            full_jac = (np.column_stack((profiles, d_var, np.ones(len(x))))
+                        if fixed_now[i] else
+                        np.column_stack((profiles, d_velocity, d_var,
+                                         np.ones(len(x))))) / ey[:, None]
+            uncertainty = np.full(n_fit + (2 if fixed_now[i] else 3), np.nan)
             try:
                 _, singular, vt = np.linalg.svd(full_jac, full_matrices=False)
-                if (len(singular) != n_fit+3 or singular[-1] <= singular[0]*1.e-10):
+                if (len(singular) != len(uncertainty) or singular[-1] <= singular[0]*1.e-10):
                     raise np.linalg.LinAlgError('Rank-deficient full covariance')
                 cov = (vt.T * (singular**-2)) @ vt
                 uncertainty = np.sqrt(np.maximum(np.diag(cov), 0.0))
@@ -537,10 +550,12 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 result[prefix('flux')][i] = fitted_fluxes[j]
                 result[prefix('e_flux')][i] = uncertainty[j]
                 result[prefix('vel')][i] = velocity
-                result[prefix('e_vel')][i] = uncertainty[n_fit]
+                result[prefix('e_vel')][i] = (
+                    np.nan if fixed_now[i] else uncertainty[n_fit])
                 result[prefix('disp')][i] = sig_out[j]
                 result[prefix('e_disp')][i] = (
-                    uncertainty[n_fit+1]*ratio_fit_sq[j]/(2*sig_out[j])
+                    uncertainty[n_fit + (0 if fixed_now[i] else 1)]
+                    * ratio_fit_sq[j]/(2*sig_out[j])
                     if sig_out[j] > 0 else np.nan
                 )
                 # Preserve previous EW definition and PM/NP-continuum lookup.
@@ -561,7 +576,8 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 model[i,a:b] += (fitted_fluxes[j]/(_ROOT2PI*sig_out[j]) *
                                   np.exp(-0.5*xx**2))
             if verbose:
-                reduced = np.sum(fit.fun**2)/max(len(y)-(n_fit+3),1)
+                reduced = np.sum(fit.fun**2)/max(
+                    len(y)-(n_fit+(2 if fixed_now[i] else 3)),1)
                 print(f'PEK fiber {i} cluster {names_fit[0]}..{names_fit[-1]}: '
                       f'chi2_red={reduced:.3f}, v={velocity:.2f} km/s')
 

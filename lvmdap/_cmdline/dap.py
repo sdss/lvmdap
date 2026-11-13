@@ -6,6 +6,8 @@ Importing the core performs the one-time BLAS threading initialization
 before any of its NumPy/FIT3D imports.
 """
 
+import warnings
+
 from lvmdap.dap_core import *  # noqa: F401,F403 - preserve original CLI namespace
 
 from lvmdap import memory_diagnostics as _mem
@@ -41,6 +43,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     _mem.report('after_imports')
     args = parse_dap_arguments(cmd_args)
     args = initialize_dap_parameters(args)
+    # Keep runtime numerical warnings visible only in verbose runs.
+    if not args.verbose:
+        warnings.filterwarnings('ignore', category=RuntimeWarning)
     hdu_info = create_dap_info_hdu(args)
 
     ny_range = args.ny_range
@@ -307,7 +312,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     )
     print(f'### END RSP fitting the integrated spectrum ###')
 
-    label_strongest_line = 'Halpha_6562.85_pm'
+    label_strongest_line = 'Halpha_6562.85'
     # In 'both' mode, use the original FIT3D-only integrated bootstrap for
     # choosing the RSS strong-line list and the shared PEK reference line.
     # The official PM table and MODEL still contain the chi-square winners.
@@ -321,10 +326,16 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             name_strongest.append(column)
     f_strongest = np.array(f_strongest)
     name_strongest = np.array(name_strongest)
-    arg_strongest = np.nanargmax(f_strongest)
-    label_strongest_line = name_strongest[arg_strongest]
-    label_strongest_line = label_strongest_line.replace('flux_', '').replace('_pm', '')
-    print(f'# Strongest PM line label: {label_strongest_line}')
+    if np.any(np.isfinite(f_strongest)):
+        arg_strongest = np.nanargmax(f_strongest)
+        label_strongest_line = name_strongest[arg_strongest]
+        label_strongest_line = label_strongest_line.replace('flux_', '').replace('_pm', '')
+        print(f'# Strongest PM line label: {label_strongest_line}')
+    else:
+        # No integrated PM emission-line flux was measurable.  Retain the
+        # pre-existing Halpha reference for downstream RSS selection; its
+        # measurements remain NaN where fitting was not possible.
+        print(f'# No finite integrated PM line flux; using reference line: {label_strongest_line}')
 
     tab_el_strong_dynamic = select_tab_el_strong(
         tab_el, tab_m_PM_anchor,
@@ -701,7 +712,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                 s= 150, cmap='Spectral', alpha = 0.5 , edgecolor='none')
             ax[0].scatter(tab_PT['ra'], tab_PT['dec'], color='None', alpha = 0.5 , s = 150, edgecolor='Black')
             ax[1].scatter(tab_PT['ra'], tab_PT['dec'], color='None', alpha = 0.5 , s = 150,edgecolor='Black')
-            fig.savefig(f'vel_map_interp_{args.label}.png', dpi=300)
+            fig.savefig(os.path.join(args.output_path, f'vel_map_interp_{args.label}.png'), dpi=300)
             plt.close(fig)
         #plt.show()
 
@@ -720,6 +731,54 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         print(tab_coeffs_interp[0:108])
 
 
+    # Gas-velocity map from the original RSS before the full EL fitting pass.
+    gas_map = None
+    if str_to_bool(getattr(args, 'gas_map_enabled', True)):
+        print('# Gas-velocity prepass: Hbeta to [SII]')
+        gas_map = estimate_rss_gas_velocity_map(
+            wl__w, rss_flux, rss_eflux, LSF_rss, tab_el, tab_PT,
+            np.asarray(tab_rsp_interp['z'], float), args,
+            bad_pixels=bad_pixels)
+        sources = np.asarray(gas_map['source']).astype(str)
+        n_measured = int(np.count_nonzero(sources == 'measured'))
+        n_interpolated = int(np.count_nonzero(sources == 'interpolated'))
+        n_stellar = int(np.count_nonzero(sources == 'stellar'))
+        print(f'# Gas-velocity prepass completed: {len(tab_PT)} fibers')
+        print(f'# Gas redshifts measured: {n_measured}; '
+              f'spatially interpolated: {n_interpolated}; '
+              f'stellar-map fallback: {n_stellar}')
+        if n_measured:
+            direct = sources == 'measured'
+            delta_v = 299792.458 * (
+                np.asarray(gas_map['z_gas_measured'], float)[direct]
+                - np.asarray(tab_rsp_interp['z'], float)[direct])
+            delta_v = delta_v[np.isfinite(delta_v)]
+            if delta_v.size:
+                print(f'# Direct gas minus stellar velocity (km/s): '
+                      f'median={np.median(delta_v):.2f}, '
+                      f'5th/95th percentile='
+                      f'{np.percentile(delta_v, 5):.2f}/'
+                      f'{np.percentile(delta_v, 95):.2f}')
+            direct_sn = np.asarray(gas_map['sn_gas'], float)[direct]
+            direct_sn = direct_sn[np.isfinite(direct_sn)]
+            if direct_sn.size:
+                print(f'# Weakest qualifying matched gas-line S/N: '
+                      f'median={np.median(direct_sn):.2f}, '
+                      f'min={np.min(direct_sn):.2f}, '
+                      f'max={np.max(direct_sn):.2f}')
+        if n_measured == len(tab_PT):
+            print('# Gas-map interpolation not needed: all fibers have '
+                  'qualifying direct gas-redshift estimates')
+        elif n_measured == 0:
+            print('# Gas-map interpolation unavailable: no anchors; '
+                  'using the interpolated stellar-redshift map')
+        else:
+            print(f'# Gas-map spatial interpolation used for '
+                  f'{n_interpolated} fibers')
+        print('# Full-RSS gas-velocity mode: '
+              + ('fixed' if str_to_bool(getattr(args, 'gas_map_fixed_velocity', True))
+                 else 'initial guess'))
+
     ##############################################################################
     # START: Fitting the full RSS spectra using the interpolated RSPs and coefficients
     ##############################################################################
@@ -736,6 +795,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     tab_fe = TableAccumulator(batch_size=64)
     output_model = []
     gas_spectra_for_pek = []
+    halpha_velocity_checks = []  # in-memory diagnostics, no files
     nspec = len(rss_flux)
     for i, (f__w, ef__w) in enumerate(zip(rss_flux, rss_eflux)):
         if _mem.enabled() and (i % _mem.every() == 0 or i+1 == nspec):
@@ -765,6 +825,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             hdr_flux=hdr_flux,
             args_copy=args,
             z_guess=args.redshift[0],
+            z_gas_input=(float(gas_map['z_gas_interpolated'][i])
+                         if gas_map is not None and
+                         np.isfinite(gas_map['z_gas_interpolated'][i]) else None),
+            gas_velocity_fixed=str_to_bool(getattr(args, 'gas_map_fixed_velocity', True)),
             plot=args.plot,
             adopt_st_z = True,
             SN_cut_st_z = args.SN_CUT, 
@@ -785,6 +849,20 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                        'gas_spectra_for_pek': gas_spectra_for_pek,
                        'tab_rsp': tab_rsp, 'tab_PM': tab_PM, 'tab_fe': tab_fe},
                 sps=SPS)
+        if (gas_map is not None and
+                str_to_bool(getattr(args, 'gas_map_compare_halpha', True))):
+            v_gas = float(gas_map['z_gas_interpolated'][i])*299792.458
+            sigma_ha = (float(tab_i_PM['disp_Halpha_6562.85_pm'][0])
+                        if 'disp_Halpha_6562.85_pm' in tab_i_PM.colnames
+                        else np.nan)
+            diag = compare_halpha_fixed_refined(
+                wl__w,
+                np.asarray(f__w, float) -
+                np.asarray(SPS.spectra['model_ssp_min'], float),
+                ef__w, LSF_rss[i], v_gas,
+                velocity_range=30.0, sigma_observed=sigma_ha,
+                bad_pixel_mask=bad_pixels[i])
+            halpha_velocity_checks.append((v_gas, diag))
         tab_rsp.append(tab_i_rsp)
         tab_coeffs.append(tab_i_coeffs)
         tab_elines.append(tab_i_elines)
@@ -810,6 +888,27 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                        'tab_elines': tab_elines, 'tab_PM': tab_PM, 'tab_fe': tab_fe},
                 sps=SPS)
 
+
+    if halpha_velocity_checks:
+        checks = [(v, d) for v, d in halpha_velocity_checks
+                  if np.isfinite(d['chi2_fixed']) and np.isfinite(d['chi2_refined'])]
+        print(f'# Halpha fixed/refined velocity diagnostics (in memory): '
+              f'{len(checks)}/{len(halpha_velocity_checks)} valid fibers')
+        if checks:
+            delta_v = np.array([d['velocity_refined']-v for v, d in checks])
+            delta_chi2 = np.array([d['chi2_fixed']-d['chi2_refined']
+                                   for _, d in checks])
+            f_fixed = np.array([d['flux_ha_fixed'] for _, d in checks])
+            f_free = np.array([d['flux_ha_refined'] for _, d in checks])
+            print(f'# Halpha refined minus gas-map velocity [km/s]: '
+                  f'median={np.median(delta_v):.2f}, '
+                  f'5th/95th={np.percentile(delta_v, 5):.2f}/'
+                  f'{np.percentile(delta_v, 95):.2f}')
+            print(f'# Halpha fixed minus refined chi2: '
+                  f'median={np.median(delta_chi2):.3g}; '
+                  f'fixed/refined median flux={np.median(f_fixed):.3g}/'
+                  f'{np.median(f_free):.3g}')
+            print('# Halpha comparison is diagnostic only: no second PM pass')
 
     _mem.report('after_rss_fits_before_stack', arrays={'rss_flux': rss_flux}, lists={'output_model': output_model, 'gas_spectra_for_pek': gas_spectra_for_pek, 'tab_rsp': tab_rsp, 'tab_coeffs': tab_coeffs, 'tab_elines': tab_elines, 'tab_PM': tab_PM, 'tab_fe': tab_fe}, sps=SPS)
     tab_rsp = tab_rsp.finish()
@@ -911,6 +1010,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             tab_PM=tab_PM,
             tab_fe=tab_fe,
             reference_line=label_strongest_line,
+            fixed_velocity=(gas_map['z_gas_interpolated'] * 299792.458
+                            if gas_map is not None and
+                            str_to_bool(getattr(args, 'gas_map_fixed_velocity', True))
+                            else None),
             wl=wl__w,
             lsf_spectrum=LSF_rss,       # per-fiber Gaussian sigma [Angstrom]
             bad_pixel_mask=bad_pixels,

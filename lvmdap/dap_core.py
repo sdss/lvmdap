@@ -119,9 +119,11 @@ from lvmdap.modelling.auto_rsp_tools import auto_rsp_elines_rnd
 from lvmdap.dap_tools import decompose_spectrum, decompose_spectrum_masked_iterative
 from lvmdap.dap_tools import find_redshift_elines,print_solution
 from lvmdap.dap_tools import find_redshift_weights,running_std_spec
-from lvmdap.dap_tools import median_fit_spectrum,fit_emission_line_system
+from lvmdap.dap_tools import (median_fit_spectrum, fit_emission_line_system,
+                              emission_line_data_issue, InsufficientEmissionLineDataError)
 from lvmdap.pyFIT3D.common.io import print_verbose
-from lvmdap.dap_tools import process_elines_spec, cluster_emission_lines
+from lvmdap.dap_tools import (process_elines_spec, cluster_emission_lines,
+                              interpolate_emission_line_regions)
 from lvmdap.dap_tools import interp2d_scattered
 from lvmdap.pyFIT3D.common.stats import shift_convolve
 from lvmdap.pyFIT3D.modelling.dust import spec_apply_dust
@@ -1208,6 +1210,7 @@ def load_input_data(args, ny_range=None, nx_range=None,
             cube_lsf_sigma=getattr(args, 'cube_lsf_sigma', None),
             cube_x_range=getattr(args, 'cube_x_range', None),
             cube_y_range=getattr(args, 'cube_y_range', None),
+            create_cube_mask=str_to_bool(getattr(args, 'create_cube_mask', True)),
         )
     elif not args.lvmsim:
 
@@ -1464,6 +1467,15 @@ def parse_dap_arguments(cmd_args=None):
     )
 
     parser.add_argument(
+        "--create_cube_mask", "--create-cube-mask",
+        type=str_to_bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help="Cube only: mask invalid flux/error samples and all immediate x/y neighbors (3x3) (default: True)",
+    )
+
+    parser.add_argument(
         "--plot",
         type=np.int64,
         default=0,
@@ -1604,6 +1616,9 @@ def initialize_dap_parameters(args):
         # Spatial crop in original cube pixels: zero-based [first,stop).
         'cube_x_range': None,
         'cube_y_range': None,
+        # Spatially mask +/-1 x/y pixels around invalid samples at each
+        # wavelength. Only affects --in_cube; standard RSS is unchanged.
+        'create_cube_mask': True,
         # No instrumental LSF is preserved in a reconstructed cube.
         'cube_lsf_sigma': None,
         # Override automatic scaling from the original cube BUNIT.
@@ -1630,6 +1645,16 @@ def initialize_dap_parameters(args):
         'n_leg': 11,
         # Default to the validated FIT3D-only PM fit; SciPy and both stay opt-in.
         'pm_fit_engine': 'fit3d',
+        # New gas-map prepass; disable to reproduce the original DAP exactly.
+        'gas_map_enabled': True,
+        'gas_map_fixed_velocity': True,
+        'gas_map_sn_cut': 5.0,
+        'gas_map_min_matches': 2,
+        'gas_map_peak_threshold': 2.0,
+        'gas_map_wave_min': 4861.36,
+        'gas_map_wave_max': 6730.82,
+        'gas_map_padding': 60.0,
+        'gas_map_compare_halpha': True,
         # Optional second independent FIT3D pass for each PM strong cluster.
         # No quality threshold: compare both candidate models on the same pixels.
         'pm_fit3d_recovery': False,
@@ -3710,51 +3735,57 @@ def fit_individual_rss_spectrum(
         verbose=verbose,
     )
     spec_stellar = np.asarray(initial['stellar_spectrum'], dtype=float)
+    stellar_emission_mask = initial['stellar_line_mask']
 
     # ------------------------------------------------------------
     # 2.1  Fit the stellar absorptions to derive the velocity
     # ------------------------------------------------------------
 
 
-    out_fit_abs_lines = fit_emission_line_system(
-        wl=wl,
-        flux=spec_stellar,
-        eflux=eflux,
-        line_wavelengths=list_abs_lines,
-        redshift=z,
-        fit_padding = 30,
-        velocity_range=1.5*float(getattr(args, 'velocity_tolerance', 50.0)),
-        sigma_guess=1.2,
-        sigma_bounds=(0.5, 2.5),
-        error_scale=1,
-        tie_kinematics=True,
-        add_background=True,
-        plot=args.plot,
-        bg_order=1,
-        run_mode = 'BOTH',
-        verbose=verbose)
+    try:
+        out_fit_abs_lines = fit_emission_line_system(
+            wl=wl,
+            flux=spec_stellar,
+            eflux=eflux,
+            line_wavelengths=list_abs_lines,
+            redshift=z,
+            fit_padding = 30,
+            velocity_range=1.5*float(getattr(args, 'velocity_tolerance', 50.0)),
+            sigma_guess=1.2,
+            sigma_bounds=(0.5, 2.5),
+            error_scale=1,
+            tie_kinematics=True,
+            add_background=True,
+            plot=args.plot,
+            bg_order=1,
+            run_mode = 'BOTH',
+            verbose=verbose)
+    except InsufficientEmissionLineDataError as exc:
+        print(f"# No measurable stellar absorption-line fit: {exc}")
+        out_fit_abs_lines = None
 
-    args.redshift[0] = z
-    abs_out = out_fit_abs_lines["fit"]
-    _close_fit_diagnostic_figure(out_fit_abs_lines)
-    cf_Ca_HK = out_fit_abs_lines["config"]
-    sel_wl_Ca_HK = out_fit_abs_lines["mask"]
-    vel_mask_st = True
-    vel_map_st = abs_out.final_fit_params_mean[0][3]
-    vel_e_map_st = abs_out.final_fit_params_std[0][3]
-    z_st = vel_map_st/__c__
-    print(f'# Velocity derived from abs. lines: {vel_map_st}')
-    print(f'# Redshift derived from abs. lines: {z_st}')
-    w_min_st_SN = np.min(list_abs_lines)*(1+z_st)-20
-    w_max_st_SN = np.max(list_abs_lines)*(1+z_st)+20
-    SN_obs = np.median(spec_stellar[(wl>w_min_st_SN)&(wl<w_max_st_SN)]/eflux[(wl>w_min_st_SN)&(wl<w_max_st_SN)])
-    print(f'# S/N in the region of the absorption lines: {SN_obs}')
-    if (SN_obs>SN_cut_st_z) & (adopt_st_z):
-        print(f'# Adopting the redshift derived from the absorption lines: {z_st}')
-        z = z_st
-        args.redshift[0] = z_st
-        z_fit_min = z + (float(args.redshift[2]) - float(args.redshift[0]))
-        z_fit_max = z + (float(args.redshift[3]) - float(args.redshift[0]))
+    if out_fit_abs_lines is not None:
+        args.redshift[0] = z
+        abs_out = out_fit_abs_lines["fit"]
+        _close_fit_diagnostic_figure(out_fit_abs_lines)
+        cf_Ca_HK = out_fit_abs_lines["config"]
+        sel_wl_Ca_HK = out_fit_abs_lines["mask"]
+        vel_mask_st = True
+        vel_map_st = abs_out.final_fit_params_mean[0][3]
+        vel_e_map_st = abs_out.final_fit_params_std[0][3]
+        z_st = vel_map_st/__c__
+        print(f'# Velocity derived from abs. lines: {vel_map_st}')
+        print(f'# Redshift derived from abs. lines: {z_st}')
+        w_min_st_SN = np.min(list_abs_lines)*(1+z_st)-20
+        w_max_st_SN = np.max(list_abs_lines)*(1+z_st)+20
+        SN_obs = np.median(spec_stellar[(wl>w_min_st_SN)&(wl<w_max_st_SN)]/eflux[(wl>w_min_st_SN)&(wl<w_max_st_SN)])
+        print(f'# S/N in the region of the absorption lines: {SN_obs}')
+        if (SN_obs>SN_cut_st_z) & (adopt_st_z):
+            print(f'# Adopting the redshift derived from the absorption lines: {z_st}')
+            z = z_st
+            args.redshift[0] = z_st
+            z_fit_min = z + (float(args.redshift[2]) - float(args.redshift[0]))
+            z_fit_max = z + (float(args.redshift[3]) - float(args.redshift[0]))
 
     # ------------------------------------------------------------
     # 3. Fit the stellar population model on line-subtracted flux.
@@ -3804,7 +3835,7 @@ def fit_individual_rss_spectrum(
     model_uncorr = np.asarray(SPS.spectra['model_ssp_min_uncorr'], dtype=float)
     res_smooth = median_fit_spectrum(
         wl,
-        spec_stellar - model_uncorr,
+        np.where(stellar_emission_mask, np.nan, spec_stellar - model_uncorr),
         11,
         method='legendre',
         degree=11,
@@ -3838,8 +3869,20 @@ def fit_individual_rss_spectrum(
         # Do not reuse a mean LSF from the integrated spectrum.
         local_lsf = np.interp(rest_waves * (1.0 + z), wl, lsf)
         good_lsf = local_lsf[np.isfinite(local_lsf) & (local_lsf > 0)]
-        if not len(good_lsf):
-            raise ValueError(f'Cluster {i_cl}: no positive finite fiber LSF')
+        data_issue = emission_line_data_issue(
+            wl, gas_spec, eflux, rest_waves, z,
+            fit_padding=30, error_scale=1)
+        if data_issue is not None or not len(good_lsf):
+            if verbose:
+                print(f'# Fiber {i_fib}, cluster {i_cl}: '
+                      f'{data_issue or "no positive finite fiber LSF"}; '
+                      'retaining undefined PM measurements')
+            for line in cluster:
+                line_name = f"{line['id']}_{float(line['wl']):.2f}"
+                for field in ('flux', 'e_flux', 'vel', 'e_vel',
+                              'disp', 'e_disp', 'EW', 'e_EW'):
+                    tab_PM[f'{field}_{line_name}_pm'] = np.nan
+            continue
 
         sigma_guess = float(np.mean(good_lsf))
         sigma_scatter = float(np.std(good_lsf))
@@ -3850,27 +3893,38 @@ def fit_individual_rss_spectrum(
             print(f'# Fiber {i_fib}, cluster {i_cl}: '
                   f'{len(cluster)} lines; sigma={sigma_guess:.3f} A')
 
-        fit_result = fit_emission_line_system(
-            wl=wl,
-            flux=gas_spec,
-            eflux=eflux,
-            line_wavelengths=rest_waves,
-            redshift=z,
-            fit_padding=30,
-            velocity_range=1,
-            sigma_guess=sigma_guess,
-            sigma_bounds=(sigma_min, sigma_max),
-            error_scale=1,
-            n_mc=30,
-            n_loops=5,
-            tie_kinematics=True,
-            add_background=True,
-            plot=int(bool(plot)),
-            bg_order=1,
-            verbose=verbose,
-        )
-        EL = fit_result['fit']
-        _close_fit_diagnostic_figure(fit_result)
+        try:
+            fit_result = fit_emission_line_system(
+                wl=wl,
+                flux=gas_spec,
+                eflux=eflux,
+                line_wavelengths=rest_waves,
+                redshift=z,
+                fit_padding=30,
+                velocity_range=1,
+                sigma_guess=sigma_guess,
+                sigma_bounds=(sigma_min, sigma_max),
+                error_scale=1,
+                n_mc=30,
+                n_loops=5,
+                tie_kinematics=True,
+                add_background=True,
+                plot=int(bool(plot)),
+                bg_order=1,
+                verbose=verbose,
+            )
+            EL = fit_result['fit']
+            _close_fit_diagnostic_figure(fit_result)
+
+        except InsufficientEmissionLineDataError as exc:
+            if verbose:
+                print(f"# Fiber {i_fib}, cluster {i_cl}: {exc}")
+            for line in cluster:
+                line_name = f"{line['id']}_{float(line['wl']):.2f}"
+                for field in ('flux', 'e_flux', 'vel', 'e_vel',
+                              'disp', 'e_disp', 'EW', 'e_EW'):
+                    tab_PM[f'{field}_{line_name}_pm'] = np.nan
+            continue
 
         for i_line, line in enumerate(cluster):
             pars = np.asarray(EL.final_fit_params_mean[i_line], dtype=float)
@@ -4016,6 +4070,10 @@ def estimate_gas_redshift(
     plot=False,
     verbose=False,
     bad_pixel_mask=None,
+    reference_wavelength_range=None,
+    return_details=False,
+    sn_weighted=False,
+    return_all_solutions=False,
 ):
     """
     Detect redshift from a gas-only spectrum, respecting the DRP pixel mask.
@@ -4051,13 +4109,28 @@ def estimate_gas_redshift(
         if bad.shape != wl.shape:
             raise ValueError('bad_pixel_mask must have the same shape as wl')
 
+    def output(z_out, solution=None, solutions=()):
+        if not return_details:
+            return float(z_out)
+        result = {'z': float(z_out),
+                  'n_matches': 0 if solution is None else int(solution.n_matches),
+                  'score': np.nan if solution is None else float(solution.score),
+                  'matches': [] if solution is None else list(solution.matches)}
+        if return_all_solutions:
+            result['solutions'] = [
+                {'z': float(s.z), 'n_matches': int(s.n_matches),
+                 'score': float(s.score), 'matches': list(s.matches)}
+                for s in solutions
+            ]
+        return result
+
     # A DRP-flagged pixel with finite flux is STILL invalid data.
     measured = (~bad & np.isfinite(flux) &
                 np.isfinite(eflux) & (eflux > 0))
     if measured.sum() < max(5, min_matches):
         if verbose:
             print('# Gas redshift: too few unmasked measurements; using input z')
-        return float(z)
+        return output(z)
 
     detection_flux = flux.copy()
     if (~measured).any():
@@ -4078,6 +4151,13 @@ def estimate_gas_redshift(
 
     rest_names = list(REFERENCE_LINES.keys())
     rest_waves = np.asarray(list(REFERENCE_LINES.values()), dtype=float)
+    if reference_wavelength_range is not None:
+        lo, hi = map(float, reference_wavelength_range)
+        keep = (rest_waves >= lo) & (rest_waves <= hi)
+        rest_waves = rest_waves[keep]
+        rest_names = [name for name, ok in zip(rest_names, keep) if ok]
+        if not len(rest_waves):
+            return output(z)
 
     # Restrict candidates to catalog lines in the supplied redshift interval.
     # This substantially reduces false detections from sky-line residuals.
@@ -4154,6 +4234,8 @@ def estimate_gas_redshift(
             zmin=z_min, zmax=z_max,
             velocity_tolerance=velocity_tolerance,
             min_matches=min_matches,
+            obs_sn=(np.maximum(signal[indices] / eflux[indices], 0.0)
+                    if sn_weighted else None),
         )
 
     solutions = match(primary)
@@ -4183,20 +4265,287 @@ def estimate_gas_redshift(
     if not solutions:
         if verbose:
             print(f'# Gas redshift: no weighted match; using input z={z:.8f}')
-        return float(z)
+        return output(z)
 
     z_best = float(solutions[0].z)
     if verbose:
         print(f'# Gas redshift: z={z_best:.8f}; '
               f'{candidate_count} significant catalog-compatible peaks')
-    return z_best
+    return output(z_best, solutions[0], solutions)
 
 
+
+
+def compare_halpha_fixed_refined(wl, gas, eflux, lsf, velocity_fixed,
+                                 velocity_range=30.0, sigma_observed=None,
+                                 bad_pixel_mask=None):
+    """Lightweight, in-memory Halpha+[NII] comparison at fixed width.
+
+    Fit signed Gaussian amplitudes and one constant by weighted linear least
+    squares at the gas-map velocity and at an optimized nearby velocity.
+    Both hypotheses use the SAME valid pixels, errors, LSF-based/PM width,
+    and continuum-subtracted spectrum. Does not alter PM, NP, PEK or SPS.
+    This is a diagnostic, NOT an additional full PM/FIT3D solution.
+    """
+    from scipy.optimize import minimize_scalar
+
+    wave = np.asarray(wl, float)
+    data = np.asarray(gas, float)
+    err = np.asarray(eflux, float)
+    inst = np.asarray(lsf, float)
+    bad = (np.zeros(wave.shape, bool) if bad_pixel_mask is None
+           else np.asarray(bad_pixel_mask, bool))
+    fallback = {'chi2_fixed': np.nan, 'chi2_refined': np.nan,
+                'velocity_refined': np.nan, 'flux_ha_fixed': np.nan,
+                'flux_ha_refined': np.nan}
+    if (data.shape != wave.shape or err.shape != wave.shape or
+            inst.shape != wave.shape or bad.shape != wave.shape or
+            not np.isfinite(velocity_fixed) or not np.isfinite(velocity_range)
+            or velocity_range <= 0):
+        return fallback
+    rest = np.array([6548.05, 6562.85, 6583.45], float)
+    c_kms = 299792.458
+    v0 = float(velocity_fixed)
+    pad = 15.0 + np.max(rest)*velocity_range/c_kms
+    low = rest[0]*(1.0+v0/c_kms)-pad
+    high = rest[-1]*(1.0+v0/c_kms)+pad
+    keep = ((wave >= low) & (wave <= high) & ~bad &
+            np.isfinite(data) & np.isfinite(err) & (err > 0))
+    if np.count_nonzero(keep) <= 4:
+        return fallback
+    x, y, ey = wave[keep], data[keep], err[keep]
+    sigma = float(sigma_observed) if sigma_observed is not None else np.nan
+    if not np.isfinite(sigma) or sigma <= 0:
+        sigma = float(np.interp(rest[1]*(1+v0/c_kms), wave, inst))
+    if not np.isfinite(sigma) or sigma <= 0:
+        return fallback
+
+    def fit_at(v):
+        centers = rest*(1.0+v/c_kms)
+        profiles = np.exp(-0.5*((x[:,None]-centers[None,:])/sigma)**2)
+        profiles /= np.sqrt(2.0*np.pi)*sigma
+        design = np.column_stack((profiles, np.ones(len(x))))
+        try:
+            pars = np.linalg.lstsq(design/ey[:,None], y/ey, rcond=None)[0]
+        except np.linalg.LinAlgError:
+            return np.inf, np.nan
+        chi2 = float(np.sum(((y-design@pars)/ey)**2))
+        return chi2, float(pars[1])  # Halpha integrated flux
+
+    chi_fixed, flux_fixed = fit_at(v0)
+    trial = np.linspace(v0-velocity_range, v0+velocity_range, 21)
+    costs = np.array([fit_at(v)[0] for v in trial])
+    if not np.isfinite(costs).any():
+        return fallback
+    j = int(np.nanargmin(costs))
+    best_v = float(trial[j])
+    # Refine locally rather than assuming the full-range objective is unimodal.
+    if 0 < j < len(trial)-1:
+        opt = minimize_scalar(lambda v: fit_at(v)[0],
+                              bounds=(trial[j-1],trial[j+1]),
+                              method='bounded')
+        if opt.success and np.isfinite(opt.fun) and opt.fun < costs[j]:
+            best_v = float(opt.x)
+    chi_free, flux_free = fit_at(best_v)
+    return {'chi2_fixed': chi_fixed, 'chi2_refined': chi_free,
+            'velocity_refined': best_v, 'flux_ha_fixed': flux_fixed,
+            'flux_ha_refined': flux_free}
+
+
+def fit_masked_residual_continuum(wl, residual, line_mask, dw, *,
+                                  method='spline', degree=11, spline_k=3,
+                                  spline_s=0.0, min_points_bin=3):
+    """Smooth the residual outside EL masks, but linearly span their gaps.
+
+    The original RSP stellar model is never interpolated or modified here;
+    only the additive smooth residual correction is returned. Unmasked
+    pixels preserve the existing median-fit trend exactly.
+    """
+    wave = np.asarray(wl, float)
+    data = np.asarray(residual, float)
+    mask = np.asarray(line_mask, bool)
+    if wave.ndim != 1 or data.shape != wave.shape or mask.shape != wave.shape:
+        raise ValueError('Residual continuum, mask and wave must have equal 1D shapes')
+    trend = median_fit_spectrum(
+        wave, np.where(mask, np.nan, data), dw,
+        method=method, degree=degree, spline_k=spline_k,
+        spline_s=spline_s, min_points_bin=min_points_bin,
+        return_nodes=False)
+    if np.any(mask):
+        good = ~mask & np.isfinite(trend)
+        if np.count_nonzero(good) >= 2:
+            trend[mask] = np.interp(wave[mask], wave[good], trend[good])
+    return trend
+
+
+def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
+                                  tab_el, tab_pt, z_st, args,
+                                  bad_pixels=None):
+    """Prepass: Hbeta--[SII] line matching and spatial interpolation of gas z.
+
+    All flux/error values remain in original RSS units. Candidate redshifts
+    are S/N ranked using measured peak amplitudes over original errors.
+    An anchor requires at least gas_map_min_matches *distinct matched lines*
+    each individually reaching gas_map_sn_cut in integrated line S/N.
+    No full-window continuum S/N is used; missing anchors inherit the stellar map.
+    """
+    from scipy.interpolate import griddata
+
+    wave = np.asarray(wl, float)
+    flux = np.asarray(rss_flux, float)
+    err = np.asarray(rss_eflux, float)
+    lsf = np.asarray(lsf_rss, float)
+    stellar_z = np.asarray(z_st, float)
+    nf, nw = flux.shape
+    if (err.shape != flux.shape or lsf.shape != flux.shape or
+            stellar_z.shape != (nf,) or wave.shape != (nw,)):
+        raise ValueError('Inconsistent RSS gas prepass input dimensions')
+    bad = (np.zeros_like(flux, dtype=bool) if bad_pixels is None
+           else np.asarray(bad_pixels, bool))
+    if bad.shape != flux.shape:
+        raise ValueError('Gas prepass mask must match RSS')
+    rest_min = float(getattr(args, 'gas_map_wave_min', 4861.36))
+    rest_max = float(getattr(args, 'gas_map_wave_max', 6730.82))
+    if not 0 < rest_min < rest_max:
+        raise ValueError('Invalid Hbeta--[SII] gas map wavelength limits')
+    sn_cut = float(getattr(args, 'gas_map_sn_cut', 5.0))
+    n_matches_min = int(getattr(args, 'gas_map_min_matches', 2))
+    if sn_cut <= 0 or n_matches_min < 1:
+        raise ValueError('Invalid gas-map S/N or minimum number of matches')
+    z_system = float(args.redshift[0])
+    # Use the union of the stellar velocity scatter and original allowed z
+    # range, not their intersection: gas and stars need not be co-moving.
+    zlo = float(args.redshift[2])
+    zhi = float(args.redshift[3])
+    st_ok = stellar_z[np.isfinite(stellar_z)]
+    st_std = float(np.std(st_ok)) if st_ok.size > 1 else 0.0
+    lo = min(zlo, float(np.min(st_ok)-st_std)) if len(st_ok) else zlo
+    hi = max(zhi, float(np.max(st_ok)+st_std)) if len(st_ok) else zhi
+    pad = float(getattr(args, 'gas_map_padding', 60.0))
+    select = (wave >= (rest_min-pad)*(1.0+lo)) & (wave <= (rest_max+pad)*(1.0+hi))
+    if select.sum() < 30:
+        fallback = np.where(np.isfinite(stellar_z), stellar_z, z_system)
+        print('# Gas map: insufficient wavelength coverage; using stellar map')
+        return {'z_gas_measured': np.full(nf, np.nan),
+                'z_gas_interpolated': fallback,
+                'sn_gas': np.full(nf, np.nan),
+                'n_matches': np.zeros(nf, int),
+                'source': np.full(nf, 'stellar', dtype='U12')}
+    w = wave[select]
+    catalog = tab_el[(np.asarray(tab_el['wl'], float) >= rest_min) &
+                     (np.asarray(tab_el['wl'], float) <= rest_max)]
+    measured_z = np.full(nf, np.nan)
+    sn = np.full(nf, np.nan)
+    n_matched = np.zeros(nf, dtype=int)
+    coords = np.column_stack((np.asarray(tab_pt['ra'], float),
+                              np.asarray(tab_pt['dec'], float)))
+    for i in range(nf):
+        good = (~bad[i, select] & np.isfinite(flux[i, select]) &
+                np.isfinite(err[i, select]) & (err[i, select] > 0))
+        if good.sum() < 30:
+            continue
+        lsf_i = lsf[i, select]
+        if np.any(~np.isfinite(lsf_i) | (lsf_i <= 0)):
+            # Do not let a single invalid LSF sample discard a good fiber.
+            good_lsf = np.isfinite(lsf_i) & (lsf_i > 0)
+            if good_lsf.sum() < 2:
+                continue
+            lsf_i = np.interp(w, w[good_lsf], lsf_i[good_lsf])
+        z0 = float(stellar_z[i]) if np.isfinite(stellar_z[i]) else z_system
+        try:
+            d = decompose_spectrum_masked_iterative(
+                w, flux[i, select], tab_el=catalog, redshift=z0,
+                lsf=lsf_i, bad_pixel_mask=bad[i, select], mask_nsigma=3.0,
+                n_narrow=int(getattr(args, 'n_narrow', 3)),
+                n_medium=int(getattr(args, 'n_medium', 5)),
+                n_broad=int(getattr(args, 'n_broad', 21)),
+                n_iter=int(getattr(args, 'n_iter', 5)),
+                method=str(getattr(args, 'smooth_method', 'spline')),
+                degree=int(getattr(args, 'n_leg', 11)))
+            gas = np.asarray(d['eline_residual'], float)
+            candidate = estimate_gas_redshift(
+                wl=w, flux=gas, eflux=err[i, select], z=z0,
+                z_min=lo, z_max=hi,
+                peak_threshold=float(getattr(args, 'gas_map_peak_threshold', 2.0)),
+                n_cut_peaks=float(getattr(args, 'n_cut_peaks', 1.0)),
+                velocity_tolerance=float(getattr(args, 'velocity_tolerance', 100.0)),
+                min_matches=n_matches_min, bad_pixel_mask=bad[i, select],
+                reference_wavelength_range=(rest_min, rest_max),
+                return_details=True, sn_weighted=True,
+                return_all_solutions=True)
+        except (ValueError, RuntimeError, FloatingPointError, IndexError) as exc:
+            if bool(getattr(args, 'verbose', False)):
+                print(f'# Gas map fiber {i}: {exc}')
+            continue
+        # Examine S/N-ranked redshift alternatives, not only the highest
+        # catalog-weight solution. A solution is an anchor only when the
+        # configured number of DISTINCT matched lines individually exceeds
+        # the required integrated S/N. No new thresholds or flux constraints.
+        dw = np.gradient(w)
+        for sol in candidate['solutions']:
+            if sol['n_matches'] < n_matches_min:
+                continue
+            line_sn = {}
+            for match in sol['matches']:
+                key = float(match['rest_wave'])
+                if key in line_sn:
+                    continue
+                center = key * (1.0 + sol['z'])
+                width = float(np.interp(center, w, lsf_i, left=np.nan, right=np.nan))
+                if not np.isfinite(width) or width <= 0:
+                    continue
+                region = good & (np.abs(w-center) <= 3.0*width)
+                if np.count_nonzero(region) < 2:
+                    continue
+                value = float(np.sum(gas[region] * dw[region]))
+                noise = float(np.sqrt(np.sum((err[i, select][region]*dw[region])**2)))
+                if noise > 0:
+                    line_sn[key] = value/noise
+            if not line_sn:
+                continue
+            # Diagnostic S/N is the weakest of the qualifying matched lines;
+            # it directly represents the criterion that created the anchor.
+            significant = [v for v in line_sn.values() if np.isfinite(v) and v >= sn_cut]
+            if len(significant) >= n_matches_min and np.all(np.isfinite(coords[i])):
+                measured_z[i] = sol['z']
+                sn[i] = float(min(significant))
+                n_matched[i] = len(significant)
+                break
+
+    anchors = np.isfinite(measured_z)
+    # The fallback is the already interpolated stellar map, NOT a failed
+    # per-fiber gas peak match. This includes the zero-gas-anchor case.
+    interp_z = np.where(np.isfinite(stellar_z), stellar_z, z_system).copy()
+    sources = np.full(nf, 'stellar', dtype='U12')
+    if np.any(anchors):
+        # Nearest is available for 1+ anchors. Linear interpolation is used
+        # only for a nondegenerate two-dimensional distribution.
+        keep = np.all(np.isfinite(coords), axis=1)
+        interp_z[keep] = griddata(coords[anchors], measured_z[anchors],
+                                  coords[keep], method='nearest')
+        xy = coords[anchors]
+        if (anchors.sum() >= 3 and
+                np.linalg.matrix_rank(xy-xy.mean(axis=0)) == 2):
+            try:
+                linear = griddata(xy, measured_z[anchors], coords[keep],
+                                  method='linear')
+                idx = np.where(keep)[0]
+                interp_z[idx[np.isfinite(linear)]] = linear[np.isfinite(linear)]
+            except (ValueError, RuntimeError):
+                pass
+        interp_z[anchors] = measured_z[anchors]
+        sources[np.isfinite(interp_z)] = 'interpolated'
+        sources[anchors] = 'measured'
+    if not np.any(anchors):
+        print('# Gas map: no reliable emission-line anchors; adopting the '
+              'interpolated stellar redshift map for ALL fibers')
+    return {'z_gas_measured': measured_z, 'z_gas_interpolated': interp_z,
+            'sn_gas': sn, 'n_matches': n_matched, 'source': sources}
 
 
 def fit_pm_cluster_scipy(wl, gas_spec, eflux, lsf, cluster, z, args,
                          bad_pixel_mask=None, sigma_bounds=None,
-                         fit3d_initial_params=None):
+                         fit3d_initial_params=None, fixed_velocity=False):
     """Fit a PM cluster with empirical LSF and the existing FIT3D bounds.
 
     In the DAP PM loop ``sigma_bounds`` contains the same *observed* widths
@@ -4285,8 +4634,12 @@ def fit_pm_cluster_scipy(wl, gas_spec, eflux, lsf, cluster, z, args,
             raise RuntimeError('SciPy PM: no intrinsic sigma obeys FIT3D width bounds')
         sigma_kms_bounds = (required_lower, allowed_upper)
 
+    if fixed_velocity:
+        # The linked-line fitter supports exactly fixed group velocities.
+        velocity_0 = float(z) * c_kms
     ans = fit_linked_lines(
         wl, gas_spec, eflux, rest, lsf,
+        fixed_velocities={0: velocity_0} if fixed_velocity else None,
         initial_velocity=velocity_0,
         initial_sigma_kms=sigma_0,
         velocity_bounds=velocity_bounds,
@@ -4610,6 +4963,8 @@ def fit_individual_rss_spectrum_or_adopt_result(
     args_copy,
     eline_spec=None,
     z_guess=None,
+    z_gas_input=None,
+    gas_velocity_fixed=False,
     dap_fwhm=1.0,
     plot=False,
     SPS_master=None,
@@ -4714,25 +5069,34 @@ def fit_individual_rss_spectrum_or_adopt_result(
     # ------------------------------------------------------------
     if (tab_rsp_adopt is not None) and (tab_coeffs_adopt is not None):
         eline_spec = np.zeros(wl.shape, dtype=float)
-        spec_stellar = flux.copy()
+        spec_stellar, stellar_emission_mask = interpolate_emission_line_regions(
+            wl, flux, lsf, tab_el, z,
+            mask_nsigma=3.0, bad_pixel_mask=bad_pixel_mask,
+        )
         if verbose:
             print(f'# We do not create an eline_spec for {i_fib}')
     else:
         if verbose:
             print(f'# Decomposing the spectrum for {i_fib}')
+        decomp = decompose_spectrum_masked_iterative(
+            wl,
+            flux,
+            tab_el=tab_el,
+            redshift=z,
+            mask_nsigma=3.0,
+            lsf=lsf,
+            bad_pixel_mask=bad_pixel_mask,
+            n_narrow=int(getattr(args, 'n_narrow', 3)),
+            n_medium=int(getattr(args, 'n_medium', 5)),
+            n_broad=int(getattr(args, 'n_broad', 21)),
+            n_iter=int(getattr(args, 'n_iter', 5)),
+        )
+        spec_stellar = np.asarray(decomp['stellar_interpolated'], dtype=float)
+        stellar_emission_mask = decomp['line_mask']
         if eline_spec is None:
-            decomp = decompose_spectrum_masked_iterative(
-                wl,
-                flux,
-                tab_el = tab_el,
-                redshift=z,
-                mask_nsigma=2.0,
-                n_narrow=int(getattr(args, 'n_narrow', 3)),
-                n_medium=int(getattr(args, 'n_medium', 5)),
-                n_broad=int(getattr(args, 'n_broad', 21)),
-                n_iter=int(getattr(args, 'n_iter', 5)),
-            )
-            eline_spec = decomp['eline_only']
+            # Signed residual preserves all observed line information; the
+            # Gaussian peak model remains only a detection diagnostic.
+            eline_spec = decomp['eline_residual']
         else:
             if verbose:
                 print(f'# Using the supplied eline_spec for {i_fib}')
@@ -4759,8 +5123,12 @@ def fit_individual_rss_spectrum_or_adopt_result(
             velocity_tolerance=float(getattr(args, 'velocity_tolerance', 100.0)),
             do_plot=args.plot,
             verbose=verbose,
+            bad_pixel_mask=bad_pixel_mask,
+            interpolate_stellar=False,
         )
-        spec_stellar = np.asarray(initial['stellar_spectrum'], dtype=float)
+        # Do not replace the already interpolated decomposition with
+        # flux - preliminary Gaussian peaks: undetected line wings would
+        # then re-enter the stellar RSP fit.
 
         # ------------------------------------------------------------
         # 2.1  Fit the stellar absorptions to derive the velocity
@@ -4769,51 +5137,66 @@ def fit_individual_rss_spectrum_or_adopt_result(
 
         if verbose:
             print(f'# Fitting the absorption lines for {i_fib}')
-        out_fit_abs_lines = fit_emission_line_system(
-            wl=wl,
-            flux=spec_stellar,
-            eflux=eflux,
-            line_wavelengths=list_abs_lines,
-            redshift=z,
-            fit_padding = 30,
-            velocity_range=1.5*args.redshift[1]*__c__,
-            sigma_guess=1.2,
-            sigma_bounds=(0.5, 2.0),
-            error_scale=1,
-            tie_kinematics=True,
-            add_background=True,
-            plot=args.plot,
-            bg_order=1,
-            run_mode = 'BOTH',
-            verbose=verbose)
+        try:
+            out_fit_abs_lines = fit_emission_line_system(
+                wl=wl,
+                flux=spec_stellar,
+                eflux=eflux,
+                line_wavelengths=list_abs_lines,
+                redshift=z,
+                fit_padding = 30,
+                velocity_range=float(getattr(args, "velocity_range", 30.0)),
+                sigma_guess=1.2,
+                sigma_bounds=(0.5, 2.0),
+                error_scale=1,
+                tie_kinematics=True,
+                add_background=True,
+                plot=args.plot,
+                bg_order=1,
+                run_mode = 'BOTH',
+                verbose=verbose)
+        except InsufficientEmissionLineDataError as exc:
+            print(f"# No measurable stellar absorption-line fit: {exc}")
+            out_fit_abs_lines = None
 
-        args.redshift[0] = z
-        abs_out = out_fit_abs_lines["fit"]
-        _close_fit_diagnostic_figure(out_fit_abs_lines)
-        cf_Ca_HK = out_fit_abs_lines["config"]
-        sel_wl_Ca_HK = out_fit_abs_lines["mask"]
-        vel_mask_st = True
-        vel_map_st = abs_out.final_fit_params_mean[0][3]
-        vel_e_map_st = abs_out.final_fit_params_std[0][3]
-        z_st = vel_map_st/__c__
-        if (verbose == True):
-            print(f'# Velocity derived from abs. lines: {vel_map_st}')
-            print(f'# Redshift derived from abs. lines: {z_st}')
-        w_min_st_SN = np.min(list_abs_lines)*(1+z_st)-20
-        w_max_st_SN = np.max(list_abs_lines)*(1+z_st)+20
-        SN_obs = np.median(spec_stellar[(wl>w_min_st_SN)&(wl<w_max_st_SN)]/eflux[(wl>w_min_st_SN)&(wl<w_max_st_SN)])
-        if (verbose == True):
-            print(f'# S/N in the region of the absorption lines: {SN_obs}')
-        if (SN_obs>SN_cut_st_z) & (adopt_st_z):
+        if out_fit_abs_lines is not None:
+            args.redshift[0] = z
+            abs_out = out_fit_abs_lines["fit"]
+            _close_fit_diagnostic_figure(out_fit_abs_lines)
+            cf_Ca_HK = out_fit_abs_lines["config"]
+            sel_wl_Ca_HK = out_fit_abs_lines["mask"]
+            vel_mask_st = True
+            vel_map_st = abs_out.final_fit_params_mean[0][3]
+            vel_e_map_st = abs_out.final_fit_params_std[0][3]
+            z_st = vel_map_st/__c__
             if (verbose == True):
-                print(f'# Adopting the redshift derived from the absorption lines: {z_st}')
-            z = z_st
-            args.redshift[0] = z_st
-            #
-            # Fixing z!
-            #
-            z_fit_min = z + (float(args.redshift[2]) - float(args.redshift[0]))
-            z_fit_max = z + (float(args.redshift[3]) - float(args.redshift[0]))
+                print(f'# Velocity derived from abs. lines: {vel_map_st}')
+                print(f'# Redshift derived from abs. lines: {z_st}')
+            w_min_st_SN = np.min(list_abs_lines)*(1+z_st)-20
+            w_max_st_SN = np.max(list_abs_lines)*(1+z_st)+20
+            SN_obs = np.median(spec_stellar[(wl>w_min_st_SN)&(wl<w_max_st_SN)]/eflux[(wl>w_min_st_SN)&(wl<w_max_st_SN)])
+            if (verbose == True):
+                print(f'# S/N in the region of the absorption lines: {SN_obs}')
+            if (SN_obs>SN_cut_st_z) & (adopt_st_z):
+                if (verbose == True):
+                    print(f'# Adopting the redshift derived from the absorption lines: {z_st}')
+                z = z_st
+                args.redshift[0] = z_st
+                #
+                # Fixing z!
+                #
+                z_fit_min = z + (float(args.redshift[2]) - float(args.redshift[0]))
+                z_fit_max = z + (float(args.redshift[3]) - float(args.redshift[0]))
+
+    # The previous decomposition used the stellar redshift. Also mask the
+    # independently estimated gas-line locations BEFORE the RSP continuum
+    # correction (and before fitting the adopted stellar normalization).
+    # The original observed spectrum and errors remain unchanged.
+    if z_gas_input is not None and np.isfinite(z_gas_input):
+        spec_stellar, gas_emission_mask = interpolate_emission_line_regions(
+            wl, spec_stellar, lsf, tab_el, float(z_gas_input),
+            mask_nsigma=3.0, bad_pixel_mask=bad_pixel_mask)
+        stellar_emission_mask = stellar_emission_mask | gas_emission_mask
 
     # ------------------------------------------------------------
     # 3. Fit the stellar population model on line-subtracted flux.
@@ -4892,16 +5275,13 @@ def fit_individual_rss_spectrum_or_adopt_result(
     model_uncorr = np.asarray(SPS.spectra['model_ssp_min_uncorr'], dtype=float)
     model_uncorr_joint = np.asarray(SPS.spectra['model_joint'], dtype=float)
     # wave, spec, dw, method="legendre", degree=11, spline_k=3, spline_s=0.0, min_points_bin=1, return_nodes=False
-    res_smooth = median_fit_spectrum(
-        wl,
-        spec_stellar - model_uncorr_joint,
-        11,
+    res_smooth = fit_masked_residual_continuum(
+        wl, spec_stellar - model_uncorr_joint,
+        stellar_emission_mask,
+        float(getattr(args, 'n_medium', 11.0)),
         method=str(getattr(args, 'smooth_method', 'spline')),
-        degree=11,
-        spline_k=3,
-        spline_s=0.0,
-        min_points_bin=3,
-        return_nodes=False,
+        degree=int(getattr(args, 'n_leg', 11)),
+        spline_k=3, spline_s=0.0, min_points_bin=3,
     )
 
     SPS.spectra['orig_flux'] = flux.copy()
@@ -4941,19 +5321,21 @@ def fit_individual_rss_spectrum_or_adopt_result(
 
         ##############################################################
 
-        z_gas = estimate_gas_redshift(
+        z_gas = (float(z_gas_input) if z_gas_input is not None else
+                 estimate_gas_redshift(
             wl=wl,
             flux=gas_spec,
             eflux=eflux,
             z=args.redshift[0],
             z_min=args.redshift[2],
             z_max=args.redshift[3],
-            velocity_tolerance=30,
-            min_matches=3,
+            velocity_tolerance=float(getattr(args, 'velocity_tolerance', 100.0)),
+            min_matches=float(getattr(args, 'min_matches', 3)),
             verbose=args.verbose,
             bad_pixel_mask=bad_pixel_mask
-        )
-
+        ))
+        if not np.isfinite(z_gas):
+            raise ValueError('Supplied gas redshift is not finite')
         z = z_gas
 
 
@@ -4965,8 +5347,22 @@ def fit_individual_rss_spectrum_or_adopt_result(
             # Do not reuse a mean LSF from the integrated spectrum.
             local_lsf = np.interp(rest_waves * (1.0 + z), wl, lsf)
             good_lsf = local_lsf[np.isfinite(local_lsf) & (local_lsf > 0)]
-            if not len(good_lsf):
-                raise ValueError(f'Cluster {i_cl}: no positive finite fiber LSF')
+            data_issue = emission_line_data_issue(
+                wl, gas_spec, eflux, rest_waves, z,
+                fit_padding=30, error_scale=1)
+            if data_issue is not None or not len(good_lsf):
+                if verbose:
+                    print(f'# Fiber {i_fib}, PM cluster {i_cl}: '
+                          f'{data_issue or "no positive finite fiber LSF"}; '
+                          'retaining undefined PM measurements')
+                for line in cluster:
+                    line_name = f"{line['id']}_{float(line['wl']):.2f}"
+                    for field in ('flux', 'e_flux', 'vel', 'e_vel',
+                                  'disp', 'e_disp', 'EW', 'e_EW'):
+                        tab_PM[f'{field}_{line_name}_pm'] = np.nan
+                        if fit3d_bootstrap_strong is not None:
+                            fit3d_bootstrap_strong[f'{field}_{line_name}_pm'] = np.nan
+                continue
 
             sigma_guess = float(np.mean(good_lsf))
             sigma_scatter = float(np.std(good_lsf))
@@ -4993,6 +5389,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
                         redshift=z,
                         fit_padding=30,
                         velocity_range=30,
+                        fixed_velocity=bool(gas_velocity_fixed and z_gas_input is not None),
                         sigma_guess=sigma_guess,
                         sigma_bounds=(sigma_min, sigma_max),
                         error_scale=1,
@@ -5009,6 +5406,8 @@ def fit_individual_rss_spectrum_or_adopt_result(
                     candidates['fit3d'] = (
                         np.asarray(EL.final_fit_params_mean, dtype=float),
                         np.asarray(EL.final_fit_params_std, dtype=float))
+                except InsufficientEmissionLineDataError as exc:
+                    failures['fit3d'] = str(exc)
                 except Exception as exc:
                     if engine == 'fit3d' and not recovery_enabled:
                         raise
@@ -5042,6 +5441,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
                             initial_velocity=restart_v,
                             fit_padding=30,
                             velocity_range=30,
+                            fixed_velocity=bool(gas_velocity_fixed and z_gas_input is not None),
                             sigma_guess=restart_sigma,
                             sigma_bounds=(sigma_min, sigma_max),
                             error_scale=1,
@@ -5078,6 +5478,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
                         wl, gas_spec, eflux, lsf, cluster, z, args,
                         bad_pixel_mask=bad_pixel_mask,
                         sigma_bounds=(sigma_min, sigma_max),
+                        fixed_velocity=bool(gas_velocity_fixed and z_gas_input is not None),
                         fit3d_initial_params=(
                             candidates['fit3d'][0]
                             if engine == 'both' and 'fit3d' in candidates
@@ -5087,7 +5488,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
                         raise
                     failures['scipy'] = str(exc)
 
-            if engine == 'both' or (recovery_enabled and not candidates):
+            if engine == 'both' or (recovery_enabled and not candidates) or not candidates:
                 scores = {name: score_pm_cluster_common_pixels(
                     wl, gas_spec, eflux, rest_waves, params, z,
                     bad_pixel_mask=bad_pixel_mask, fit_padding=30.0)
@@ -5236,16 +5637,11 @@ def fit_individual_rss_spectrum_or_adopt_result(
         wl, tab_PM, dap_fwhm=dap_fwhm, verbose=verbose
     )[0]
     SPS.spectra['res_joint_no_corr'] = SPS.spectra['orig_flux'] - (SPS.spectra['model_ssp_min_uncorr'] + SPS.spectra['raw_model_elines'])
-    res_smooth = median_fit_spectrum(
-        wl,
-        SPS.spectra['res_joint_no_corr'],
-        11,
+    res_smooth = fit_masked_residual_continuum(
+        wl, SPS.spectra['res_joint_no_corr'],
+        stellar_emission_mask, 11,
         method=str(getattr(args, 'smooth_method', 'spline')),
-        degree=11,
-        spline_k=3,
-        spline_s=0.0,
-        min_points_bin=3,
-        return_nodes=False,
+        degree=11, spline_k=3, spline_s=0.0, min_points_bin=3,
     )
     SPS.spectra['model_ssp_min'] = SPS.spectra['model_ssp_min_uncorr'] + res_smooth
 
@@ -5301,6 +5697,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
             plot=int(bool(plot)),
             sigma_we=1.0,
             verbose=verbose,
+            fixed_velocity=bool(gas_velocity_fixed and z_gas_input is not None),
             bad_pixel_mask=bad_pixel_mask[np.newaxis, :] if bad_pixel_mask is not None else None,
         )
 
@@ -5329,14 +5726,13 @@ def fit_individual_rss_spectrum_or_adopt_result(
         fit3d_model = create_elines_model_pm(
             wl, fit3d_bootstrap_strong, dap_fwhm=dap_fwhm, verbose=verbose
         )[0]
-        fit3d_res_smooth = median_fit_spectrum(
+        fit3d_res_smooth = fit_masked_residual_continuum(
             wl,
             SPS.spectra['orig_flux'] -
             (SPS.spectra['model_ssp_min_uncorr'] + fit3d_model),
-            11,
+            stellar_emission_mask, 11,
             method=str(getattr(args, 'smooth_method', 'spline')),
             degree=11, spline_k=3, spline_s=0.0, min_points_bin=3,
-            return_nodes=False,
         )
         fit3d_stellar = SPS.spectra['model_ssp_min_uncorr'] + fit3d_res_smooth
         SPS._pm_fit3d_bootstrap = reconstruct_pm_from_strong(
@@ -5376,6 +5772,14 @@ def fit_individual_rss_spectrum_or_adopt_result(
             SPS.spectra['orig_flux'] -
             (SPS.spectra['model_ssp_min_uncorr'] + SPS.spectra['raw_model_elines'])
         )
+
+    # A supplied fixed velocity has no independently fitted uncertainty.
+    # Preserve the fitted flux/dispersion errors, but do not report an
+    # invented velocity error from the PM optimizer or reconstruction.
+    if gas_velocity_fixed and z_gas_input is not None:
+        for name in tab_PM.colnames:
+            if name.startswith('e_vel_') and name.endswith('_pm'):
+                tab_PM[name][:] = np.nan
 
     # Output-only fit statistics for final PM and NP gas models. Do not
     # confuse these with the stellar-population RSP's own fit statistics.

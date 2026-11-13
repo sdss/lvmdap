@@ -53,15 +53,62 @@ def _spatial_range(value, length, label):
     return a, b
 
 
+
+def _spatial_cube_invalid_mask(flux, error, x0, x1, y0, y1, *,
+                               radius=1, wavelength_block=64):
+    """Dilate invalid samples in x/y independently at each wavelength.
+
+    The returned boolean mask has shape (n_wave, y1-y0, x1-x0). A square
+    (2*radius+1)^2 footprint masks the immediately adjacent spatial pixels.
+    A halo from the original full cube is included around the ROI so that
+    spatially tiled runs agree with an uncropped cube. The footprint's
+    spectral dimension is exactly one: other wavelengths are never masked.
+    Small wavelength blocks bound temporary allocations for large cubes.
+    """
+    from scipy.ndimage import binary_dilation
+
+    if flux.shape != error.shape or flux.ndim != 3:
+        raise ValueError('flux and error cubes must have identical 3D shape')
+    nw, ny, nx = flux.shape
+    if not (0 <= x0 < x1 <= nx and 0 <= y0 < y1 <= ny):
+        raise ValueError('cube mask ROI exceeds the input cube dimensions')
+    if not isinstance(radius, int) or radius < 0:
+        raise ValueError('spatial mask radius must be a nonnegative integer')
+    if wavelength_block < 1:
+        raise ValueError('wavelength_block must be positive')
+
+    halo_x0, halo_x1 = max(0, x0-radius), min(nx, x1+radius)
+    halo_y0, halo_y1 = max(0, y0-radius), min(ny, y1+radius)
+    iy0, iy1 = y0-halo_y0, y1-halo_y0
+    ix0, ix1 = x0-halo_x0, x1-halo_x0
+    footprint = np.ones((1, 2*radius+1, 2*radius+1), dtype=bool)
+    mask = np.empty((nw, y1-y0, x1-x0), dtype=bool)
+    initially_bad = 0
+    for w0 in range(0, nw, wavelength_block):
+        w1 = min(nw, w0+wavelength_block)
+        f = flux[w0:w1, halo_y0:halo_y1, halo_x0:halo_x1]
+        e = error[w0:w1, halo_y0:halo_y1, halo_x0:halo_x1]
+        invalid = (~np.isfinite(f) | (f == 0) |
+                   ~np.isfinite(e) | (e <= 0))
+        initially_bad += np.count_nonzero(invalid[:, iy0:iy1, ix0:ix1])
+        expanded = binary_dilation(invalid, structure=footprint)
+        mask[w0:w1] = expanded[:, iy0:iy1, ix0:ix1]
+    return mask, initially_bad
+
+
 def load_3dcubegen_cube(path, *, flux_scaling=1e16,
                          cube_input_scale=None, cube_lsf_sigma=None,
-                         cube_x_range=None, cube_y_range=None):
+                         cube_x_range=None, cube_y_range=None,
+                         create_cube_mask=True):
     """Return (wave, RSS flux, RSS error, header, primary, LSF, PT, MASK).
 
     3DCubeGen stores (wavelength, y, x) in Python array order, with flux in
     extension 0 and 1-sigma *errors*, NOT inverse variance, in extension 1.
     An RSS row is formed for every spaxel with at least one valid sample.
     Invalid/zero-valued pixels are masked, not silently dropped from the line.
+    If create_cube_mask is True (default), invalid flux/error samples also
+    mask the immediately adjacent spaxels (3x3 square) in the SAME
+    wavelength plane. False retains the previous pointwise invalid mask.
     Spatial ROI uses full-cube zero-based, end-exclusive pixel coordinates.
     """
     with fits.open(path, memmap=True, do_not_scale_image_data=False) as hdu:
@@ -77,15 +124,30 @@ def load_3dcubegen_cube(path, *, flux_scaling=1e16,
         y0, y1 = _spatial_range(cube_y_range, ny, 'cube_y_range')
 
         wcs = WCS(header)
-        # The WCS spectral axis may be expressed in m, nm or Angstrom.
-        spectral = wcs.spectral
-        if spectral.pixel_n_dim != 1:
-            raise ValueError('Cube wavelength must have a separable spectral WCS')
-        spect_unit = u.Unit(spectral.wcs.cunit[0])
+        # The FITS cube spectral coordinate is axis 3 (NumPy axis 0).
+        # 3DCubeGen cubes can omit CTYPE3, and astropy.wcs.spectral may
+        # consequently fail to recognize the wavelength axis. Read the
+        # explicitly provided FITS axis-3 linear solution, prioritizing
+        # CDELT3 as stored in these cubes; never infer it from spatial axes.
+        if 'CRVAL3' not in header or 'CRPIX3' not in header:
+            raise ValueError('Cube wavelength needs CRVAL3 and CRPIX3')
+        if 'CDELT3' in header:
+            spectral_step = float(header['CDELT3'])
+        elif 'CD3_3' in header:
+            spectral_step = float(header['CD3_3'])
+        else:
+            raise ValueError('Cube wavelength needs CDELT3 or CD3_3')
+        spect_unit = u.Unit(header.get('CUNIT3', 'Angstrom') or 'Angstrom')
         if not spect_unit.is_equivalent(u.AA):
-            raise ValueError('Cube spectral WCS is not a wavelength axis')
-        wave = (np.asarray(spectral.pixel_to_world_values(np.arange(nw)), float)
-                * spect_unit).to_value(u.AA)
+            raise ValueError('Cube axis 3 must be a wavelength axis')
+        wave = ((float(header['CRVAL3']) +
+                 (np.arange(nw, dtype=float) + 1.0 - float(header['CRPIX3']))
+                 * spectral_step) * spect_unit).to_value(u.AA)
+        print(f'# Cube wavelength from FITS axis 3: '
+              f'CRVAL3={header["CRVAL3"]}, CRPIX3={header["CRPIX3"]}, '
+              f'CDELT3/CD3_3 used={spectral_step:g} {spect_unit}; '
+              f'first={wave[0]:.3f} A, last={wave[-1]:.3f} A, '
+              f'delta={wave[1]-wave[0]:.6f} A/pixel')
         if not np.all(np.isfinite(wave)) or np.any(np.diff(wave) <= 0):
             raise ValueError('Cube wavelength must be finite and increasing')
         # DAP uses a linear FITS wavelength header for some subroutines.
@@ -100,8 +162,24 @@ def load_3dcubegen_cube(path, *, flux_scaling=1e16,
         err_window = error_cube[:, y0:y1, x0:x1]
         # A spaxel is absent only if NO sampled wavelength is valid.  Negative
         # fluxes are retained; no flux detection threshold is introduced.
-        valid = (np.isfinite(flux_window) & np.isfinite(err_window) &
-                 (flux_window != 0) & (err_window > 0))
+        if create_cube_mask:
+            # A 3x3 spatial neighborhood is applied INDEPENDENTLY to each
+            # wavelength plane. This includes pixels just outside a cropped
+            # tile, to reproduce the same mask as a full-cube analysis.
+            cube_bad, n_original_bad = _spatial_cube_invalid_mask(
+                flux_cube, error_cube, x0, x1, y0, y1,
+                radius=1,
+            )
+            print(f'# Cube spatial mask: 1-pixel radius (3x3), '
+                  f'{n_original_bad} originally invalid voxels, '
+                  f'{int(np.count_nonzero(cube_bad))} masked after dilation '
+                  f'in ROI; no wavelength-axis dilation')
+            valid = ~cube_bad
+        else:
+            # Preserve the pre-patch cube mask exactly when switched off.
+            cube_bad = None
+            valid = (np.isfinite(flux_window) & np.isfinite(err_window) &
+                     (flux_window != 0) & (err_window > 0))
         in_spatial = np.any(valid, axis=0)
         yy, xx = np.nonzero(in_spatial)
         if not len(xx):
@@ -116,9 +194,16 @@ def load_3dcubegen_cube(path, *, flux_scaling=1e16,
             rss_error *= factor
         # Original zero/NaN/inf/error<=0 samples are flagged, and will be
         # handled by the existing `repair_masked_rss_spectra` machinery.
-        bad = (~np.isfinite(rss_flux) | (rss_flux == 0) |
-               ~np.isfinite(rss_error) | (rss_error <= 0))
-        input_mask = bad.astype(np.uint8)
+        if create_cube_mask:
+            # Position indices yy/xx are absolute coordinates; cube_bad is
+            # indexed within the ROI. Propagate the expanded mask unchanged
+            # to the same RSS rows consumed by load_input_data().
+            input_mask = cube_bad[:, yy-y0, xx-x0].T.astype(np.uint8)
+            del cube_bad
+        else:
+            bad = (~np.isfinite(rss_flux) | (rss_flux == 0) |
+                   ~np.isfinite(rss_error) | (rss_error <= 0))
+            input_mask = bad.astype(np.uint8)
         ra, dec = wcs.celestial.all_pix2world(xx.astype(float), yy.astype(float), 0)
         pt = Table()
         pt['id'] = (yy.astype(np.int64) * nx + xx).astype(np.int64)
@@ -153,9 +238,15 @@ def load_3dcubegen_cube(path, *, flux_scaling=1e16,
     rss_header['CRPIX1'] = 1.0
     rss_header['CRVAL1'] = float(wave[0])
     rss_header['CDELT1'] = float(wave[1] - wave[0])
+    print(f'# Cube->RSS wavelength: CRVAL1={rss_header["CRVAL1"]:.3f} A, '
+          f'CRPIX1={rss_header["CRPIX1"]:.0f}, '
+          f'CDELT1={rss_header["CDELT1"]:.6f} A/pixel')
     rss_header['CTYPE1'] = 'WAVE'
     rss_header['CUNIT1'] = 'Angstrom'
     rss_header['BUNIT'] = 'scaled DAP fit flux'
+    rss_header['CUBEMASK'] = (bool(create_cube_mask), 'Spatial dilation of cube invalid samples')
+    if create_cube_mask:
+        rss_header['CMBRAD'] = (1, 'Spatial dilation radius, pixels (x/y only)')
     rss_header['CUBENX'] = nx
     rss_header['CUBENY'] = ny
     rss_header['CUBEX0'] = x0
@@ -164,6 +255,9 @@ def load_3dcubegen_cube(path, *, flux_scaling=1e16,
     rss_header['CUBEY1'] = y1
     primary = header.copy()
     primary['CUBEMODE'] = (True, 'Input is a 3DCubeGen spatial cube')
+    primary['CUBEMASK'] = (bool(create_cube_mask), 'Spatial dilation of cube invalid samples')
+    if create_cube_mask:
+        primary['CMBRAD'] = (1, 'Spatial dilation radius, pixels (x/y only)')
     primary['CUBENX'] = nx
     primary['CUBENY'] = ny
     primary['CUBEX0'] = x0

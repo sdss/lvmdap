@@ -655,6 +655,7 @@ def _fit_emission_components_mc(
     n_MC, ssp=None, essp=None, min_snr=None, rng=None,
     velocity_range=60.0, width_range=(0.6, 1.8),
     full_refit_mc=False,
+    fixed_velocity=False,
 ):
     """Joint Gaussian-template measurement, for blends or unstable moments.
 
@@ -706,12 +707,22 @@ def _fit_emission_components_mc(
     X0 = templates(input_vel, input_sigma)
     f_init, *_ = np.linalg.lstsq(X0 / ey[:, None], z / ey, rcond=None)
     sigma_lo, sigma_hi = (width_range[0]*input_sigma, width_range[1]*input_sigma)
-    p0 = np.r_[f_init, input_vel, input_sigma]
-    lower = np.r_[np.full(nlines, -np.inf), input_vel - velocity_range, sigma_lo]
-    upper = np.r_[np.full(nlines, np.inf), input_vel + velocity_range, sigma_hi]
+    if fixed_velocity:
+        # Flux amplitudes and dispersion remain adjustable. Velocity is not a
+        # nonlinear parameter, so no infinitesimally narrow bound is needed.
+        p0 = np.r_[f_init, input_sigma]
+        lower = np.r_[np.full(nlines, -np.inf), sigma_lo]
+        upper = np.r_[np.full(nlines, np.inf), sigma_hi]
+    else:
+        p0 = np.r_[f_init, input_vel, input_sigma]
+        lower = np.r_[np.full(nlines, -np.inf), input_vel - velocity_range, sigma_lo]
+        upper = np.r_[np.full(nlines, np.inf), input_vel + velocity_range, sigma_hi]
+
+    def fitted_v(p):
+        return input_vel if fixed_velocity else p[-2]
 
     def resid(p, ys):
-        return (templates(p[-2], p[-1]) @ p[:nlines] - ys) / ey
+        return (templates(fitted_v(p), p[-1]) @ p[:nlines] - ys) / ey
 
     try:
         best = least_squares(resid, p0, args=(z,), bounds=(lower, upper),
@@ -724,12 +735,12 @@ def _fit_emission_components_mc(
     # Formal flux errors are used only if too few MC fits succeed.
     # No fitted component is discarded because of its flux S/N.
     # min_snr is retained in the signature solely for call compatibility.
-    Xf = templates(fit[-2], fit[-1])
+    Xf = templates(fitted_v(fit), fit[-1])
     cov = np.linalg.pinv((Xf/ey[:, None]).T @ (Xf/ey[:, None]))
     formal_eF = np.sqrt(np.maximum(np.diag(cov), 0))
 
     n_MC = max(2, int(n_MC))
-    params = np.full((n_MC, nlines+2), np.nan)
+    params = np.full((n_MC, len(fit)), np.nan)
     if full_refit_mc:
         # Exact (more expensive) parametric Monte Carlo.
         for m in range(n_MC):
@@ -762,16 +773,16 @@ def _fit_emission_components_mc(
     if good_mc.sum() >= 2:
         errs = np.std(params[good_mc], axis=0, ddof=1)
     else:
-        errs = np.full(nlines+2, np.nan)
+        errs = np.full(len(fit), np.nan)
         errs[:nlines] = formal_eF
 
     for j in range(nlines):
         F = float(fit[j])
         result[0, j] = F
-        result[1, j] = fit[-2]  # shared velocity, km/s
+        result[1, j] = fitted_v(fit)  # fixed or fitted velocity, km/s
         result[2, j] = fit[-1]  # observed gaussian sigma, Angstrom
         result[4, j] = errs[j]
-        result[5, j] = errs[-2]
+        result[5, j] = np.nan if fixed_velocity else errs[-2]
         result[6, j] = errs[-1]
         if ssp is not None:
             csel = side & np.isfinite(ssp)
@@ -803,6 +814,7 @@ def flux_elines_RSS_EW_tab(
     subtract_gas_baseline=True, random_state=None,
     weak_line_snr=None, min_template_snr=None,
     full_refit_mc=False,
+    fixed_velocity=False,
 ):
     """NP moment measurements, with MC Gaussian deblending and weak-line fallback.
 
@@ -908,7 +920,8 @@ def flux_elines_RSS_EW_tab(
                     vel[i], sig[i], n_MC, ssp=None if ssp is None else ssp[i],
                     essp=None if essp is None else essp[i],
                     min_snr=min_template_snr, rng=rng,
-                    full_refit_mc=full_refit_mc)
+                    full_refit_mc=full_refit_mc,
+                    fixed_velocity=fixed_velocity)
                 if verbose:
                     print(f'# NP blend: {[(names[k], waves[k]) for k in indices]} '
                           f'accepted={np.isfinite(estimated[0]).sum()}')
@@ -932,6 +945,11 @@ def flux_elines_RSS_EW_tab(
                 reject_masked_core=reject_masked_core,
                 subtract_gas_baseline=subtract_gas_baseline,
                 random_state=rng)
+            if fixed_velocity and np.isfinite(vout):
+                # The moment aperture is already centered at the supplied v.
+                # Retain its flux and width; do not advertise an independently
+                # measured velocity or a velocity error.
+                vout, ev = vel[i], np.nan
             # Even detected weak lines can have *negative signed variance*;
             # do not discard their flux or silently omit the line profile.
             use_template = (not (np.isfinite(F) and np.isfinite(vout) and
@@ -952,7 +970,8 @@ def flux_elines_RSS_EW_tab(
                     n_MC, ssp=None if ssp is None else ssp[i],
                     essp=None if essp is None else essp[i],
                     min_snr=min_template_snr, rng=rng,
-                    full_refit_mc=full_refit_mc)
+                    full_refit_mc=full_refit_mc,
+                    fixed_velocity=fixed_velocity)
                 out[[m*ne+k for m in range(8)], i] = estimated[:,0]
                 if verbose:
                     print(f'# NP template fallback: {names[k]} '
@@ -973,6 +992,7 @@ def flux_elines_RSS_EW_cl(
     subtract_gas_baseline=True, random_state=None,
     weak_line_snr=None, min_template_snr=None,
     full_refit_mc=False,
+    fixed_velocity=False,
 ):
     """Wrapper retaining the LVM-DAP FE data/header return convention."""
     out, hdr = flux_elines_RSS_EW_tab(
@@ -987,6 +1007,7 @@ def flux_elines_RSS_EW_cl(
         random_state=random_state,
         weak_line_snr=weak_line_snr, min_template_snr=min_template_snr,
         full_refit_mc=full_refit_mc,
+        fixed_velocity=fixed_velocity,
     )
     if plot == 1:
         import matplotlib.pyplot as plt

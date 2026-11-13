@@ -3588,11 +3588,11 @@ def peak_finder(wave, flux, nsearch, peak_threshold=2, dmin=2, plot=False, verbo
         plot_filename = plot
         plot = True
     flux_filt = flux - st_median_filter(box=int(20*__sigma_to_FWHM__), x=copy(flux))
-    # fast and not-precise method to remove continuum (apply median filter).
+    # fast and not-precise method to remove continuum (apply median filnter).
 
     # probable peaks
-    sigma_flux = np.std(flux_filt)
-    median_flux = np.median(flux_filt)
+    sigma_flux = np.nanstd(flux_filt)
+    median_flux = np.nanmedian(flux_filt)
     flux_ref_top = median_flux + peak_threshold*sigma_flux
     print_verbose(f'median_flux:{median_flux:.4f} sigma_flux:{sigma_flux:.4f}', verbose=verbose)
     probable_peaks = np.where(flux_filt > flux_ref_top)[0]

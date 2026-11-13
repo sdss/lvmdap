@@ -72,6 +72,37 @@ from lvmdap.pyFIT3D.common.constants import (
 )
 
 
+class InsufficientEmissionLineDataError(ValueError):
+    """A line fitting window lacks the samples needed for a measurement."""
+
+
+def emission_line_data_issue(wl, flux, eflux, line_wavelengths,
+                             redshift, fit_padding=25.0, error_scale=0.5,
+                             local_window=50.0):
+    """Return the existing FIT3D data-validation failure, or None.
+
+    No extra masks or scientific cuts are introduced.  This mirrors the
+    checks made by fit_emission_line_system before constructing the model.
+    """
+    observed = np.asarray(line_wavelengths, dtype=float) * (1.0 + redshift)
+    w_min = np.min(observed) - fit_padding
+    w_max = np.max(observed) + fit_padding
+    valid = ((wl > w_min) & (wl < w_max) & np.isfinite(wl) &
+             np.isfinite(flux) & np.isfinite(eflux))
+    if np.count_nonzero(valid) < 5:
+        return (f"Insufficient valid data between {w_min:.2f} and "
+                f"{w_max:.2f} Angstrom.")
+    errors = error_scale * np.abs(eflux[valid])
+    if not np.any(np.isfinite(errors) & (errors > 0)):
+        return "eflux does not contain positive uncertainties."
+    for rest_wl, obs_wl in zip(line_wavelengths, observed):
+        local = ((wl > obs_wl - local_window) &
+                 (wl < obs_wl + local_window) & np.isfinite(flux))
+        if not np.any(local):
+            return f"No valid data around the line at {rest_wl:.2f} Angstrom."
+    return None
+
+
 def fit_emission_line_system(
     wl,
     flux,
@@ -102,6 +133,7 @@ def fit_emission_line_system(
     bg_order=2,
     verbose=False,
     initial_velocity=None,
+    fixed_velocity=False,
 ):
     """
     Fit a system of emission lines using pyFIT3D.
@@ -257,7 +289,7 @@ def fit_emission_line_system(
     )
 
     if np.count_nonzero(fit_mask) < 5:
-        raise ValueError(
+        raise InsufficientEmissionLineDataError(
             f"Insufficient valid data between {w_min:.2f} and "
             f"{w_max:.2f} Angstrom."
         )
@@ -273,7 +305,7 @@ def fit_emission_line_system(
     ]
 
     if valid_errors.size == 0:
-        raise ValueError("eflux does not contain positive uncertainties.")
+        raise InsufficientEmissionLineDataError("eflux does not contain positive uncertainties.")
 
     representative_error = np.nanmedian(valid_errors)
 
@@ -294,7 +326,9 @@ def fit_emission_line_system(
     central_velocity = redshift * __c__
     # An optional alternate initial velocity changes only the FIT3D starting
     # point, never the redshift-centered velocity bounds or fitting window.
-    if initial_velocity is None:
+    if fixed_velocity:
+        velocity_guess = central_velocity
+    elif initial_velocity is None:
         velocity_guess = central_velocity
     else:
         velocity_guess = float(initial_velocity)
@@ -327,7 +361,7 @@ def fit_emission_line_system(
         local_flux = flux[local_mask]
 
         if local_flux.size == 0:
-            raise ValueError(
+            raise InsufficientEmissionLineDataError(
                 f"No valid data around the line at {rest_wl:.2f} Angstrom."
             )
 
@@ -398,7 +432,7 @@ def fit_emission_line_system(
             guess[i_v0] = velocity_guess
             pars_0[i_v0] = central_velocity - velocity_range
             pars_1[i_v0] = central_velocity + velocity_range
-            to_fit[i_v0] = True
+            to_fit[i_v0] = not fixed_velocity
 
         config_model.add_model(
             model_type="eline",
@@ -4677,7 +4711,9 @@ def decompose_spectrum_masked_iterative(
     *,
     tab_el=None,
     redshift=0.0,
-    mask_nsigma=2.0,
+    mask_nsigma=3.0,
+    lsf=None,
+    bad_pixel_mask=None,
     config=None,
     n_iter=11,
     method="spline",
@@ -4699,16 +4735,21 @@ def decompose_spectrum_masked_iterative(
     n_narrow, n_medium, n_broad : float
         The three median-fit bin widths, as in ``decompose_spectrum``.
     tab_el : Astropy Table, optional
-        *Selected/detected* emission lines, with ``wl`` (rest Angstrom) and
-        ``lsf`` (empirically measured instrumental Gaussian sigma, Angstrom).
-        Every supplied line is masked, with no additional S/N or flux cut.
-        Passing the entire catalogue masks even undetected catalogue lines.
+        Emission-line catalogue with rest-frame ``wl``. Every supplied line
+        is masked whether detected or not. ``tab_el['lsf']`` is used only
+        for backward compatibility when no individual ``lsf`` is supplied.
     redshift : float, optional
         Shift reference line wavelengths into the observed frame using
         ``lambda_obs = lambda_rest * (1 + redshift)``. Default is zero.
     mask_nsigma : float, optional
-        Exclude +/- this many measured instrumental sigmas from the trend
-        and background fits. Default 2.0 (no assumed analytic LSF law).
+        Exclude +/- this many measured instrumental Gaussian sigmas from
+        the trend/background fits and interpolate the stellar proxy there.
+        Default 3.0.
+    lsf : 1D array, optional
+        Individual fiber's measured Gaussian instrumental LSF sigma in Angstrom,
+        on ``wl``. Interpolated at each redshifted catalogue line wavelength.
+    bad_pixel_mask : 1D Boolean array, optional
+        Invalid pixels excluded from trend fits and interpolation anchors.
     config, n_iter, method, degree, spline_k, spline_s, min_points_bin, fit_func
         As in ``decompose_spectrum``. Each erosion iteration now also updates
         the pseudo-continuum and therefore ``eline_only``.
@@ -4718,14 +4759,18 @@ def decompose_spectrum_masked_iterative(
     dict
         The original seven fields (``trend_cw``, ``trend_cw_broad``,
         ``eline_only``, ``st_flux_cw``, ``pos_abs_flux_cw``, ``bg_spec``,
-        ``res_bg_spec``), plus ``line_mask`` (Boolean array, True inside the
-        excluded line windows). Original input values are never modified.
+        ``res_bg_spec``), plus ``line_mask`` (Boolean array),
+        ``stellar_interpolated`` (continuum proxy with line windows
+        interpolated), and ``eline_residual`` (signed observed minus that
+        proxy). Their sum equals the original spectrum on valid pixels.
+        Original inputs and the legacy decomposition outputs are unchanged.
 
     Notes
     -----
-    The mask affects *only the fit inputs*: excluded pixels are temporarily
-    set to NaN for ``median_fit_spectrum``, which already ignores non-finite
-    values. Fitted trends are evaluated at every original wavelength.
+    Excluded pixels are set to NaN only for ``median_fit_spectrum``;
+    trends are evaluated across the full wavelength grid. The cleaned
+    stellar proxy is interpolated across the same windows after the
+    iterative decomposition and before emission-line peak detection.
 
     First fit masked medium- and broad-scale trends. For every iteration:
     (1) subtract the current positive emission estimate to obtain a line-free
@@ -4765,27 +4810,45 @@ def decompose_spectrum_masked_iterative(
         )
         s_narrow = s_medium = s_broad = s
 
-    # tab_el['lsf'] holds *measured* instrumental sigma in Angstrom, not FWHM.
-    # Do not infer LSF from resolution, wavelength, or a constant R.
+    if bad_pixel_mask is None:
+        bad = np.zeros(wave.shape, dtype=bool)
+    else:
+        bad = np.asarray(bad_pixel_mask, dtype=bool)
+        if bad.shape != wave.shape:
+            raise ValueError('bad_pixel_mask must have the same shape as wl')
+
+    # Use the individual, wavelength-dependent LSF when available; the
+    # existing catalogue LSF remains the fallback for older callers.
     line_mask = np.zeros(wave.shape, dtype=bool)
     if tab_el is not None:
         names = (tab_el.colnames if hasattr(tab_el, 'colnames') else
                  tab_el.dtype.names if getattr(tab_el, 'dtype', None) is not None
                  and tab_el.dtype.names else tab_el.keys())
-        if 'wl' not in names or 'lsf' not in names:
-            raise ValueError("tab_el must contain the 'wl' and 'lsf' columns")
+        if 'wl' not in names:
+            raise ValueError("tab_el must contain the 'wl' column")
         rest = np.asarray(tab_el['wl'], dtype=float)
-        sigma_inst = np.asarray(tab_el['lsf'], dtype=float)
-        if rest.ndim != 1 or sigma_inst.shape != rest.shape:
-            raise ValueError("tab_el['wl'] and tab_el['lsf'] must be 1D arrays of equal length")
-        if not np.all(np.isfinite(rest)) or not np.all(np.isfinite(sigma_inst)) or np.any(sigma_inst <= 0):
-            raise ValueError('tab_el wavelengths and measured LSF must be finite; LSF must be positive')
-        for center, sigma in zip(rest * (1.0 + redshift), sigma_inst):
-            line_mask |= np.abs(wave - center) <= mask_nsigma * sigma
+        if rest.ndim != 1 or not np.all(np.isfinite(rest)):
+            raise ValueError("tab_el['wl'] must contain finite wavelengths")
+        centers = rest * (1.0 + redshift)
+        if lsf is not None:
+            measured_lsf = np.asarray(lsf, dtype=float)
+            if measured_lsf.shape != wave.shape:
+                raise ValueError('lsf and wl must have the same shape')
+            sigma_inst = np.interp(centers, wave, measured_lsf,
+                                   left=np.nan, right=np.nan)
+        else:
+            if 'lsf' not in names:
+                raise ValueError("tab_el must contain 'lsf' when lsf is omitted")
+            sigma_inst = np.asarray(tab_el['lsf'], dtype=float)
+            if sigma_inst.shape != rest.shape:
+                raise ValueError("tab_el['lsf'] must match tab_el['wl']")
+        for center, sigma in zip(centers, sigma_inst):
+            if np.isfinite(sigma) and sigma > 0:
+                line_mask |= np.abs(wave - center) <= mask_nsigma * sigma
 
     def _fit(y, bin_width):
         # Fit to the continuum pixels, but interpolate over *all* wavelengths.
-        fit_y = np.where(line_mask, np.nan, y)
+        fit_y = np.where(line_mask | bad, np.nan, y)
         out = np.asarray(fit(
             wave, fit_y, bin_width,
             method=method, degree=degree,
@@ -4842,6 +4905,20 @@ def decompose_spectrum_masked_iterative(
     bg_spec = _fit(bg_spec, s_narrow)
     res_bg_spec = flux - bg_spec
 
+    # The stellar proxy must not depend on which Gaussian peaks were found.
+    # Interpolate only the masked line regions of the decomposed stellar
+    # spectrum. Keep the complementary gas spectrum signed and unmodified by
+    # the initial positive-line clipping prescription.
+    stellar_interpolated = st_flux_cw.copy()
+    if np.any(line_mask):
+        anchors = ~line_mask & ~bad & np.isfinite(st_flux_cw)
+        if np.count_nonzero(anchors) < 2:
+            raise InsufficientEmissionLineDataError(
+                'Fewer than two valid continuum samples outside emission-line masks')
+        stellar_interpolated[line_mask] = np.interp(
+            wave[line_mask], wave[anchors], st_flux_cw[anchors])
+    eline_residual = flux - stellar_interpolated
+
     return {
         'trend_cw': trend_cw,
         'trend_cw_broad': trend_cw_broad,
@@ -4851,6 +4928,8 @@ def decompose_spectrum_masked_iterative(
         'bg_spec': bg_spec,
         'res_bg_spec': res_bg_spec,
         'line_mask': line_mask,
+        'stellar_interpolated': stellar_interpolated,
+        'eline_residual': eline_residual,
     }
 
 #
@@ -5254,6 +5333,7 @@ def find_redshift_weights(
     relativistic_velocity=True,
     merge_velocity=50.0,
     residual_weight=0.5,
+    obs_sn=None,
 ):
     """
     Determine the most likely redshift(s) from an incomplete and potentially
@@ -5320,6 +5400,10 @@ def find_redshift_weights(
 
     residual_weight : float
         Strength of the penalty associated with velocity residuals.
+    obs_sn : array-like or None
+        Optional observed-peak significance, aligned with obs_waves. When
+        provided, multiply each matched catalog-line weight by that peak's
+        significance before ranking. None preserves the previous ranking.
 
     Returns
     -------
@@ -5329,6 +5413,10 @@ def find_redshift_weights(
 
     rest_waves = np.asarray(rest_waves, dtype=float)
     obs_waves = np.asarray(obs_waves, dtype=float)
+    if obs_sn is not None:
+        obs_sn = np.asarray(obs_sn, dtype=float)
+        if obs_sn.shape != obs_waves.shape or np.any(~np.isfinite(obs_sn)) or np.any(obs_sn < 0):
+            raise ValueError('obs_sn must be finite, nonnegative and aligned with obs_waves')
 
     # ------------------------------------------------------------
     # Line names
@@ -5433,10 +5521,17 @@ def find_redshift_weights(
         # INDIVIDUAL LINE WEIGHTS
         # ========================================================
 
-        matched_weight = sum(
-            line_weights.get(name, 1.0)
-            for name in matched_names
-        )
+        if obs_sn is None:
+            matched_weight = sum(line_weights.get(name, 1.0)
+                                 for name in matched_names)
+        else:
+            # Match to the *observed* peak, not the predicted wavelength.
+            # This leaves catalog weights and group/velocity terms intact.
+            matched_weight = sum(
+                line_weights.get(m['name'], 1.0) *
+                obs_sn[np.argmin(np.abs(obs_waves - m['observed_wave']))]
+                for m in matches
+            )
 
         # ========================================================
         # LINE COMPLEX / DOUBLET / TRIPLET BONUSES
@@ -6050,6 +6145,51 @@ def interp2d_scattered(
 
 ####################################################################################
 
+def interpolate_emission_line_regions(wl, spectrum, lsf, tab_el, redshift,
+                                      mask_nsigma=3.0, bad_pixel_mask=None):
+    """Replace expected emission-line windows with local linear interpolation.
+
+    Every line in the rest-frame catalogue is masked, detected or not, within
+    +/- mask_nsigma times the *fiber-specific* instrumental Gaussian LSF sigma
+    measured at its redshifted wavelength. Only unmasked, valid samples anchor
+    the interpolation; the input spectrum is not modified.
+    """
+    wave = np.asarray(wl, dtype=float)
+    spec = np.asarray(spectrum, dtype=float)
+    inst_lsf = np.asarray(lsf, dtype=float)
+    if wave.ndim != 1 or spec.shape != wave.shape or inst_lsf.shape != wave.shape:
+        raise ValueError('wl, spectrum and lsf must have identical 1D shapes')
+    if not np.all(np.isfinite(wave)) or not np.all(np.diff(wave) > 0):
+        raise ValueError('wl must be finite and strictly increasing')
+    if not np.isfinite(redshift) or redshift <= -1:
+        raise ValueError('redshift must be finite and greater than -1')
+    if not np.isfinite(mask_nsigma) or mask_nsigma < 0:
+        raise ValueError('mask_nsigma must be finite and nonnegative')
+
+    line_mask = np.zeros(wave.shape, dtype=bool)
+    for rest_wl in np.asarray(tab_el['wl'], dtype=float):
+        center = rest_wl * (1.0 + redshift)
+        if not np.isfinite(center) or center < wave[0] or center > wave[-1]:
+            continue
+        sigma_inst = np.interp(center, wave, inst_lsf)
+        if np.isfinite(sigma_inst) and sigma_inst > 0:
+            line_mask |= np.abs(wave - center) <= mask_nsigma * sigma_inst
+
+    cleaned = spec.copy()
+    if np.any(line_mask):
+        anchors = ~line_mask & np.isfinite(spec)
+        if bad_pixel_mask is not None:
+            bad = np.asarray(bad_pixel_mask, dtype=bool)
+            if bad.shape != wave.shape:
+                raise ValueError('bad_pixel_mask must have the same shape as wl')
+            anchors &= ~bad
+        if np.count_nonzero(anchors) < 2:
+            raise InsufficientEmissionLineDataError(
+                'Fewer than two valid continuum samples outside emission-line masks')
+        cleaned[line_mask] = np.interp(wave[line_mask], wave[anchors], spec[anchors])
+    return cleaned, line_mask
+
+
 def process_elines_spec(
     wl,
     flux,
@@ -6063,7 +6203,9 @@ def process_elines_spec(
     smooth_size=5,
     velocity_tolerance=150.0,
     do_plot=0,
-    verbose=False
+    verbose=False,
+    bad_pixel_mask=None,
+    interpolate_stellar=True,
 ):
     """
     Identify, model, and subtract emission lines from one spectrum.
@@ -6105,7 +6247,11 @@ def process_elines_spec(
     -------
     dict
         emission_model : modeled emission-line spectrum.
-        stellar_spectrum : observed spectrum minus emission model.
+        stellar_spectrum : observed spectrum minus emission model, with
+            all catalogue emission-line regions (+/-3 LSF sigmas)
+            linearly interpolated from neighboring continuum samples.
+        stellar_line_mask : Boolean mask of those interpolated regions when
+            interpolate_stellar=True, otherwise all False.
         w_peaks : wavelengths of detected peaks.
         f_peaks : amplitudes of detected peaks.
         mask_good_peaks : significant positive peak mask.
@@ -6249,7 +6395,17 @@ def process_elines_spec(
     # 6. Subtract emission-line model
     # ---------------------------------------------------------
 
-    stellar_spectrum = flux - emission_model
+    if interpolate_stellar:
+        # Backward compatibility for callers outside the main decomposition.
+        stellar_spectrum, stellar_line_mask = interpolate_emission_line_regions(
+            wl, flux - emission_model, lsf, tab_el, z_guess,
+            mask_nsigma=3.0, bad_pixel_mask=bad_pixel_mask,
+        )
+    else:
+        # The main DAP now gets its stellar spectrum from the decomposition;
+        # this Gaussian peak model is used only for initial diagnostics.
+        stellar_spectrum = flux - emission_model
+        stellar_line_mask = np.zeros(wl.shape, dtype=bool)
 
     # ---------------------------------------------------------
     # 7. Diagnostics
@@ -6268,6 +6424,7 @@ def process_elines_spec(
     return {
         'emission_model': emission_model,
         'stellar_spectrum': stellar_spectrum,
+        'stellar_line_mask': stellar_line_mask,
         'w_peaks': w_peaks,
         'f_peaks': f_peaks,
         'mask_good_peaks': mask_good_peaks,
