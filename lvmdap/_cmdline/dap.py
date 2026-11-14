@@ -33,8 +33,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #####################################################################
     # LVM DAP version and date
     #####################################################################
-    dap_ver = '2.0.0'
-    dap_date = '2026-10-09'
+    dap_ver = '2.0.1'
+    dap_date = '2026-11-14'
 
 
     #####################################################################
@@ -393,8 +393,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                 wl=wl__w,
                 lsf_spectrum=lsf_mean,  # same wavelength-dependent LSF as integrated PM
                 bad_pixel_mask=bad_m_pek,
-                velocity_tolerance=float(getattr(args, 'pek_velocity_tolerance', 5.0)),
-                dispersion_tolerance=float(getattr(args, 'pek_dispersion_tolerance', 1.0)),
+                velocity_tolerance=getattr(args, 'pek_velocity_tolerance', None),
+                dispersion_tolerance=getattr(args, 'pek_dispersion_tolerance', None),
                 fit_padding=float(getattr(args, 'pek_fit_padding', 20.0)),
                 max_cluster_span=float(getattr(args, 'pek_max_cluster_span', 75.0)),
                 max_adjacent_distance=float(getattr(args, 'pek_max_adjacent_distance', 25.0)),
@@ -437,29 +437,34 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                 hdu_m_sps[0].header['NAME8'] = 'mod_joint_spec_PEK'
 
 
-    # Select a separate best line for each integrated-spectrum measurement,
-    # using the original NP/PM/PEK per-line quality statistics.
-    # The kinematics and individual method tables are left unchanged.
+    # Select BEST on common pixels. Jointly fitted line clusters are
+    # selected as units; isolated lines remain independent. Source tables are unchanged.
     add_gas_sigma_kms(tab_m_fe, wl__w, lsf_mean, suffix='')
     add_gas_sigma_kms(tab_m_PM, wl__w, lsf_mean, suffix='_pm')
     if tab_m_PEK is not None:
         add_gas_sigma_kms(tab_m_PEK, wl__w, lsf_mean, suffix='_pek')
-    tab_m_best = select_best_emission_lines(tab_el, tab_m_fe, tab_m_PM, tab_m_PEK)
-    m_best_gas = create_best_emission_model(wl__w, tab_m_best)
     bad_m_best = (np.all(bad_pixels, axis=0) |
                   ~np.isfinite(int_flux_cw) | ~np.isfinite(int_eflux) |
                   (int_eflux <= 0))
+    m_best_input_gas = (np.asarray(hdu_m_sps[0].data[0], dtype=float) -
+                        np.asarray(hdu_m_sps[0].data[1], dtype=float))
+    tab_m_best = select_best_emission_lines(
+        tab_el, tab_m_fe, tab_m_PM, tab_m_PEK,
+        wl=wl__w, gas_spectrum=m_best_input_gas, error_spectrum=int_eflux,
+        bad_pixel_mask=bad_m_best,
+        el_clusters=el_clusters)
+    m_best_gas = create_best_emission_model(wl__w, tab_m_best)
     # The integrated spectrum is 1D while the BEST model builder returns
     # (n_spectra, n_wave).  Select its only row for this single-spectrum QA;
     # the RSS path below correctly passes the full 2D BEST model.
     add_best_global_quality(
-        tab_m_best, wl__w, np.asarray(hdu_m_sps[0].data[0]) -
-        np.asarray(hdu_m_sps[0].data[1]), m_best_gas[0],
+        tab_m_best, wl__w, m_best_input_gas, m_best_gas[0],
         int_eflux, bad_m_best)
     hdu_m_sps[0].data = adopt_best_model_planes(hdu_m_sps[0].data, m_best_gas)
     for plane in (2, 4, 5, 8):
         hdu_m_sps[0].data[plane, bad_m_best] = np.nan
     hdu_m_sps[0].header['NAME8'] = 'gas_model_best'
+    del m_best_input_gas
 
 
     #####################################################################
@@ -996,7 +1001,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
 
     _mem.report('after_model_cube', arrays={'output_model': output_model, 'rss_flux': rss_flux, 'rss_eflux': rss_eflux}, lists={'gas_spectra_for_pek': gas_spectra_for_pek})
-    # PEK: constrained Gaussian + constant-background fits, independent of pyFIT3D.
+    # PEK: SciPy refinement of PM using PM/NP error-defined kinematic bounds.
     # Reuse the Halpha velocity/dispersion maps computed immediately above.
     tab_PEK = None
     pek_model = None
@@ -1017,8 +1022,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             wl=wl__w,
             lsf_spectrum=LSF_rss,       # per-fiber Gaussian sigma [Angstrom]
             bad_pixel_mask=bad_pixels,
-            velocity_tolerance=float(getattr(args, 'pek_velocity_tolerance', 5.0)),
-            dispersion_tolerance=float(getattr(args, 'pek_dispersion_tolerance', 1.0)),
+            velocity_tolerance=getattr(args, 'pek_velocity_tolerance', None),
+            dispersion_tolerance=getattr(args, 'pek_dispersion_tolerance', None),
             fit_padding=float(getattr(args, 'pek_fit_padding', 20.0)),
             max_cluster_span=float(getattr(args, 'pek_max_cluster_span', 75.0)),
             max_adjacent_distance=float(getattr(args, 'pek_max_adjacent_distance', 25.0)),
@@ -1052,14 +1057,20 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     add_gas_sigma_kms(tab_fe, wl__w, LSF_rss, suffix='')
     add_gas_sigma_kms(tab_PM, wl__w, LSF_rss, suffix='_pm')
 
-    # Each line/fiber adopts the lowest valid local reduced chi-square from
-    # NP, PM and (if fitted) PEK, copying all quantities and formal errors
-    # from that method. Rebuild the Gaussian composite from selected results.
-    tab_best = select_best_emission_lines(tab_el, tab_fe, tab_PM, tab_PEK)
+    # Select BEST on common pixels; jointly fitted clusters share one winning
+    # method per fiber, while isolated lines remain independent.
+    # One shared gas-spectrum temporary is used for both common-window BEST
+    # selection and final BEST QA, then released immediately.  The three
+    # candidate methods are scored with local 1-D models, not duplicate RSS cubes.
+    best_input_gas = np.asarray(rss_flux, dtype=float) - output_model[1]
+    tab_best = select_best_emission_lines(
+        tab_el, tab_fe, tab_PM, tab_PEK,
+        wl=wl__w, gas_spectrum=best_input_gas, error_spectrum=rss_eflux,
+        bad_pixel_mask=bad_pixels, el_clusters=el_clusters)
     gas_model_best = create_best_emission_model(wl__w, tab_best)
     add_best_global_quality(
-        tab_best, wl__w, np.asarray(rss_flux, float) - output_model[1],
-        gas_model_best, rss_eflux, bad_pixels)
+        tab_best, wl__w, best_input_gas, gas_model_best, rss_eflux, bad_pixels)
+    del best_input_gas
     tab_best_B, tab_best_R, tab_best_I = split_fe_table(
         tab_best, w_br=FIT_QUALITY_W_BR, w_ri=FIT_QUALITY_W_RI)
     print(f'# BEST selected lines per method: ' + ', '.join(

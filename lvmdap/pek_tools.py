@@ -12,8 +12,8 @@ import re
 import warnings
 
 import numpy as np
-from scipy.optimize import least_squares
 from scipy.interpolate import griddata
+from lvmdap.linked_line_fitter import fit_linked_lines
 
 _C = 299792.458
 _ROOT2PI = np.sqrt(2 * np.pi)
@@ -149,7 +149,7 @@ def interpolate_ha_kinematics(tab_pt, tab_pm, sn_cut=3.0, line_key="Halpha_6562.
 
 def _pek_weighted_linear_fit(x, y, ey, rest, inst, velocity,
                              intrinsic_var_ref, reference_wavelength):
-    """Solve signed Gaussian fluxes and constant directly at fixed kinematics.
+    """Solve signed Gaussian fluxes directly at fixed kinematics.
 
     ``intrinsic_var_ref`` is the intrinsic Gaussian variance in Angstrom^2 at
     the selected reference line. Every component uses the corresponding
@@ -166,7 +166,7 @@ def _pek_weighted_linear_fit(x, y, ey, rest, inst, velocity,
     centers = rest * (1.0 + velocity / _C)
     dx = (x[:, None] - centers[None, :]) / sig[None, :]
     profiles = np.exp(-0.5 * dx**2) / (_ROOT2PI * sig[None, :])
-    design = np.column_stack((profiles, np.ones(len(x))))
+    design = profiles
     coefficients, _, rank, _ = np.linalg.lstsq(
         design / ey[:, None], y / ey, rcond=None
     )
@@ -175,64 +175,31 @@ def _pek_weighted_linear_fit(x, y, ey, rest, inst, velocity,
 
 def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 tab_el, tab_PM, tab_fe, *, wl, lsf_spectrum=None,
-                bad_pixel_mask=None, velocity_tolerance=5.0,
-                dispersion_tolerance=1.0, fit_padding=20.0,
+                bad_pixel_mask=None, velocity_tolerance=None,
+                dispersion_tolerance=None, fit_padding=20.0,
                 max_cluster_span=75.0, max_adjacent_distance=25.0,
                 min_valid_pixels=8, max_nfev=120, verbose=False,
                 reference_line='Halpha_6562.85', fixed_velocity=None):
-    """Fit Gaussian emission lines plus a constant per cluster.
+    """Refine the PM Gaussian solution with the common SciPy linked-line fitter.
 
-    Inputs
-    ------
-    gas_spectrum, error_spectrum: arrays (n_fiber,n_wave) or (n_wave,).
-    vel_interp: interpolated PM reference-line LOS velocity, km/s (one per fiber).
-    disp_interp: interpolated PM reference-line observed Gaussian sigma, Angstrom.
-    reference_line: selected PM line key, e.g. '[NII]_6583.45'. If omitted,
-        the historical Halpha_6562.85 reference is used for compatibility.
-    tab_el: line catalog Table with columns 'id', 'wl', optionally 'lsf'.
-    tab_PM, tab_fe: previous PM/NP wide tables. Their line fluxes are not used
-        to initialize or constrain PEK amplitudes. NP reference-line velocity
-        and dispersion, when available, only expand the kinematic bounds.
-        Their equivalent widths are used for the original continuum estimate.
-    wl: observed wavelength grid, Angstrom (required; not inferred from shape).
-    lsf_spectrum: instrumental Gaussian sigma in Angstrom, a vector (n_wave,)
-        or RSS (n_fiber,n_wave), strongly preferred. If absent, use
-        tab_el['lsf'] interpolated at the selected reference wavelength.
-    bad_pixel_mask: 0=valid, nonzero=invalid; same shape as gas spectrum.
-    velocity_tolerance: km/s margin around both the interpolated PM and
-        available NP reference-line velocity (per fiber).
-    dispersion_tolerance: Angstrom margin around observed reference-line
-        widths from PM and, if available, NP; intrinsic widths are deconvolved
-        using the per-fiber LSF at each measurement's reference wavelength.
-    fit_padding: +-Angstrom around the first/last line in a cluster.
+    PM is always the initial kinematic solution.  NP does not replace that
+    starting point; PM and NP measurements, together with their reported
+    1-sigma velocity/dispersion errors, define the kinematic search interval.
+    ``velocity_tolerance`` [km/s] and ``dispersion_tolerance`` [Angstrom]
+    are YAML-configured fallback half-widths used only when the corresponding
+    PM/NP reported uncertainty is unavailable, nonfinite, or nonpositive.
 
-    Returns
-    -------
-    tab_PEK: Astropy Table with id/id_fib and flux, e_flux, vel, e_vel,
-        disp, e_disp, EW, e_EW columns ending in '_pek'. 'disp' is observed
-        Gaussian sigma in Angstrom, not FWHM and not intrinsic sigma.
-        EW is derived from an existing PM/NP continuum estimate; if no
-        trustworthy continuum is available it is NaN. e_EW propagates only
-        line-flux uncertainty because the original stellar spectrum is absent.
-    model: fitted emission-only RSS with shape matching gas_spectrum.
-        The fitted per-cluster constant background is not included, to avoid
-        piecewise background offsets in the summed emission spectrum.
+    The optimized model is gas-only (no hidden background) and uses the same
+    input spectrum, error vector and bad-pixel mask supplied by the DAP.
+    After optimization, the SciPy candidate and the saved PM Gaussian model
+    are compared on exactly the same usable pixels.  When PM is valid, PEK
+    retains the SciPy result only if it has a strictly smaller chi-square;
+    otherwise the PEK table/model are exact copies of PM for that cluster.
+    Thus a valid PM cluster cannot be degraded by PEK.
 
-    Each trial velocity and intrinsic variance determines the Gaussian
-    templates. Signed line fluxes and the constant background are solved by
-    weighted linear least squares, with NO PM/NP flux initialization. The
-    initial kinematics use interpolated PM at ``reference_line`` unless the
-    NP reference-line local X_sq is lower (or the PM score is unavailable)
-    and the NP velocity/observed dispersion are usable. The chosen source
-    initializes all clusters of that fiber, without changing their bounds.
-    Bounds also enclose valid NP reference-line measurements, when present,
-    with the existing margins and no additional S/N cuts. Intrinsic velocity
-    dispersion is shared within each cluster (not intrinsic Angstrom width).
-    A component with no valid samples in its Gaussian half-maximum core is
-    unmeasurable and remains NaN; it does not contaminate the other lines.
-    Errors use the full weighted local covariance without chi-square scaling
-    when nonsingular. If kinematics are degenerate, line-flux errors are
-    conditional on the fitted kinematics; kinematic errors remain NaN.
+    Line fluxes remain signed and are solved linearly by ``fit_linked_lines``;
+    no PM/NP flux prior, sign restriction, S/N cut, or extra scientific
+    threshold is introduced.
     """
     from astropy.table import Table
 
@@ -245,27 +212,42 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
     if flux.ndim != 2 or flux.shape != err.shape:
         raise ValueError('gas_spectrum and error_spectrum shapes must agree')
     nf, nw = flux.shape
+
     wave = np.asarray(wl, float)
-    if wave.shape != (nw,) or not np.all(np.isfinite(wave)) or not np.all(np.diff(wave) > 0):
+    if (wave.shape != (nw,) or not np.all(np.isfinite(wave))
+            or not np.all(np.diff(wave) > 0)):
         raise ValueError('wl must be a finite, strictly increasing 1D wavelength array')
     if len(tab_PM) != nf or len(tab_fe) != nf:
         raise ValueError('PM and NP tables must have exactly one row per RSS fiber in the same order')
+
+    if velocity_tolerance is None or dispersion_tolerance is None:
+        raise ValueError(
+            'PEK requires YAML values for pek_velocity_tolerance and '
+            'pek_dispersion_tolerance')
+    velocity_tolerance = float(velocity_tolerance)
+    dispersion_tolerance = float(dispersion_tolerance)
+    fit_padding = float(fit_padding)
+    if (not np.isfinite(velocity_tolerance) or velocity_tolerance <= 0 or
+            not np.isfinite(dispersion_tolerance) or dispersion_tolerance <= 0 or
+            not np.isfinite(fit_padding) or fit_padding <= 0):
+        raise ValueError('PEK YAML tolerances and fit_padding must be positive finite values')
+
     vs = np.broadcast_to(np.asarray(vel_interp, float), (nf,)).copy()
     ss = np.broadcast_to(np.asarray(disp_interp, float), (nf,))
     fixed_vel = (np.full(nf, np.nan) if fixed_velocity is None else
                  np.broadcast_to(np.asarray(fixed_velocity, float), (nf,)))
     fixed_now = np.isfinite(fixed_vel)
     vs[fixed_now] = fixed_vel[fixed_now]
-    if velocity_tolerance <= 0 or dispersion_tolerance <= 0 or fit_padding <= 0:
-        raise ValueError('Tolerances and fit_padding must be positive')
+
     if bad_pixel_mask is None:
-        bad = np.zeros((nf,nw), dtype=bool)
+        bad = np.zeros((nf, nw), dtype=bool)
     else:
         bad = np.asarray(bad_pixel_mask, bool)
         if single and bad.ndim == 1:
             bad = bad[None, :]
         if bad.shape != flux.shape:
             raise ValueError('bad_pixel_mask shape mismatch')
+
     if lsf_spectrum is None:
         if 'lsf' not in tab_el.colnames:
             raise ValueError('lsf_spectrum or tab_el["lsf"] is required for LSF corrections')
@@ -280,13 +262,13 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
     else:
         lsf = np.asarray(lsf_spectrum, float)
         if lsf.shape == (nw,):
-            lsf = np.broadcast_to(lsf, (nf,nw))
-        if lsf.shape != (nf,nw):
-            raise ValueError('lsf_spectrum must be (n_wave,) or (n_fiber,n_wave) in Gaussian sigma Angstrom')
+            lsf = np.broadcast_to(lsf, (nf, nw))
+        if lsf.shape != (nf, nw):
+            raise ValueError(
+                'lsf_spectrum must be (n_wave,) or (n_fiber,n_wave) '
+                'in Gaussian sigma Angstrom')
         lsf_mode = 'spectrum'
 
-    # The rest wavelength of the SAME line used to derive vel_interp/disp_interp.
-    # It must not silently revert to Halpha when [NII] or [OIII] was selected.
     try:
         reference_wavelength = float(str(reference_line).rsplit('_', 1)[-1])
     except (ValueError, IndexError) as exc:
@@ -298,6 +280,8 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
     if len(set(line_names)) != len(line_names):
         raise ValueError('Two catalog lines have the same two-decimal identifier')
     groups = _clusters(tab_el, max_cluster_span, max_adjacent_distance)
+    w_lines = np.asarray(tab_el['wl'], float)
+
     result = Table()
     for name in ('id_fib', 'id'):
         if name in tab_PM.colnames:
@@ -307,279 +291,384 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
     for line_key in line_names:
         for field in _FIELDS:
             result[f'{field}_{line_key}_pek'] = np.full(nf, np.nan)
-    model = np.zeros((nf,nw), float)
-    w_lines = np.asarray(tab_el['wl'], float)
+    model = np.zeros((nf, nw), float)
+
+    def lsf_row(i):
+        if lsf_mode == 'spectrum':
+            return np.asarray(lsf[i], float)
+        return np.interp(wave, cat_w, cat_lsf)
+
+    def measurement_margin(table, i, key, suffix, field, fallback):
+        value = _table_value(table, i, field, key, suffix)
+        error = _table_value(table, i, f'e_{field}', key, suffix)
+        if not np.isfinite(value):
+            return None
+        margin = error if np.isfinite(error) and error > 0 else fallback
+        return float(value), float(margin)
+
+    def intrinsic_sigma_interval(obs_sigma, obs_margin, center, inst_sigma):
+        if not (np.isfinite(obs_sigma) and obs_sigma > 0 and
+                np.isfinite(obs_margin) and obs_margin > 0 and
+                np.isfinite(center) and center > 0 and
+                np.isfinite(inst_sigma) and inst_sigma > 0):
+            return None
+        lo_obs = max(0.0, obs_sigma - obs_margin)
+        hi_obs = obs_sigma + obs_margin
+        lo = _C * np.sqrt(max(0.0, lo_obs**2 - inst_sigma**2)) / center
+        hi = _C * np.sqrt(max(0.0, hi_obs**2 - inst_sigma**2)) / center
+        if not (np.isfinite(lo) and np.isfinite(hi) and hi > lo):
+            return None
+        return float(lo), float(hi)
+
+    def pm_cluster_arrays(i, names, rest):
+        f = np.array([_table_value(tab_PM, i, 'flux', key, '_pm') for key in names], float)
+        ef = np.array([_table_value(tab_PM, i, 'e_flux', key, '_pm') for key in names], float)
+        v = np.array([_table_value(tab_PM, i, 'vel', key, '_pm') for key in names], float)
+        ev = np.array([_table_value(tab_PM, i, 'e_vel', key, '_pm') for key in names], float)
+        d = np.array([_table_value(tab_PM, i, 'disp', key, '_pm') for key in names], float)
+        ed = np.array([_table_value(tab_PM, i, 'e_disp', key, '_pm') for key in names], float)
+        ew = np.array([_table_value(tab_PM, i, 'EW', key, '_pm') for key in names], float)
+        eew = np.array([_table_value(tab_PM, i, 'e_EW', key, '_pm') for key in names], float)
+        valid = (np.all(np.isfinite(f)) and np.all(np.isfinite(v)) and
+                 np.all(np.isfinite(d)) and np.all(d > 0))
+        return valid, f, ef, v, ev, d, ed, ew, eew
+
+    def gaussian_model(grid, rest, fluxes, velocities, dispersions):
+        out = np.zeros_like(grid, dtype=float)
+        for rw, ff, vv, dd in zip(rest, fluxes, velocities, dispersions):
+            if not (np.isfinite(ff) and np.isfinite(vv) and
+                    np.isfinite(dd) and dd > 0):
+                return None
+            center = rw * (1.0 + vv / _C)
+            dx = (grid - center) / dd
+            out += ff / (_ROOT2PI * dd) * np.exp(-0.5 * dx * dx)
+        return out
+
+    def store_pm(i, names, rest, pm_values, a, b):
+        valid, f, ef, v, ev, d, ed, ew, eew = pm_values
+        if not valid:
+            return False
+        for j, key in enumerate(names):
+            pref = lambda field: f'{field}_{key}_pek'
+            result[pref('flux')][i] = f[j]
+            result[pref('e_flux')][i] = ef[j]
+            result[pref('vel')][i] = v[j]
+            result[pref('e_vel')][i] = ev[j]
+            result[pref('disp')][i] = d[j]
+            result[pref('e_disp')][i] = ed[j]
+            result[pref('EW')][i] = ew[j]
+            result[pref('e_EW')][i] = eew[j]
+        pm_mod = gaussian_model(wave[a:b], rest, f, v, d)
+        if pm_mod is not None:
+            model[i, a:b] += pm_mod
+        return True
 
     for i in range(nf):
-        if (verbose==True):
+        if verbose:
             print(f"\n### Fitting PEK lines {i+1}/{nf}")
         else:
-            print_progress_bar(i, nf, label="Fitting PEK lines", bar_width=40)
-        if not (np.isfinite(vs[i]) and np.isfinite(ss[i]) and ss[i] > 0):
+            print_progress_bar(i, nf, label='Fitting PEK lines', bar_width=40)
+
+        row_lsf = lsf_row(i)
+        if (row_lsf.shape != wave.shape or
+                np.any(~np.isfinite(row_lsf)) or np.any(row_lsf <= 0)):
             continue
-        # The original PM interpolation still defines the baseline kinematic
-        # bounds. Select a better *initial guess* from the same reference line
-        # when its measured NP local reduced chi-square beats PM. This does
-        # not change the admissible bounds, line amplitudes, or their signs.
-        np_velocity = _table_value(tab_fe, i, 'vel', reference_line)
-        np_dispersion = _table_value(tab_fe, i, 'disp', reference_line)
-        np_chi = _table_value(tab_fe, i, 'X_sq', reference_line)
-        pm_chi = _table_value(tab_PM, i, 'X_sq', reference_line, '_pm')
-        start_from_np = (
-            not fixed_now[i] and np.isfinite(np_chi)
-            and (not np.isfinite(pm_chi) or np_chi < pm_chi)
-            and np.isfinite(np_velocity)
-            and np.isfinite(np_dispersion) and np_dispersion > 0
-        )
-        ref_center_pm = reference_wavelength * (1.0 + vs[i] / _C)
-        if lsf_mode == 'spectrum':
-            lsf_ref = float(np.interp(ref_center_pm, wave, lsf[i],
-                                      left=np.nan, right=np.nan))
-        else:
-            # Match the previous catalog-LSF endpoint behavior: the selected
-            # reference line itself may lie at the catalog's extreme wavelength.
-            lsf_ref = float(np.interp(ref_center_pm, cat_w, cat_lsf))
-        if not (np.isfinite(lsf_ref) and lsf_ref > 0):
-            continue
-
-        velocity_lo = vs[i] - velocity_tolerance
-        velocity_hi = vs[i] + velocity_tolerance
-        if np.isfinite(np_velocity) and not fixed_now[i]:
-            velocity_lo = min(vs[i], np_velocity) - velocity_tolerance
-            velocity_hi = max(vs[i], np_velocity) + velocity_tolerance
-
-        # Work in intrinsic Angstrom^2 at the reference wavelength. For any
-        # other line the intrinsic variance is multiplied by (lambda/ref)^2,
-        # which is equivalent to a common physical dispersion in km/s.
-        pm_sigma_lo = max(0.0, ss[i] - dispersion_tolerance)
-        pm_sigma_hi = ss[i] + dispersion_tolerance
-        var_lo = max(0.0, pm_sigma_lo**2 - lsf_ref**2)
-        var_hi = max(0.0, pm_sigma_hi**2 - lsf_ref**2)
-        var0 = max(0.0, ss[i]**2 - lsf_ref**2)
-        start_velocity = vs[i]
-        used_np_start = False
-
-        if np.isfinite(np_dispersion) and np_dispersion > 0:
-            # NP and PM can have slightly different reference velocities;
-            # deconvolve with the instrumental LSF at each observed center.
-            ref_center_np = (reference_wavelength *
-                             (1.0 + (np_velocity if np.isfinite(np_velocity)
-                                      else vs[i]) / _C))
-            if lsf_mode == 'spectrum':
-                lsf_np = float(np.interp(ref_center_np, wave, lsf[i],
-                                         left=np.nan, right=np.nan))
-            else:
-                lsf_np = float(np.interp(ref_center_np, cat_w, cat_lsf))
-            if np.isfinite(lsf_np) and lsf_np > 0:
-                # Convert the NP intrinsic variance to the PM reference center
-                # so both limits describe the same velocity dispersion.
-                ratio_sq = (ref_center_pm / ref_center_np)**2
-                np_sigma_lo = max(0.0, np_dispersion - dispersion_tolerance)
-                np_sigma_hi = np_dispersion + dispersion_tolerance
-                np_var_lo = max(0.0, np_sigma_lo**2 - lsf_np**2) * ratio_sq
-                np_var_hi = max(0.0, np_sigma_hi**2 - lsf_np**2) * ratio_sq
-                var_lo = min(var_lo, np_var_lo)
-                var_hi = max(var_hi, np_var_hi)
-                if start_from_np:
-                    # Express the NP intrinsic variance at the same reference
-                    # wavelength as PM, using measured LSF at the NP centroid.
-                    var0 = max(0.0, np_dispersion**2 - lsf_np**2) * ratio_sq
-                    start_velocity = np_velocity
-                    used_np_start = True
-
-        if var_hi <= var_lo:
-            # There is no allowed intrinsic dispersion; do not fabricate one.
-            if verbose:
-                print(f'PEK fiber {i}: no physical dispersion interval')
-            continue
-        var0 = np.clip(var0, var_lo, var_hi)
-        if verbose:
-            choice = 'NP' if used_np_start else 'PM'
-            print(f'PEK fiber {i}: initial {choice} kinematics '
-                  f'(X_sq_NP={np_chi:.4g}, X_sq_PM={pm_chi:.4g})')
 
         for cluster in groups:
             rest = w_lines[cluster]
             names = [line_names[k] for k in cluster]
-            n = len(cluster)
-            if lsf_mode == 'spectrum':
-                inst = np.interp(rest*(1+vs[i]/_C), wave, lsf[i], left=np.nan, right=np.nan)
+            pm_values = pm_cluster_arrays(i, names, rest)
+            pm_valid, pm_flux, pm_eflux, pm_vel, pm_evel, pm_disp, pm_edisp, pm_ew, pm_eew = pm_values
+
+            # PM is always the PEK starting point when that cluster has a valid
+            # saved PM solution.  The interpolated reference-line map is only
+            # a fallback for clusters lacking usable PM kinematics.
+            finite_pm_v = pm_vel[np.isfinite(pm_vel)]
+            initial_velocity = (float(np.median(finite_pm_v)) if finite_pm_v.size
+                                else float(vs[i]))
+            if fixed_now[i]:
+                initial_velocity = float(fixed_vel[i])
+            if not np.isfinite(initial_velocity):
+                continue
+
+            intrinsic_starts = []
+            for key, rw, vv, dd in zip(names, rest, pm_vel, pm_disp):
+                if not (np.isfinite(vv) and np.isfinite(dd) and dd > 0):
+                    continue
+                center = rw * (1.0 + vv / _C)
+                inst = float(np.interp(center, wave, row_lsf, left=np.nan, right=np.nan))
+                if not (np.isfinite(inst) and inst > 0 and center > 0):
+                    continue
+                intrinsic_starts.append(
+                    _C * np.sqrt(max(0.0, dd**2 - inst**2)) / center)
+
+            if intrinsic_starts:
+                initial_sigma_kms = float(np.median(intrinsic_starts))
+            elif np.isfinite(ss[i]) and ss[i] > 0:
+                center = reference_wavelength * (1.0 + initial_velocity / _C)
+                inst = float(np.interp(center, wave, row_lsf, left=np.nan, right=np.nan))
+                if not (np.isfinite(inst) and inst > 0):
+                    if pm_valid:
+                        low = rest.min() * (1.0 + initial_velocity/_C) - fit_padding
+                        high = rest.max() * (1.0 + initial_velocity/_C) + fit_padding
+                        a, b = np.searchsorted(wave, [low, high])
+                        store_pm(i, names, rest, pm_values, a, b)
+                    continue
+                initial_sigma_kms = (
+                    _C * np.sqrt(max(0.0, ss[i]**2 - inst**2)) / center)
             else:
-                inst = np.interp(rest, cat_w, cat_lsf)
-            if np.any(~np.isfinite(inst)) or np.any(inst <= 0):
+                if pm_valid:
+                    low = rest.min() * (1.0 + initial_velocity/_C) - fit_padding
+                    high = rest.max() * (1.0 + initial_velocity/_C) + fit_padding
+                    a, b = np.searchsorted(wave, [low, high])
+                    store_pm(i, names, rest, pm_values, a, b)
                 continue
-            low = rest.min()*(1+velocity_lo/_C) - fit_padding
-            high = rest.max()*(1+velocity_hi/_C) + fit_padding
-            a,b = np.searchsorted(wave,[low,high])
+
+            # PM/NP +/- their own 1-sigma errors define the velocity interval.
+            # The YAML tolerance is used only when an individual reported
+            # uncertainty is unavailable/nonpositive.
+            velocity_ranges = []
+            if not fixed_now[i]:
+                for key in names:
+                    for table, suffix in ((tab_PM, '_pm'), (tab_fe, '')):
+                        measurement = measurement_margin(
+                            table, i, key, suffix, 'vel', velocity_tolerance)
+                        if measurement is not None:
+                            value, margin = measurement
+                            velocity_ranges.append((value-margin, value+margin))
+                if not velocity_ranges and np.isfinite(vs[i]):
+                    velocity_ranges.append(
+                        (vs[i]-velocity_tolerance, vs[i]+velocity_tolerance))
+                if not velocity_ranges:
+                    if pm_valid:
+                        low = rest.min() * (1.0 + initial_velocity/_C) - fit_padding
+                        high = rest.max() * (1.0 + initial_velocity/_C) + fit_padding
+                        a, b = np.searchsorted(wave, [low, high])
+                        store_pm(i, names, rest, pm_values, a, b)
+                    continue
+                velocity_bounds = (
+                    min(lo for lo, _ in velocity_ranges),
+                    max(hi for _, hi in velocity_ranges))
+                # The PM starting point must remain inside the allowed domain.
+                velocity_bounds = (
+                    min(velocity_bounds[0], initial_velocity),
+                    max(velocity_bounds[1], initial_velocity))
+            else:
+                velocity_bounds = None
+
+            # Build the analogous intrinsic-sigma interval from observed
+            # PM/NP widths and their e_disp values, deconvolving the actual LSF
+            # at each measurement's observed centroid.
+            sigma_ranges = []
+            for key, rw in zip(names, rest):
+                for table, suffix in ((tab_PM, '_pm'), (tab_fe, '')):
+                    disp_measurement = measurement_margin(
+                        table, i, key, suffix, 'disp', dispersion_tolerance)
+                    if disp_measurement is None:
+                        continue
+                    disp_value, disp_margin = disp_measurement
+                    vel_value = _table_value(table, i, 'vel', key, suffix)
+                    if not np.isfinite(vel_value):
+                        vel_value = initial_velocity
+                    center = rw * (1.0 + vel_value / _C)
+                    inst = float(np.interp(
+                        center, wave, row_lsf, left=np.nan, right=np.nan))
+                    interval = intrinsic_sigma_interval(
+                        disp_value, disp_margin, center, inst)
+                    if interval is not None:
+                        sigma_ranges.append(interval)
+
+            if not sigma_ranges and np.isfinite(ss[i]) and ss[i] > 0:
+                center = reference_wavelength * (1.0 + initial_velocity / _C)
+                inst = float(np.interp(
+                    center, wave, row_lsf, left=np.nan, right=np.nan))
+                interval = intrinsic_sigma_interval(
+                    ss[i], dispersion_tolerance, center, inst)
+                if interval is not None:
+                    sigma_ranges.append(interval)
+
+            if not sigma_ranges:
+                if pm_valid:
+                    low = rest.min() * (1.0 + initial_velocity/_C) - fit_padding
+                    high = rest.max() * (1.0 + initial_velocity/_C) + fit_padding
+                    a, b = np.searchsorted(wave, [low, high])
+                    store_pm(i, names, rest, pm_values, a, b)
+                continue
+
+            sigma_bounds = (
+                min(lo for lo, _ in sigma_ranges),
+                max(hi for _, hi in sigma_ranges))
+            sigma_bounds = (
+                min(sigma_bounds[0], initial_sigma_kms),
+                max(sigma_bounds[1], initial_sigma_kms))
+            if not np.isfinite(sigma_bounds[1]) or sigma_bounds[1] <= sigma_bounds[0]:
+                if pm_valid:
+                    low = rest.min() * (1.0 + initial_velocity/_C) - fit_padding
+                    high = rest.max() * (1.0 + initial_velocity/_C) + fit_padding
+                    a, b = np.searchsorted(wave, [low, high])
+                    store_pm(i, names, rest, pm_values, a, b)
+                continue
+
+            # Preserve the pre-existing geometric requirement: every line in
+            # the cluster must have at least one valid sample in its predicted
+            # half-maximum core.  When PM is valid but PEK cannot be evaluated,
+            # retain PM rather than creating a partial hybrid PEK cluster.
+            window_low = rest.min() * (1.0 + initial_velocity/_C) - fit_padding
+            window_high = rest.max() * (1.0 + initial_velocity/_C) + fit_padding
+            a, b = np.searchsorted(wave, [window_low, window_high])
             if b-a < min_valid_pixels:
+                if pm_valid:
+                    store_pm(i, names, rest, pm_values, a, b)
                 continue
-            fit_good = (~bad[i,a:b] & np.isfinite(flux[i,a:b]) &
-                        np.isfinite(err[i,a:b]) & (err[i,a:b] > 0))
-            if fit_good.sum() < min_valid_pixels:
+            usable = (~bad[i, a:b] & np.isfinite(flux[i, a:b]) &
+                      np.isfinite(err[i, a:b]) & (err[i, a:b] > 0) &
+                      np.isfinite(row_lsf[a:b]) & (row_lsf[a:b] > 0))
+            if usable.sum() < min_valid_pixels:
+                if pm_valid:
+                    store_pm(i, names, rest, pm_values, a, b)
                 continue
-            x,y,ey = wave[a:b][fit_good],flux[i,a:b][fit_good],err[i,a:b][fit_good]
 
-            # A masked line core cannot constrain its integrated amplitude.
-            # This is a geometric pixel-coverage condition (half-maximum of
-            # the predicted Gaussian), NOT a flux/SNR detection threshold.
-            # Fit the remaining measurable lines in this same cluster.
-            predicted = rest * (1.0 + vs[i] / _C)
-            width_ratio_sq = (rest / reference_wavelength)**2
-            sig0 = np.sqrt(var0 * width_ratio_sq + inst**2)
-            core_halfwidth = np.sqrt(2.0 * np.log(2.0)) * sig0
-            has_core_pixels = np.any(
-                np.abs(x[:, None] - predicted[None, :]) <= core_halfwidth[None, :],
-                axis=0
+            grid = wave[a:b][usable]
+            centers0 = rest * (1.0 + initial_velocity/_C)
+            inst0 = np.interp(centers0, wave, row_lsf)
+            sig0 = np.sqrt(inst0**2 + (centers0*initial_sigma_kms/_C)**2)
+            core_halfwidth = np.sqrt(2.0*np.log(2.0)) * sig0
+            has_core = np.any(
+                np.abs(grid[:, None]-centers0[None, :]) <= core_halfwidth[None, :],
+                axis=0)
+            # Preserve the old allowance for an NP-shifted core.
+            for j, key in enumerate(names):
+                np_v = _table_value(tab_fe, i, 'vel', key)
+                if np.isfinite(np_v):
+                    np_center = rest[j] * (1.0 + np_v/_C)
+                    has_core[j] |= np.any(
+                        np.abs(grid-np_center) <= core_halfwidth[j])
+            if not np.all(has_core):
+                if pm_valid:
+                    store_pm(i, names, rest, pm_values, a, b)
+                continue
+
+            fixed = ({0: float(fixed_vel[i])} if fixed_now[i] else None)
+            candidate = fit_linked_lines(
+                wave, flux[i], err[i], rest, row_lsf,
+                fixed_velocities=fixed,
+                initial_velocity=initial_velocity,
+                initial_sigma_kms=initial_sigma_kms,
+                velocity_bounds=velocity_bounds,
+                sigma_kms_bounds=sigma_bounds,
+                bad_pixel_mask=bad[i],
+                fit_padding=fit_padding,
+                max_nfev=max_nfev,
+                background_degree=-1,
             )
-            if np.isfinite(np_velocity):
-                # If a PM core is masked but the NP center is not, do not
-                # reject that line solely on the old PM-centered test.
-                predicted_np = rest * (1.0 + np_velocity / _C)
-                has_core_pixels |= np.any(
-                    np.abs(x[:, None] - predicted_np[None, :])
-                    <= core_halfwidth[None, :], axis=0)
-            if not np.any(has_core_pixels):
-                continue
-            rest_fit = rest[has_core_pixels]
-            inst_fit = inst[has_core_pixels]
-            ratio_fit_sq = (rest_fit / reference_wavelength)**2
-            names_fit = [name for name, good in zip(names, has_core_pixels) if good]
-            n_fit = len(rest_fit)
-            if len(y) < max(min_valid_pixels, n_fit + 4):
+
+            candidate_valid = (
+                candidate.get('success', False) and
+                np.all(np.isfinite(candidate['flux'])) and
+                np.all(np.isfinite(candidate['vel'])) and
+                np.all(np.isfinite(candidate['disp'])) and
+                np.all(candidate['disp'] > 0))
+
+            # Compare candidate and PM on the SAME +/-3-sigma common window
+            # later used by BEST/X_sq.  Include NP in the window definition
+            # when its whole cluster is measurable, because BEST also uses the
+            # union of every valid NP/PM/PEK candidate to define those pixels.
+            # The PM and PEK models are still compared with identical errors,
+            # masks and degrees of freedom, so raw chi-square is sufficient for
+            # deciding whether the SciPy refinement improves PM.
+            candidate_chi = np.inf
+            pm_chi = np.inf
+            lo_score = np.inf
+            hi_score = -np.inf
+
+            def expand_score_window(velocities, dispersions):
+                nonlocal lo_score, hi_score
+                for rest_wave, velocity_now, dispersion_now in zip(
+                        rest, velocities, dispersions):
+                    if (not np.isfinite(velocity_now) or
+                            not np.isfinite(dispersion_now) or
+                            dispersion_now <= 0):
+                        return False
+                    center_now = rest_wave * (1.0 + velocity_now/_C)
+                    lo_score = min(lo_score, center_now - 3.0*dispersion_now)
+                    hi_score = max(hi_score, center_now + 3.0*dispersion_now)
+                return True
+
+            if pm_valid:
+                expand_score_window(pm_vel, pm_disp)
+            if candidate_valid:
+                expand_score_window(candidate['vel'], candidate['disp'])
+
+            np_vel = np.array([
+                _table_value(tab_fe, i, 'vel', key) for key in names], float)
+            np_disp = np.array([
+                _table_value(tab_fe, i, 'disp', key) for key in names], float)
+            np_flux = np.array([
+                _table_value(tab_fe, i, 'flux', key) for key in names], float)
+            np_valid = (np.all(np.isfinite(np_flux)) and
+                        np.all(np.isfinite(np_vel)) and
+                        np.all(np.isfinite(np_disp)) and
+                        np.all(np_disp > 0))
+            if np_valid:
+                expand_score_window(np_vel, np_disp)
+
+            common = (
+                (wave >= lo_score) & (wave <= hi_score) &
+                ~bad[i] & np.isfinite(flux[i]) & np.isfinite(err[i]) &
+                (err[i] > 0))
+            if candidate_valid and np.any(common):
+                residual = (
+                    flux[i, common] - candidate['model'][common]) / err[i, common]
+                candidate_chi = float(np.dot(residual, residual))
+            if pm_valid and np.any(common):
+                pm_model_common = gaussian_model(
+                    wave[common], rest, pm_flux, pm_vel, pm_disp)
+                if pm_model_common is not None:
+                    residual = (
+                        flux[i, common] - pm_model_common) / err[i, common]
+                    pm_chi = float(np.dot(residual, residual))
+
+            use_candidate = candidate_valid and (
+                not pm_valid or candidate_chi < pm_chi)
+
+            if not use_candidate:
+                if pm_valid:
+                    store_pm(i, names, rest, pm_values, a, b)
+                    if verbose:
+                        print(f'PEK fiber {i} cluster {names[0]}..{names[-1]}: '
+                              f'retain PM (chi2_PM={pm_chi:.4g}, '
+                              f'chi2_SciPy={candidate_chi:.4g})')
                 continue
 
-            # Variable projection: the optimizer sees only the two nonlinear
-            # kinematic parameters. Fluxes and constant background are solved
-            # exactly, with their signs free, at every (velocity, variance).
-            def residual(kinematics):
-                velocity, intrinsic_var = ((fixed_vel[i], kinematics[0])
-                                           if fixed_now[i] else kinematics)
-                coefficients, _, design = _pek_weighted_linear_fit(
-                    x, y, ey, rest_fit, inst_fit, velocity, intrinsic_var,
-                    reference_wavelength
-                )
-                return (design @ coefficients - y) / ey
+            for j, key in enumerate(names):
+                pref = lambda field: f'{field}_{key}_pek'
+                result[pref('flux')][i] = candidate['flux'][j]
+                result[pref('e_flux')][i] = candidate['e_flux'][j]
+                result[pref('vel')][i] = candidate['vel'][j]
+                result[pref('e_vel')][i] = candidate['e_vel'][j]
+                result[pref('disp')][i] = candidate['disp'][j]
+                result[pref('e_disp')][i] = candidate['e_disp'][j]
 
-            try:
-                if fixed_now[i]:
-                    fit = least_squares(
-                        residual, np.array([var0]),
-                        bounds=(np.array([var_lo]), np.array([var_hi])),
-                        x_scale='jac', max_nfev=max_nfev, method='trf')
-                else:
-                    fit = least_squares(
-                        residual, np.array([start_velocity, var0]),
-                        bounds=(np.array([velocity_lo, var_lo]),
-                                np.array([velocity_hi, var_hi])),
-                        x_scale='jac', max_nfev=max_nfev, method='trf')
-            except (ValueError, RuntimeError, FloatingPointError, np.linalg.LinAlgError):
-                continue
-            if not fit.success or not np.all(np.isfinite(fit.x)):
-                continue
-            velocity, intrinsic_var = ((fixed_vel[i], float(fit.x[0]))
-                                       if fixed_now[i] else fit.x)
-            coefficients, rank, design = _pek_weighted_linear_fit(
-                x, y, ey, rest_fit, inst_fit, velocity, intrinsic_var,
-                reference_wavelength
-            )
-            # Never put a mathematically unidentifiable amplitude in the model.
-            if rank != n_fit + 1 or not np.all(np.isfinite(coefficients)):
-                if verbose:
-                    print(f'PEK fiber {i}, cluster {names_fit[0]}: '
-                          'rank-deficient linear templates; no fit retained')
-                continue
-            # Retain the numerical rank tolerance already used by the old
-            # PEK covariance; a barely distinguishable blend must not create
-            # enormous compensating positive and negative amplitudes.
-            try:
-                singular_linear = np.linalg.svd(
-                    design / ey[:, None], compute_uv=False
-                )
-            except np.linalg.LinAlgError:
-                continue
-            if (not len(singular_linear) or
-                    singular_linear[-1] <= singular_linear[0] * 1.e-10):
-                if verbose:
-                    print(f'PEK fiber {i}, cluster {names_fit[0]}: '
-                          'ill-conditioned line templates; no fit retained')
-                continue
-            fitted_fluxes = coefficients[:n_fit]
-            sig_out = np.sqrt(intrinsic_var * ratio_fit_sq + inst_fit**2)
-
-            # Marginalize over velocity, intrinsic variance and the constant
-            # background in the full weighted Jacobian (as in the old PEK).
-            profiles = design[:, :n_fit]
-            centers = rest_fit * (1.0 + velocity/_C)
-            delta = (x[:, None] - centers[None, :]) / sig_out[None, :]
-            d_velocity = np.sum(
-                fitted_fluxes[None, :] * profiles *
-                (delta / sig_out[None, :]) * (rest_fit[None, :]/_C), axis=1
-            )
-            d_var = np.sum(
-                fitted_fluxes[None, :] * profiles *
-                (delta**2 - 1.0) * ratio_fit_sq[None, :] /
-                (2.0 * sig_out[None, :]**2), axis=1
-            )
-            full_jac = (np.column_stack((profiles, d_var, np.ones(len(x))))
-                        if fixed_now[i] else
-                        np.column_stack((profiles, d_velocity, d_var,
-                                         np.ones(len(x))))) / ey[:, None]
-            uncertainty = np.full(n_fit + (2 if fixed_now[i] else 3), np.nan)
-            try:
-                _, singular, vt = np.linalg.svd(full_jac, full_matrices=False)
-                if (len(singular) != len(uncertainty) or singular[-1] <= singular[0]*1.e-10):
-                    raise np.linalg.LinAlgError('Rank-deficient full covariance')
-                cov = (vt.T * (singular**-2)) @ vt
-                uncertainty = np.sqrt(np.maximum(np.diag(cov), 0.0))
-            except np.linalg.LinAlgError:
-                # Flux is still measured at reference-constrained kinematics even
-                # if velocity/dispersion errors cannot be estimated. Return its
-                # fixed-kinematics uncertainty, not a spurious NaN flux error.
-                try:
-                    whitened = design / ey[:, None]
-                    _, singular, vt = np.linalg.svd(whitened, full_matrices=False)
-                    if singular[-1] > singular[0] * 1.e-10:
-                        cov_linear = (vt.T * (singular**-2)) @ vt
-                        uncertainty[:n_fit] = np.sqrt(np.maximum(
-                            np.diag(cov_linear)[:n_fit], 0.0))
-                except np.linalg.LinAlgError:
-                    pass
-
-            for j, key in enumerate(names_fit):
-                prefix = lambda field: f'{field}_{key}_pek'
-                result[prefix('flux')][i] = fitted_fluxes[j]
-                result[prefix('e_flux')][i] = uncertainty[j]
-                result[prefix('vel')][i] = velocity
-                result[prefix('e_vel')][i] = (
-                    np.nan if fixed_now[i] else uncertainty[n_fit])
-                result[prefix('disp')][i] = sig_out[j]
-                result[prefix('e_disp')][i] = (
-                    uncertainty[n_fit + (0 if fixed_now[i] else 1)]
-                    * ratio_fit_sq[j]/(2*sig_out[j])
-                    if sig_out[j] > 0 else np.nan
-                )
-                # Preserve previous EW definition and PM/NP-continuum lookup.
                 continua = []
-                for table,suff in ((tab_PM,'_pm'),(tab_fe,'')):
-                    original_f = _table_value(table,i,'flux',key,suff)
-                    original_ew = _table_value(table,i,'EW',key,suff)
+                for table, suff in ((tab_PM, '_pm'), (tab_fe, '')):
+                    original_f = _table_value(table, i, 'flux', key, suff)
+                    original_ew = _table_value(table, i, 'EW', key, suff)
                     if (np.isfinite(original_f) and np.isfinite(original_ew)
-                            and abs(original_ew)>1e-20):
+                            and abs(original_ew) > 1e-20):
                         continua.append(-original_f/original_ew)
                 if continua:
                     continuum = float(np.median(continua))
-                    if abs(continuum)>1e-20:
-                        result[prefix('EW')][i] = -fitted_fluxes[j]/abs(continuum)
-                        result[prefix('e_EW')][i] = uncertainty[j]/abs(continuum)
-                # Only emission lines: do not add fitted cluster background.
-                xx = (wave[a:b] - rest_fit[j]*(1+velocity/_C))/sig_out[j]
-                model[i,a:b] += (fitted_fluxes[j]/(_ROOT2PI*sig_out[j]) *
-                                  np.exp(-0.5*xx**2))
-            if verbose:
-                reduced = np.sum(fit.fun**2)/max(
-                    len(y)-(n_fit+(2 if fixed_now[i] else 3)),1)
-                print(f'PEK fiber {i} cluster {names_fit[0]}..{names_fit[-1]}: '
-                      f'chi2_red={reduced:.3f}, v={velocity:.2f} km/s')
+                    if abs(continuum) > 1e-20:
+                        result[pref('EW')][i] = -candidate['flux'][j]/abs(continuum)
+                        if np.isfinite(candidate['e_flux'][j]):
+                            result[pref('e_EW')][i] = (
+                                candidate['e_flux'][j]/abs(continuum))
 
-    model[bad | ~np.isfinite(flux) | ~np.isfinite(err) | (err<=0)] = np.nan
+            model[i] += candidate['model']
+            if verbose:
+                print(f'PEK fiber {i} cluster {names[0]}..{names[-1]}: '
+                      f'SciPy improves PM '
+                      f'(chi2_PM={pm_chi:.4g}, chi2_SciPy={candidate_chi:.4g})')
+
+    model[bad | ~np.isfinite(flux) | ~np.isfinite(err) | (err <= 0)] = np.nan
     return result, model[0] if single else model

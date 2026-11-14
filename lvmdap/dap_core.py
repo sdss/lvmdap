@@ -293,21 +293,48 @@ def select_tab_el_strong(tab_el, tab_m_PM, sn_min=10.0,
 
 
 
-def select_best_emission_lines(tab_el, tab_fe, tab_PM, tab_PEK=None):
-    """Choose the lowest finite per-line X_sq independently for every fiber.
+def select_best_emission_lines(tab_el, tab_fe, tab_PM, tab_PEK=None, *,
+                               wl, gas_spectrum, error_spectrum,
+                               bad_pixel_mask=None, el_clusters=None):
+    """Select NP/PM/PEK on common pixels, choosing whole clusters together.
 
-    A candidate needs its existing finite X_sq, flux, velocity and observed
-    Gaussian dispersion (>0). No additional S/N, sign, quality, or flux priors
-    are introduced. All fitted parameters, errors, and local fit diagnostics
-    come from the SAME selected NP, PM or PEK row, never from mixed methods.
-    Exact ties prefer NP, then PM, then PEK. If no candidate is measurable,
-    the derived entries remain NaN and best_method remains empty.
+    BEST is selected with a method-independent *cluster* reduced chi-square:
+    every candidate for a given cluster is evaluated on exactly the same
+    spectral pixels, with the same gas spectrum, original errors and mask.
+    Multi-line ``el_clusters`` are selected as indivisible units.
 
-    Selected local X_sq values describe the *original complete method model*;
-    they are not reinterpreted as local chi-square of the hybrid BEST model.
-    Its separately measured whole-spectrum quality is X_sq_BEST/RMS_BEST.
+    The public per-line ``X_sq_<line>`` columns remain genuinely local line
+    diagnostics.  For each line, all methods are evaluated on the same union
+    of +/-3 observed-sigma windows for that line, while the complete model of
+    its fitted cluster is used inside that local window so neighbouring/blended
+    lines are not misclassified as residuals.  The nominal local dof is N-3,
+    matching the historical per-line diagnostic convention.
+
+    The cluster score used for selection is kept only in memory.  It is not
+    duplicated into output columns because it is an internal selection metric;
+    the stored ``X_sq_<line>`` values remain the non-redundant local diagnostics.
     """
     from astropy.table import Table
+
+    wave = np.asarray(wl, dtype=float)
+    gas = np.asarray(gas_spectrum, dtype=float)
+    errors = np.asarray(error_spectrum, dtype=float)
+    single = gas.ndim == 1
+    if single:
+        gas = gas[None, :]
+        errors = errors[None, :]
+    if gas.ndim != 2 or errors.shape != gas.shape:
+        raise ValueError('BEST gas and error spectra must have matching shapes')
+    if wave.ndim != 1 or wave.size != gas.shape[1] or not np.all(np.diff(wave) > 0):
+        raise ValueError('BEST wavelength grid must be increasing and match spectra')
+    if bad_pixel_mask is None:
+        bad = np.zeros(gas.shape, dtype=bool)
+    else:
+        bad = np.asarray(bad_pixel_mask, dtype=bool)
+        if single and bad.ndim == 1:
+            bad = bad[None, :]
+        if bad.shape != gas.shape:
+            raise ValueError('BEST bad-pixel mask must match spectra')
 
     methods = [('NP', tab_fe, ''), ('PM', tab_PM, '_pm'),
                ('PEK', tab_PEK, '_pek')]
@@ -315,21 +342,17 @@ def select_best_emission_lines(tab_el, tab_fe, tab_PM, tab_PEK=None):
                  if tab is not None]
     if not available:
         raise ValueError('No emission-line tables supplied for BEST selection')
-    nf = len(available[0][1])
+    nf = gas.shape[0]
     for method, tab, _ in available:
         if len(tab) != nf:
             raise ValueError(f'{method} table fiber count does not agree')
-    best = Table()
-    for col in ('id', 'id_fib'):
-        original = next((tab[col] for _, tab, _ in available
-                         if col in tab.colnames), None)
-        if original is not None:
-            best[col] = original.copy()
-    if 'id_fib' not in best.colnames:
-        best['id_fib'] = np.arange(nf, dtype=np.int64)
 
-    # Resolve legacy wavelength formatting without changing source tables.
-    # All output BEST line identifiers use exactly two decimals.
+    def line_key(line):
+        line_id = line['id']
+        if isinstance(line_id, bytes):
+            line_id = line_id.decode('utf-8')
+        return f'{str(line_id).strip()}_{float(line["wl"]):.2f}'
+
     def fetch(tab, field, key, suffix):
         name = f'{field}_{key}{suffix}'
         if name in tab.colnames:
@@ -346,39 +369,203 @@ def select_best_emission_lines(tab_el, tab_fe, tab_PM, tab_PEK=None):
             return np.ma.asarray(tab[alternatives[0]], dtype=float).filled(np.nan)
         return np.full(nf, np.nan)
 
-    parameters = ('flux', 'e_flux', 'vel', 'e_vel', 'disp', 'e_disp',
-                  'EW', 'e_EW', 'sigma_kms', 'X_sq', 'RMS', 'fr')
-    for line in tab_el:
-        line_id = line['id']
-        if isinstance(line_id, bytes):
-            line_id = line_id.decode('utf-8')
-        key = f'{str(line_id).strip()}_{float(line["wl"]):.2f}'
-        stack = []
-        for method, tab, suffix in available:
-            cols = {field: fetch(tab, field, key, suffix)
-                    for field in parameters}
-            valid = (np.isfinite(cols['X_sq']) & np.isfinite(cols['flux']) &
-                     np.isfinite(cols['vel']) & np.isfinite(cols['disp']) &
-                     (cols['disp'] > 0))
-            stack.append((method, cols, valid))
-        selected_score = np.full(nf, np.inf)
-        selected = np.full(nf, -1, dtype=int)
-        for k, (_, cols, valid) in enumerate(stack):
-            better = valid & (cols['X_sq'] < selected_score)
-            selected_score[better] = cols['X_sq'][better]
-            selected[better] = k
-        for field in parameters:
-            data = np.full(nf, np.nan)
-            for k, (_, cols, _) in enumerate(stack):
-                choose = selected == k
-                data[choose] = cols[field][choose]
-            best[f'{field}_{key}_best'] = data
-        names = np.full(nf, '', dtype='U3')
-        for k, (method, _, _) in enumerate(stack):
-            names[selected == k] = method
-        best[f'best_method_{key}_best'] = names
-    return best
+    keys = [line_key(line) for line in tab_el]
+    key_set = set(keys)
 
+    # Cache only the three Gaussian parameters used repeatedly by the quality
+    # calculation. Existing X_sq columns are overwritten by the current
+    # homogeneous diagnostics; no duplicate original-X_sq columns are retained.
+    score_source = {}
+    for method, tab, suffix in available:
+        score_source[method] = {}
+        for key in keys:
+            score_source[method][key] = {
+                field: fetch(tab, field, key, suffix)
+                for field in ('flux', 'vel', 'disp')
+            }
+
+    # Preserve the existing fitting clusters. Any catalogue line that is not
+    # represented in them remains a one-line group rather than being dropped.
+    groups = []
+    assigned = set()
+    if el_clusters is not None:
+        for cluster in el_clusters:
+            group = [line_key(line) for line in cluster]
+            group = [key for key in group if key in key_set and key not in assigned]
+            if group:
+                groups.append(group)
+                assigned.update(group)
+    groups.extend([[key] for key in keys if key not in assigned])
+
+    best = Table()
+    for col in ('id', 'id_fib'):
+        original = next((tab[col] for _, tab, _ in available
+                         if col in tab.colnames), None)
+        if original is not None:
+            best[col] = original.copy()
+    if 'id_fib' not in best.colnames:
+        best['id_fib'] = np.arange(nf, dtype=np.int64)
+
+    copied_fields = ('flux', 'e_flux', 'vel', 'e_vel', 'disp', 'e_disp',
+                     'EW', 'e_EW', 'sigma_kms')
+    for key in keys:
+        for field in copied_fields + ('X_sq', 'RMS', 'fr'):
+            best[f'{field}_{key}_best'] = np.full(nf, np.nan, dtype=float)
+        best[f'best_method_{key}_best'] = np.full(nf, '', dtype='U3')
+
+    c_kms = 299792.458
+    base_valid = (~bad & np.isfinite(gas) & np.isfinite(errors) & (errors > 0))
+
+    for group in groups:
+        n_lines = len(group)
+        selected = np.full(nf, -1, dtype=int)
+        selected_chi = np.full(nf, np.inf, dtype=float)
+        selected_rms = np.full(nf, np.nan, dtype=float)
+        selected_fr = np.full(nf, np.nan, dtype=float)
+
+        # Cluster score used to choose one method for the complete group.
+        method_cluster_chi = [np.full(nf, np.nan, dtype=float)
+                              for _ in available]
+        # True local score for each individual line. The complete cluster model
+        # is evaluated inside that line's common local window.
+        method_line_chi = [
+            {key: np.full(nf, np.nan, dtype=float) for key in group}
+            for _ in available
+        ]
+
+        method_valid = []
+        for method, _, _ in available:
+            valid = np.ones(nf, dtype=bool)
+            for key in group:
+                cols = score_source[method][key]
+                valid &= (np.isfinite(cols['flux']) & np.isfinite(cols['vel']) &
+                          np.isfinite(cols['disp']) & (cols['disp'] > 0))
+            method_valid.append(valid)
+
+        for i in range(nf):
+            # --------------------------------------------------------------
+            # 1) Cluster metric: common union of +/-3 sigma for every member
+            #    and every valid method. This is the ONLY metric used to pick
+            #    the winning method for a multi-line cluster.
+            # --------------------------------------------------------------
+            lo_wave = np.inf
+            hi_wave = -np.inf
+            for k, (method, _, _) in enumerate(available):
+                if not method_valid[k][i]:
+                    continue
+                for key in group:
+                    rest = float(key.rsplit('_', 1)[-1])
+                    cols = score_source[method][key]
+                    center = rest * (1.0 + cols['vel'][i] / c_kms)
+                    width = cols['disp'][i]
+                    lo_wave = min(lo_wave, center - 3.0 * width)
+                    hi_wave = max(hi_wave, center + 3.0 * width)
+
+            if np.isfinite(lo_wave) and np.isfinite(hi_wave) and hi_wave > lo_wave:
+                lo = np.searchsorted(wave, lo_wave, side='left')
+                hi = np.searchsorted(wave, hi_wave, side='right')
+                common = base_valid[i, lo:hi]
+                n = int(np.count_nonzero(common))
+                dof = n - 3 * n_lines
+                if dof > 0:
+                    x = wave[lo:hi]
+                    y = gas[i, lo:hi]
+                    e = errors[i, lo:hi]
+                    for k, (method, _, _) in enumerate(available):
+                        if not method_valid[k][i]:
+                            continue
+                        model = np.zeros(len(x), dtype=float)
+                        for key in group:
+                            rest = float(key.rsplit('_', 1)[-1])
+                            cols = score_source[method][key]
+                            model += eline(x, rest, cols['flux'][i], cols['disp'][i],
+                                           cols['vel'][i], dap_fwhm=1.0)
+                        residual = y[common] - model[common]
+                        chi = np.sum((residual / e[common])**2) / dof
+                        if not np.isfinite(chi):
+                            continue
+                        method_cluster_chi[k][i] = chi
+                        if chi >= selected_chi[i]:
+                            continue
+                        selected_chi[i] = chi
+                        selected[i] = k
+                        selected_rms[i] = np.sqrt(np.mean(residual**2))
+                        denominator = np.sum(np.abs(y[common]))
+                        selected_fr[i] = (np.sum(np.abs(residual)) / denominator
+                                          if np.isfinite(denominator) and denominator > 0
+                                          else np.nan)
+
+            # --------------------------------------------------------------
+            # 2) Per-line diagnostics: line-specific common +/-3 sigma window.
+            #    Use the complete cluster model in that window so blended
+            #    neighbours are modelled rather than counted as residuals.
+            # --------------------------------------------------------------
+            for target_key in group:
+                line_lo_wave = np.inf
+                line_hi_wave = -np.inf
+                for k, (method, _, _) in enumerate(available):
+                    if not method_valid[k][i]:
+                        continue
+                    cols = score_source[method][target_key]
+                    rest = float(target_key.rsplit('_', 1)[-1])
+                    center = rest * (1.0 + cols['vel'][i] / c_kms)
+                    width = cols['disp'][i]
+                    line_lo_wave = min(line_lo_wave, center - 3.0 * width)
+                    line_hi_wave = max(line_hi_wave, center + 3.0 * width)
+                if not (np.isfinite(line_lo_wave) and np.isfinite(line_hi_wave)
+                        and line_hi_wave > line_lo_wave):
+                    continue
+                line_lo = np.searchsorted(wave, line_lo_wave, side='left')
+                line_hi = np.searchsorted(wave, line_hi_wave, side='right')
+                line_common = base_valid[i, line_lo:line_hi]
+                n_line = int(np.count_nonzero(line_common))
+                dof_line = n_line - 3
+                if dof_line <= 0:
+                    continue
+                x_line = wave[line_lo:line_hi]
+                y_line = gas[i, line_lo:line_hi]
+                e_line = errors[i, line_lo:line_hi]
+                for k, (method, _, _) in enumerate(available):
+                    if not method_valid[k][i]:
+                        continue
+                    model_line = np.zeros(len(x_line), dtype=float)
+                    for key in group:
+                        rest = float(key.rsplit('_', 1)[-1])
+                        cols = score_source[method][key]
+                        model_line += eline(
+                            x_line, rest, cols['flux'][i], cols['disp'][i],
+                            cols['vel'][i], dap_fwhm=1.0)
+                    residual_line = y_line[line_common] - model_line[line_common]
+                    chi_line = np.sum((residual_line / e_line[line_common])**2) / dof_line
+                    if np.isfinite(chi_line):
+                        method_line_chi[k][target_key][i] = chi_line
+
+        # Store only the non-redundant per-line diagnostics.  The cluster
+        # chi-square remains an in-memory selection metric and is deliberately
+        # not written once per line/method to avoid redundant FITS columns.
+        for key in group:
+            for k, (_, tab, suffix) in enumerate(available):
+                xsq_name = f'X_sq_{key}{suffix}'
+                if xsq_name in tab.colnames:
+                    tab[xsq_name] = method_line_chi[k][key]
+
+        # Copy one winning method consistently to every member of the cluster.
+        for key in group:
+            for k, (method, tab, suffix) in enumerate(available):
+                choose = selected == k
+                if not np.any(choose):
+                    continue
+                for field in copied_fields:
+                    values = fetch(tab, field, key, suffix)
+                    best[f'{field}_{key}_best'][choose] = values[choose]
+                line_xsq = fetch(tab, 'X_sq', key, suffix)
+                best[f'X_sq_{key}_best'][choose] = line_xsq[choose]
+                best[f'best_method_{key}_best'][choose] = method
+            good = selected >= 0
+            best[f'RMS_{key}_best'][good] = selected_rms[good]
+            best[f'fr_{key}_best'][good] = selected_fr[good]
+
+    return best
 
 def create_best_emission_model(wl, tab_best):
     """Reconstruct selected signed Gaussian lines without changing any fit.
@@ -409,12 +596,12 @@ def add_best_global_quality(tab_best, wl, gas, model, errors, bad_pixels):
     """Global nominal reduced chi-square and RMS of the composite BEST model.
 
     Degrees of freedom match add_emission_fit_quality(): N_valid_pixels minus
-    3 times the number of selected lines with measured kinematics. Local
-    X_sq_{line}_best remains the original source's selection score.
+    3 times the number of selected lines with measured kinematics. Local X_sq_{line}_best stores the common-window selection score
+    calculated by select_best_emission_lines().
     """
     observed = np.asarray(gas, dtype=float)
-    reconstructed = np.asarray(model, dtype=float)
-    uncertainty = np.asarray(errors, dtype=float)
+    reconstructed = np.asarray(model)
+    uncertainty = np.asarray(errors)
     mask = np.asarray(bad_pixels, bool)
     if observed.ndim == 1:
         observed = observed[None, :]
@@ -1660,8 +1847,6 @@ def initialize_dap_parameters(args):
         'pm_fit3d_recovery': False,
         # Optional second-stage constrained Gaussian emission-line fit.
         'fit_PEK': True,
-        'pek_velocity_tolerance': 50.0,       # km/s around interpolated Halpha v
-        'pek_dispersion_tolerance': 2.5,     # Angstrom around observed Halpha sigma
         'pek_fit_padding': 20.0,            # Angstrom outside each cluster
         'pek_max_cluster_span': 75.0,       # Angstrom
         'pek_max_adjacent_distance': 25.0,  # Angstrom
