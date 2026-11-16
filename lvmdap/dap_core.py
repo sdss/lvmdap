@@ -1838,9 +1838,10 @@ def initialize_dap_parameters(args):
         'gas_map_sn_cut': 5.0,
         'gas_map_min_matches': 2,
         'gas_map_peak_threshold': 2.0,
-        'gas_map_wave_min': 4861.36,
+        'gas_map_wave_min': 6548.05,
         'gas_map_wave_max': 6730.82,
         'gas_map_padding': 60.0,
+        'gas_map_velocity_half_range_kms': 300.0,
         'gas_map_compare_halpha': True,
         # Optional second independent FIT3D pass for each PM strong cluster.
         # No quality threshold: compare both candidate models on the same pixels.
@@ -4566,81 +4567,136 @@ def fit_masked_residual_continuum(wl, residual, line_mask, dw, *,
 def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                                   tab_el, tab_pt, z_st, args,
                                   bad_pixels=None):
-    """Prepass: Hbeta--[SII] line matching and spatial interpolation of gas z.
+    """S/N-ranked [NII]--[SII] gas-velocity prepass, entirely in memory.
 
-    All flux/error values remain in original RSS units. Candidate redshifts
-    are S/N ranked using measured peak amplitudes over original errors.
-    An anchor requires at least gas_map_min_matches *distinct matched lines*
-    each individually reaching gas_map_sn_cut in integrated line S/N.
-    No full-window continuum S/N is used; missing anchors inherit the stellar map.
+    Explore +/- gas_map_velocity_half_range_kms around args.redshift[0].
+    Unlike the previous implementation, neither the stellar-velocity scatter
+    nor the narrow YAML redshift bounds restrict the gas search. Stellar
+    redshifts are used as a fallback, not as search boundaries.
+
+    Require gas_map_min_matches distinct matched lines, each with integrated
+    S/N >= gas_map_sn_cut. An unusable prepass returns the stellar map;
+    individual failed fibers do not interrupt RSS processing.
     """
     from scipy.interpolate import griddata
 
-    wave = np.asarray(wl, float)
-    flux = np.asarray(rss_flux, float)
-    err = np.asarray(rss_eflux, float)
-    lsf = np.asarray(lsf_rss, float)
-    stellar_z = np.asarray(z_st, float)
-    nf, nw = flux.shape
-    if (err.shape != flux.shape or lsf.shape != flux.shape or
-            stellar_z.shape != (nf,) or wave.shape != (nw,)):
-        raise ValueError('Inconsistent RSS gas prepass input dimensions')
-    bad = (np.zeros_like(flux, dtype=bool) if bad_pixels is None
-           else np.asarray(bad_pixels, bool))
-    if bad.shape != flux.shape:
-        raise ValueError('Gas prepass mask must match RSS')
-    rest_min = float(getattr(args, 'gas_map_wave_min', 4861.36))
-    rest_max = float(getattr(args, 'gas_map_wave_max', 6730.82))
-    if not 0 < rest_min < rest_max:
-        raise ValueError('Invalid Hbeta--[SII] gas map wavelength limits')
-    sn_cut = float(getattr(args, 'gas_map_sn_cut', 5.0))
-    n_matches_min = int(getattr(args, 'gas_map_min_matches', 2))
-    if sn_cut <= 0 or n_matches_min < 1:
-        raise ValueError('Invalid gas-map S/N or minimum number of matches')
-    z_system = float(args.redshift[0])
-    # Use the union of the stellar velocity scatter and original allowed z
-    # range, not their intersection: gas and stars need not be co-moving.
-    zlo = float(args.redshift[2])
-    zhi = float(args.redshift[3])
-    st_ok = stellar_z[np.isfinite(stellar_z)]
-    st_std = float(np.std(st_ok)) if st_ok.size > 1 else 0.0
-    lo = min(zlo, float(np.min(st_ok)-st_std)) if len(st_ok) else zlo
-    hi = max(zhi, float(np.max(st_ok)+st_std)) if len(st_ok) else zhi
-    pad = float(getattr(args, 'gas_map_padding', 60.0))
-    select = (wave >= (rest_min-pad)*(1.0+lo)) & (wave <= (rest_max+pad)*(1.0+hi))
-    if select.sum() < 30:
-        fallback = np.where(np.isfinite(stellar_z), stellar_z, z_system)
-        print('# Gas map: insufficient wavelength coverage; using stellar map')
+    flux = np.asarray(rss_flux, dtype=float)
+    stellar_z = np.asarray(z_st, dtype=float)
+    nf = flux.shape[0] if flux.ndim == 2 else stellar_z.size
+    try:
+        z_system = float(args.redshift[0])
+    except (ValueError, TypeError, IndexError, AttributeError):
+        z_system = np.nan
+    if not np.isfinite(z_system):
+        st_valid = stellar_z[np.isfinite(stellar_z)]
+        z_system = float(np.median(st_valid)) if st_valid.size else 0.0
+    stellar_fallback = np.full(nf, z_system, dtype=float)
+    if stellar_z.shape == (nf,):
+        stellar_fallback = np.where(np.isfinite(stellar_z), stellar_z,
+                                    z_system).astype(float)
+
+    def fallback(reason):
+        print(f'# Gas map: {reason}; using the interpolated stellar map')
         return {'z_gas_measured': np.full(nf, np.nan),
-                'z_gas_interpolated': fallback,
+                'z_gas_interpolated': stellar_fallback.copy(),
                 'sn_gas': np.full(nf, np.nan),
                 'n_matches': np.zeros(nf, int),
                 'source': np.full(nf, 'stellar', dtype='U12')}
-    w = wave[select]
-    catalog = tab_el[(np.asarray(tab_el['wl'], float) >= rest_min) &
-                     (np.asarray(tab_el['wl'], float) <= rest_max)]
+
+    def diagnostic(message):
+        if bool(getattr(args, 'verbose', False)):
+            print(f'# Gas map: {message}')
+
+    try:
+        wave = np.asarray(wl, float)
+        err = np.asarray(rss_eflux, float)
+        lsf = np.asarray(lsf_rss, float)
+        if (flux.ndim != 2 or wave.ndim != 1 or
+                err.shape != flux.shape or lsf.shape != flux.shape or
+                stellar_z.shape != (nf,) or wave.shape != (flux.shape[1],)):
+            return fallback('inconsistent RSS prepass dimensions')
+        if (not np.all(np.isfinite(wave)) or
+                not np.all(np.diff(wave) > 0)):
+            return fallback('invalid RSS wavelength grid')
+        bad = (np.zeros_like(flux, dtype=bool) if bad_pixels is None
+               else np.asarray(bad_pixels, dtype=bool))
+        if bad.shape != flux.shape:
+            return fallback('invalid RSS bad-pixel mask dimensions')
+        rest_min = float(getattr(args, 'gas_map_wave_min', 6548.05))
+        rest_max = float(getattr(args, 'gas_map_wave_max', 6730.82))
+        sn_cut = float(getattr(args, 'gas_map_sn_cut', 5.0))
+        n_matches_min = int(getattr(args, 'gas_map_min_matches', 2))
+        half_width = float(getattr(args, 'gas_map_velocity_half_range_kms', 300.0))
+        pad = float(getattr(args, 'gas_map_padding', 60.0))
+        if not (np.isfinite(rest_min) and np.isfinite(rest_max) and
+                0 < rest_min < rest_max and np.isfinite(sn_cut) and
+                sn_cut > 0 and n_matches_min >= 1 and
+                np.isfinite(half_width) and half_width > 0 and
+                np.isfinite(pad) and pad >= 0 and z_system > -1):
+            return fallback('invalid gas-map search configuration')
+
+        c_kms = 299792.458
+        lo = z_system - half_width / c_kms
+        hi = z_system + half_width / c_kms
+        if lo <= -1:
+            return fallback('unusable gas-map redshift bounds')
+        diagnostic(f'search centered on v={z_system*c_kms:.1f} km/s, '
+                   f'half-width={half_width:g} km/s '
+                   f'([{lo*c_kms:.1f}, {hi*c_kms:.1f}] km/s)')
+        select = ((wave >= (rest_min-pad)*(1.0+lo)) &
+                  (wave <= (rest_max+pad)*(1.0+hi)))
+        if np.count_nonzero(select) < 30:
+            return fallback('insufficient [NII]--[SII] wavelength coverage')
+        w = wave[select]
+        rest_catalog = np.asarray(tab_el['wl'], float)
+        if rest_catalog.ndim != 1:
+            return fallback('invalid emission-line catalogue')
+        catalog = tab_el[(rest_catalog >= rest_min) &
+                         (rest_catalog <= rest_max) & np.isfinite(rest_catalog)]
+        if len(catalog) < n_matches_min:
+            return fallback('insufficient [NII]--[SII] reference lines')
+        coords = np.column_stack((np.asarray(tab_pt['ra'], float),
+                                  np.asarray(tab_pt['dec'], float)))
+        if coords.shape != (nf, 2):
+            return fallback('inconsistent RSS fiber coordinates')
+    except Exception as exc:
+        diagnostic(f'prepass initialization: {exc}')
+        return fallback('unusable gas-map inputs')
+
     measured_z = np.full(nf, np.nan)
     sn = np.full(nf, np.nan)
     n_matched = np.zeros(nf, dtype=int)
-    coords = np.column_stack((np.asarray(tab_pt['ra'], float),
-                              np.asarray(tab_pt['dec'], float)))
+    dw = np.gradient(w)
+    n_failed = 0
     for i in range(nf):
-        good = (~bad[i, select] & np.isfinite(flux[i, select]) &
-                np.isfinite(err[i, select]) & (err[i, select] > 0))
-        if good.sum() < 30:
-            continue
-        lsf_i = lsf[i, select]
-        if np.any(~np.isfinite(lsf_i) | (lsf_i <= 0)):
-            # Do not let a single invalid LSF sample discard a good fiber.
-            good_lsf = np.isfinite(lsf_i) & (lsf_i > 0)
-            if good_lsf.sum() < 2:
-                continue
-            lsf_i = np.interp(w, w[good_lsf], lsf_i[good_lsf])
-        z0 = float(stellar_z[i]) if np.isfinite(stellar_z[i]) else z_system
         try:
+            good = (~bad[i, select] & np.isfinite(flux[i, select]) &
+                    np.isfinite(err[i, select]) & (err[i, select] > 0))
+            if np.count_nonzero(good) < 30:
+                continue
+            lsf_i = np.asarray(lsf[i, select], float)
+            good_lsf = np.isfinite(lsf_i) & (lsf_i > 0)
+            if np.count_nonzero(good_lsf) < 2:
+                continue
+            if not np.all(good_lsf):
+                lsf_i = np.interp(w, w[good_lsf], lsf_i[good_lsf])
+
+            # Cover all possible line positions over +/-half_width, not only
+            # the position implied by the stellar velocity. The decomposition
+            # accepts one mask_nsigma for all lines: compute the minimum
+            # expansion needed for every catalogue line at the systemic z.
+            centers = np.asarray(catalog['wl'], float) * (1.0+z_system)
+            sigma_lines = np.interp(centers, w, lsf_i,
+                                    left=np.nan, right=np.nan)
+            if np.any(~np.isfinite(sigma_lines) | (sigma_lines <= 0)):
+                continue
+            mask_nsigma = 3.0 + float(np.max(
+                (np.asarray(catalog['wl'], float) * half_width / c_kms)
+                / sigma_lines))
             d = decompose_spectrum_masked_iterative(
-                w, flux[i, select], tab_el=catalog, redshift=z0,
-                lsf=lsf_i, bad_pixel_mask=bad[i, select], mask_nsigma=3.0,
+                w, flux[i, select], tab_el=catalog, redshift=z_system,
+                lsf=lsf_i, bad_pixel_mask=bad[i, select],
+                mask_nsigma=mask_nsigma,
                 n_narrow=int(getattr(args, 'n_narrow', 3)),
                 n_medium=int(getattr(args, 'n_medium', 5)),
                 n_broad=int(getattr(args, 'n_broad', 21)),
@@ -4649,7 +4705,7 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                 degree=int(getattr(args, 'n_leg', 11)))
             gas = np.asarray(d['eline_residual'], float)
             candidate = estimate_gas_redshift(
-                wl=w, flux=gas, eflux=err[i, select], z=z0,
+                wl=w, flux=gas, eflux=err[i, select], z=z_system,
                 z_min=lo, z_max=hi,
                 peak_threshold=float(getattr(args, 'gas_map_peak_threshold', 2.0)),
                 n_cut_peaks=float(getattr(args, 'n_cut_peaks', 1.0)),
@@ -4658,72 +4714,73 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                 reference_wavelength_range=(rest_min, rest_max),
                 return_details=True, sn_weighted=True,
                 return_all_solutions=True)
-        except (ValueError, RuntimeError, FloatingPointError, IndexError) as exc:
-            if bool(getattr(args, 'verbose', False)):
-                print(f'# Gas map fiber {i}: {exc}')
+            for sol in candidate['solutions']:
+                if sol['n_matches'] < n_matches_min:
+                    continue
+                line_sn = {}
+                for match in sol['matches']:
+                    key = float(match['rest_wave'])
+                    if key in line_sn:
+                        continue
+                    center = key * (1.0 + sol['z'])
+                    width = float(np.interp(center, w, lsf_i,
+                                            left=np.nan, right=np.nan))
+                    if not np.isfinite(width) or width <= 0:
+                        continue
+                    region = good & (np.abs(w-center) <= 3.0*width)
+                    if np.count_nonzero(region) < 2:
+                        continue
+                    value = float(np.sum(gas[region] * dw[region]))
+                    noise = float(np.sqrt(np.sum((err[i, select][region]
+                                                  * dw[region])**2)))
+                    if noise > 0:
+                        line_sn[key] = value/noise
+                significant = [v for v in line_sn.values()
+                               if np.isfinite(v) and v >= sn_cut]
+                if (len(significant) >= n_matches_min and
+                        np.all(np.isfinite(coords[i]))):
+                    measured_z[i] = sol['z']
+                    sn[i] = float(min(significant))
+                    n_matched[i] = len(significant)
+                    break
+        except Exception as exc:
+            n_failed += 1
+            diagnostic(f'fiber {i}: {exc}; retained for interpolation/fallback')
             continue
-        # Examine S/N-ranked redshift alternatives, not only the highest
-        # catalog-weight solution. A solution is an anchor only when the
-        # configured number of DISTINCT matched lines individually exceeds
-        # the required integrated S/N. No new thresholds or flux constraints.
-        dw = np.gradient(w)
-        for sol in candidate['solutions']:
-            if sol['n_matches'] < n_matches_min:
-                continue
-            line_sn = {}
-            for match in sol['matches']:
-                key = float(match['rest_wave'])
-                if key in line_sn:
-                    continue
-                center = key * (1.0 + sol['z'])
-                width = float(np.interp(center, w, lsf_i, left=np.nan, right=np.nan))
-                if not np.isfinite(width) or width <= 0:
-                    continue
-                region = good & (np.abs(w-center) <= 3.0*width)
-                if np.count_nonzero(region) < 2:
-                    continue
-                value = float(np.sum(gas[region] * dw[region]))
-                noise = float(np.sqrt(np.sum((err[i, select][region]*dw[region])**2)))
-                if noise > 0:
-                    line_sn[key] = value/noise
-            if not line_sn:
-                continue
-            # Diagnostic S/N is the weakest of the qualifying matched lines;
-            # it directly represents the criterion that created the anchor.
-            significant = [v for v in line_sn.values() if np.isfinite(v) and v >= sn_cut]
-            if len(significant) >= n_matches_min and np.all(np.isfinite(coords[i])):
-                measured_z[i] = sol['z']
-                sn[i] = float(min(significant))
-                n_matched[i] = len(significant)
-                break
 
     anchors = np.isfinite(measured_z)
-    # The fallback is the already interpolated stellar map, NOT a failed
-    # per-fiber gas peak match. This includes the zero-gas-anchor case.
-    interp_z = np.where(np.isfinite(stellar_z), stellar_z, z_system).copy()
+    interp_z = stellar_fallback.copy()
     sources = np.full(nf, 'stellar', dtype='U12')
     if np.any(anchors):
-        # Nearest is available for 1+ anchors. Linear interpolation is used
-        # only for a nondegenerate two-dimensional distribution.
         keep = np.all(np.isfinite(coords), axis=1)
-        interp_z[keep] = griddata(coords[anchors], measured_z[anchors],
-                                  coords[keep], method='nearest')
+        idx = np.where(keep)[0]
+        try:
+            nearest = griddata(coords[anchors], measured_z[anchors],
+                               coords[keep], method='nearest')
+            valid = np.isfinite(nearest)
+            interp_z[idx[valid]] = nearest[valid]
+            sources[idx[valid]] = 'interpolated'
+        except Exception as exc:
+            diagnostic(f'nearest gas interpolation: {exc}; retaining stellar fallback')
         xy = coords[anchors]
-        if (anchors.sum() >= 3 and
-                np.linalg.matrix_rank(xy-xy.mean(axis=0)) == 2):
+        if anchors.sum() >= 3:
             try:
-                linear = griddata(xy, measured_z[anchors], coords[keep],
-                                  method='linear')
-                idx = np.where(keep)[0]
-                interp_z[idx[np.isfinite(linear)]] = linear[np.isfinite(linear)]
-            except (ValueError, RuntimeError):
-                pass
+                if np.linalg.matrix_rank(xy - xy.mean(axis=0)) == 2:
+                    linear = griddata(xy, measured_z[anchors],
+                                      coords[keep], method='linear')
+                    valid = np.isfinite(linear)
+                    interp_z[idx[valid]] = linear[valid]
+                    sources[idx[valid]] = 'interpolated'
+            except Exception as exc:
+                diagnostic(f'linear gas interpolation: {exc}; retaining nearest/fallback')
         interp_z[anchors] = measured_z[anchors]
-        sources[np.isfinite(interp_z)] = 'interpolated'
         sources[anchors] = 'measured'
-    if not np.any(anchors):
+    else:
         print('# Gas map: no reliable emission-line anchors; adopting the '
               'interpolated stellar redshift map for ALL fibers')
+    if n_failed:
+        print(f'# Gas map: {n_failed}/{nf} fiber prepass failures; '
+              'RSS analysis continues')
     return {'z_gas_measured': measured_z, 'z_gas_interpolated': interp_z,
             'sn_gas': sn, 'n_matches': n_matched, 'source': sources}
 

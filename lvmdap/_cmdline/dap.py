@@ -739,7 +739,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # Gas-velocity map from the original RSS before the full EL fitting pass.
     gas_map = None
     if str_to_bool(getattr(args, 'gas_map_enabled', True)):
-        print('# Gas-velocity prepass: Hbeta to [SII]')
+        print('# Gas-velocity prepass: [NII] 6548 to [SII] 6731')
         gas_map = estimate_rss_gas_velocity_map(
             wl__w, rss_flux, rss_eflux, LSF_rss, tab_el, tab_PT,
             np.asarray(tab_rsp_interp['z'], float), args,
