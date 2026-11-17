@@ -109,6 +109,17 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     input_mask = input_mask_org[tab_PT_org['mask']]
     bad_pixels = bad_pixels_org[tab_PT_org['mask']]
     hdr_flux=copy(hdr_flux_org)
+    # Combine DRP and configured observed-frame wavelength exclusions once.
+    # This mask is shared by integrated weighting, redshift search and RSS fits.
+    general_wave_mask = load_general_wavelength_mask(
+        wl__w,
+        mask_file=getattr(args, 'mask_file', None),
+        sky_lines_file=getattr(args, 'emission_lines_file_sky', None),
+        sky_half_width=getattr(args, 'sky_mask_half_width', None),
+    )
+    bad_pixels |= general_wave_mask[np.newaxis, :]
+    print(f'# General wavelength mask: {np.count_nonzero(general_wave_mask)} '
+          f'/ {general_wave_mask.size} wavelength samples excluded')
     hdr_flux['NAXIS2']=len(tab_PT)
     print(f'# Number of spectra to analyze : {len(tab_PT)}')
     _mem.report('after_fiber_selection', arrays={'rss_flux_org': rss_flux_org, 'rss_flux': rss_flux, 'rss_eflux_org': rss_eflux_org, 'rss_eflux': rss_eflux, 'LSF_rss_org': LSF_rss_org, 'LSF_rss': LSF_rss, 'input_mask': input_mask, 'bad_pixels': bad_pixels})
@@ -176,12 +187,14 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         SN_threshold=args.SN_CUT,
         we_range=(6500, 6600),
         cw_range=(6400, 6500),
-        bad_pixels=bad_pixels
+        bad_pixels=bad_pixels,
+        z_guess=args.redshift[0],
     )
 
     int_flux = integrated['int_flux']
     int_eflux = integrated['int_eflux']
     int_flux_we = integrated['int_flux_we']
+    int_eflux_we = integrated['int_eflux_we']
     int_flux_cw = integrated['int_flux_cw']
     int_flux_w_ce = integrated['int_flux_w_ce']
     rat_flux_cw = integrated['rat_flux_cw']
@@ -212,17 +225,25 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # START: Automatic search of the guess redshift
     #####################################################################
 
-    (args,
+    gas_args = copy(args)
+    (gas_args,
      out_decompose_flux_rss,
      find_z_out_w,
      z_guess) = estimate_integrated_redshift(
          wl__w,
-         int_flux_cw,
-         e_flux,
-         args,
-         m_flux_SN=m_flux_SN
+         int_flux_we,
+         int_eflux_we,
+         gas_args,
+         m_flux_SN=m_flux_SN,
+         gas_region_only=True,
+         wavelength_mask=general_wave_mask,
      )
 
+
+    # The emission-line-weighted decomposition establishes the gas seed;
+    # the stellar RSP fit below independently determines z_stars.
+    z_gas = float(z_guess)
+    print(f'# Integrated gas redshift: {z_gas:.8f}')
 
     #####################################################################
     # END: Automatic redefine the guess redshift
@@ -294,6 +315,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         hdr_flux=hdr_flux,
         args_copy=args,
         z_guess=args.redshift[0],
+        z_gas_input=z_gas,
+        gas_velocity_fixed=False,
         plot=args.plot,
         adopt_st_z = True,
         SN_cut_st_z = args.SN_CUT_INT, 
@@ -310,6 +333,21 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         empirical_errors = empirical_errors,
         pm_strong_clusters=pm_strong_clusters,
     )
+    # Read the stellar-population solution, not the emission-line redshift.
+    z_stars = float(tab_m_rsp['redshift'][0])
+    if not np.isfinite(z_stars):
+        z_stars = float(args.redshift[0])
+    print(f'# Integrated stellar redshift: {z_stars:.8f}')
+    # Keep distinct stellar and gas estimates, in absolute redshift units.
+    # Widen only the search bounds; preserve the configured step and all fits.
+    delta_z = float(getattr(args, 'velocity_tolerance', 100.0)) / __c__
+    if args.auto_redshift:
+        args.redshift[0] = z_stars
+    args.redshift[2] = min(z_stars, z_gas) - delta_z
+    args.redshift[3] = max(z_stars, z_gas) + delta_z
+    print(f'# Combined stellar/gas redshift range: '
+          f'{args.redshift[2]:.8f} .. {args.redshift[3]:.8f} '
+          f'(tolerance={getattr(args, "velocity_tolerance", 100.0)} km/s)')
     print(f'### END RSP fitting the integrated spectrum ###')
 
     label_strongest_line = 'Halpha_6562.85'

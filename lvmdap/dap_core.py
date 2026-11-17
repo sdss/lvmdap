@@ -1913,6 +1913,69 @@ def create_dap_info_hdu(args):
 # -----------------------------------------------------------------------
 
 
+def load_general_wavelength_mask(wl, mask_file=None, sky_lines_file=None,
+                                 sky_half_width=None):
+    """Return observed-frame exclusions defined by the DAP configuration.
+
+    FIT3D mask-file: two Angstrom boundaries per non-comment line.
+    Sky-line list: first column is the observed wavelength (Angstrom).
+    Sky line widths are NOT supplied by the list; by default exclude only
+    wavelength samples whose pixel bin contains a listed line center.
+    A positive sky_mask_half_width explicitly enlarges that exclusion.
+    """
+    wave = np.asarray(wl, dtype=float)
+    excluded = np.zeros(wave.shape, dtype=bool)
+
+    def active(path):
+        return path is not None and str(path).strip().lower() not in ('', 'none')
+
+    if active(mask_file):
+        with open(mask_file, encoding='utf-8') as stream:
+            for line_number, raw in enumerate(stream, 1):
+                values = raw.split('#', 1)[0].split()
+                if not values:
+                    continue
+                if len(values) != 2:
+                    raise ValueError(f'{mask_file}:{line_number}: expected two wavelength bounds')
+                low, high = map(float, values)
+                if not np.isfinite(low) or not np.isfinite(high) or low >= high:
+                    raise ValueError(f'{mask_file}:{line_number}: invalid wavelength bounds')
+                excluded |= (wave >= low) & (wave <= high)
+
+    if active(sky_lines_file):
+        if sky_half_width is None:
+            # Sampling-based minimum: mask the wavelength bin containing
+            # each sky line. This is NOT an assumed physical line width.
+            half = None
+            if wave.size < 2 or not np.all(np.diff(wave) > 0):
+                raise ValueError('Sky-line masking requires increasing wavelengths')
+            edges = np.r_[wave[0] - (wave[1] - wave[0]) / 2,
+                          (wave[1:] + wave[:-1]) / 2,
+                          wave[-1] + (wave[-1] - wave[-2]) / 2]
+        else:
+            half = float(sky_half_width)
+            if not np.isfinite(half) or half <= 0:
+                raise ValueError('sky_mask_half_width must be positive Angstrom')
+        with open(sky_lines_file, encoding='utf-8') as stream:
+            for line_number, raw in enumerate(stream, 1):
+                values = raw.split('#', 1)[0].split()
+                if not values:
+                    continue
+                try:
+                    center = float(values[0])
+                except ValueError as exc:
+                    raise ValueError(f'{sky_lines_file}:{line_number}: invalid sky wavelength') from exc
+                if not np.isfinite(center):
+                    raise ValueError(f'{sky_lines_file}:{line_number}: invalid sky wavelength')
+                if half is None:
+                    idx = int(np.searchsorted(edges, center, side='right') - 1)
+                    if 0 <= idx < wave.size:
+                        excluded[idx] = True
+                else:
+                    excluded |= np.abs(wave - center) <= half
+    return excluded
+
+
 def create_integrated_spectra(
     wl,
     rss_flux,
@@ -1923,7 +1986,9 @@ def create_integrated_spectra(
     SN_threshold=3,
     we_range=(6500, 6600),
     cw_range=(6400, 6500),
-    bad_pixels=None
+    bad_pixels=None,
+    z_guess=0.0,
+    ha_width=100.0,
 ):
     """
     Generate integrated spectra using several weighting schemes.
@@ -2051,16 +2116,40 @@ def create_integrated_spectra(
     # 2. Emission-line-weighted integrated spectrum
     # ---------------------------------------------------------
 
-    we_min, we_max = we_range
-    mask_we = (wl > we_min) & (wl < we_max)
+    # Halpha band (100 A) and its immediately adjacent 50-A continuum bands.
+    # Preserve the old we_range argument for API compatibility.
+    ha_center = 6562.85 * (1.0 + float(z_guess))
+    ha_half_width = ha_width / 2.0
+    continuum_width = ha_half_width
+    mask_we = ((wl >= ha_center - ha_half_width) &
+               (wl <= ha_center + ha_half_width))
+    mask_blue = ((wl >= ha_center - ha_half_width - continuum_width) &
+                 (wl < ha_center - ha_half_width))
+    mask_red = ((wl > ha_center + ha_half_width) &
+                (wl <= ha_center + ha_half_width + continuum_width))
+    if not (np.any(mask_we) and np.any(mask_blue) and np.any(mask_red)):
+        raise ValueError('Halpha or adjacent continuum band is outside the spectrum')
 
     with np.errstate(invalid='ignore'):
-        we = np.nanmean(masked_flux[:, mask_we], axis=1)
-    we = np.where(np.isfinite(we), we, 0.0)
-    if not np.isfinite(we.sum()) or we.sum() == 0:
+        ha_flux = np.nanmean(masked_flux[:, mask_we], axis=1)
+        blue_cont = np.nanmedian(masked_flux[:, mask_blue], axis=1)
+        red_cont = np.nanmedian(masked_flux[:, mask_red], axis=1)
+        we = ha_flux - 0.5 * (blue_cont + red_cont)
+    # A flux-weighted average requires non-negative weights. Do not clip
+    # the science spectra themselves or introduce a new fiber-selection cut.
+    we = np.where(np.isfinite(we), np.maximum(we, 0.0), 0.0)
+    if not np.any(we > 0):
         we = np.ones_like(we)
-    we_spec = we[:, np.newaxis] * np.ones_like(rss_flux) / we.sum()
+    we_spec = np.broadcast_to(we[:, None], rss_flux.shape)
     int_flux_we = nanaverage(masked_flux, we_spec, axis=0)
+    # Propagate the original independent 1-sigma errors under the SAME weights.
+    valid_we = (~bad_pixels) & np.isfinite(rss_flux) & np.isfinite(rss_eflux) & (rss_eflux > 0)
+    effective_we = np.where(valid_we, we_spec, 0.0)
+    sum_we = effective_we.sum(axis=0)
+    int_eflux_we = np.full(wl.shape, np.nan)
+    np.divide(np.sqrt(np.sum((effective_we * np.where(valid_we, rss_eflux, 0.0))**2,
+                              axis=0)), sum_we, out=int_eflux_we,
+              where=sum_we > 0)
 
     # ---------------------------------------------------------
     # 3. Continuum-weighted integrated spectrum
@@ -2104,6 +2193,7 @@ def create_integrated_spectra(
         'int_flux': int_flux,
         'int_eflux': int_eflux,
         'int_flux_we': int_flux_we,
+        'int_eflux_we': int_eflux_we,
         'int_flux_cw': int_flux_cw,
         'int_flux_w_ce': int_flux_w_ce,
         'rat_flux_cw': rat_flux_cw,
@@ -2512,10 +2602,12 @@ def estimate_integrated_redshift(
     int_flux_cw,
     e_flux,
     args,
-    m_flux_SN=None
+    m_flux_SN=None,
+    gas_region_only=False,
+    wavelength_mask=None,
 ):
     """
-    Estimate redshift from the continuum-weighted integrated spectrum.
+    Estimate redshift from the supplied integrated spectrum.
 
     Uses spectral decomposition, emission-line peak detection,
     and weighted emission-line matching with group bonuses.
@@ -2596,6 +2688,13 @@ def estimate_integrated_redshift(
         raise ValueError('wl__w and int_flux_cw must be matching 1D arrays')
     if not np.all(np.isfinite(wave_z)) or not np.all(np.diff(wave_z) > 0):
         raise ValueError('Peak detection requires finite increasing wavelengths')
+    excluded_z = (np.zeros(wave_z.shape, dtype=bool) if wavelength_mask is None
+                  else np.asarray(wavelength_mask, dtype=bool))
+    if excluded_z.shape != wave_z.shape:
+        raise ValueError('wavelength_mask must match the wavelength grid')
+    # Excluded pixels are interpolated only to stabilize decomposition.
+    # They cannot become candidate emission-line centers.
+    flux_z[excluded_z] = np.nan
     valid_input_z = np.isfinite(flux_z)
     if np.count_nonzero(valid_input_z) < 3:
         raise ValueError('Too few valid samples to estimate integrated redshift')
@@ -2653,7 +2752,7 @@ def estimate_integrated_redshift(
         peak_threshold=peak_threshold,
         dmin=0.3,
         plot=args.plot,
-        verbose=0
+        verbose=args.verbose
     )
 
     w_peaks = np.atleast_1d(np.asarray(w_peaks, dtype=float))
@@ -2738,6 +2837,15 @@ def estimate_integrated_redshift(
     )
 
     obs_waves = w_peaks[mask_good_peaks]
+    if gas_region_only:
+        # Search only the redshift-expanded [N II] 6548 -- [S II] 6731 region.
+        # Both ends account for the full configured redshift interval.
+        line_low = 6548.05 * (1.0 + z_min)
+        line_high = 6730.82 * (1.0 + z_max)
+        obs_waves = obs_waves[(obs_waves >= line_low) &
+                              (obs_waves <= line_high)]
+        print(f'# Gas search window: {line_low:.2f} -- {line_high:.2f} Angstrom; '
+              f'{len(obs_waves)} detected peaks')
 
     # ---------------------------------------------------------
     # 5. Prepare reference emission lines
@@ -2820,6 +2928,54 @@ def estimate_integrated_redshift(
         )
 
     print(f'# Guess redshift = {z_guess}')
+
+    # Plot the gas-weighted integrated-spectrum diagnostics without modifying
+    # the arrays or selections used by the redshift estimator.
+    if gas_region_only and bool(getattr(args, 'plot', False)):
+        import matplotlib.pyplot as plt
+
+        line_low = 6548.05 * (1.0 + z_min)
+        line_high = 6730.82 * (1.0 + z_max)
+        region = (wave_z >= line_low) & (wave_z <= line_high)
+        stellar_component = np.asarray(
+            out_decompose_flux_rss['st_flux_cw'], dtype=float
+        )
+        fig, (ax_full, ax_gas) = plt.subplots(2, 1, figsize=(13, 8))
+        try:
+            ax_full.plot(wave_z, flux_z, color='black', lw=0.7,
+                         label='Gas-weighted integrated spectrum')
+            ax_full.plot(wave_z, stellar_component, color='tab:orange',
+                         lw=0.8, label='Continuum / line-free component')
+            ax_full.axvspan(line_low, line_high, color='tab:green',
+                            alpha=0.12, label='[N II] to [S II] search window')
+            ax_full.set_ylabel('Flux density')
+            ax_full.legend(loc='best')
+
+            ax_gas.plot(wave_z[region], eline_z[region], color='tab:blue',
+                        lw=1.0, label='Decomposed emission-line residual')
+            ax_gas.axhline(0, color='gray', lw=0.6)
+            # Display all detected peaks separately from peaks passing the
+            # existing significance criteria; neither selection is changed.
+            detected = (w_peaks >= line_low) & (w_peaks <= line_high)
+            if np.any(detected):
+                ax_gas.scatter(w_peaks[detected], f_peaks[detected],
+                               marker='x', color='tab:orange', s=35,
+                               label='Detected peaks', zorder=3)
+            if obs_waves.size:
+                selected_flux = np.interp(obs_waves, wave_z, eline_z)
+                ax_gas.scatter(obs_waves, selected_flux, marker='o',
+                               facecolors='none', edgecolors='tab:red',
+                               s=75, label='Selected gas peaks', zorder=4)
+            ax_gas.set_xlim(line_low, line_high)
+            ax_gas.set_xlabel('Observed wavelength (Angstrom)')
+            ax_gas.set_ylabel('Emission-line residual')
+            ax_gas.legend(loc='best')
+            fig.suptitle(f'Gas redshift diagnostic: z_gas = {z_guess:.8f}')
+            fig.tight_layout()
+            plt.show(block=True)
+        finally:
+            plt.close(fig)
+
 
     # ---------------------------------------------------------
     # 9. Update DAP parameters if requested
