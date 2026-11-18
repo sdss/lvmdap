@@ -3601,21 +3601,32 @@ def read_DAP_file(dap_file, verbose=False):
         if 'id' not in long_tab.colnames:
             raise KeyError("Input long table lacks the 'id' column")
 
-        result = None
-        for group in np.unique(long_tab[group_col]):
+        # Build the wide result once instead of repeatedly joining an
+        # increasingly wide table (costly for thousands of fibers/templates).
+        ids, id_inverse = np.unique(np.asarray(long_tab['id']),
+                                    return_inverse=True)
+        groups, group_inverse = np.unique(np.asarray(long_tab[group_col]),
+                                          return_inverse=True)
+        result = Table()
+        result['id'] = ids
+        for group_index, group in enumerate(groups):
             if group_col == 'wl' and (not np.isfinite(group) or group <= 0):
                 continue
-            rows = long_tab[long_tab[group_col] == group]
             suffix = (f'{float(group):.2f}' if group_col == 'wl'
                       else group_fmt.format(group))
-            temp = rows[['id'] + values].copy()
+            rows = np.flatnonzero(group_inverse == group_index)
+            indices = id_inverse[rows]
+            if len(np.unique(indices)) != len(indices):
+                raise ValueError(f'{group_col}={suffix}: duplicate fiber IDs in input')
             for col in values:
-                temp.rename_column(col, f'{col}_{suffix}')
-            if result is None:
-                result = temp
-            else:
-                result = right_join(result, temp, f'{group_col}={suffix}')
-        return result
+                name = f'{col}_{suffix}'
+                if name in result.colnames:
+                    raise ValueError(f'{group_col}: output column collision: {name}')
+                source = np.ma.asarray(long_tab[col][rows])
+                output = np.ma.masked_all(len(ids), dtype=source.dtype)
+                output[indices] = source
+                result[name] = output
+        return result if len(result.colnames) > 1 else None
 
     with fits.open(dap_file, memmap=True) as dap_hdu:
         version_string = str(dap_hdu[0].header.get('DAP_VER', '0.0.0')).strip()
@@ -3630,6 +3641,22 @@ def read_DAP_file(dap_file, verbose=False):
             print(f'# LVM-DAP version: {version_string} ({"2.x" if is_v2 else "legacy"})')
 
         tab_PT = Table(dap_hdu['PT'].data)
+        # DRP velocities are topocentric: the header correction is to be
+        # ADDED to a measured velocity to obtain its heliocentric value.
+        # Propagate the original correction; do not alter any fitted velocity.
+        header = dap_hdu[0].header
+        helio = next((header[key] for key in
+                      ('WAVE HELIORV_SCI', 'HELIORV_SCI', 'HVCOR')
+                      if key in header), np.nan)
+        helio = float(helio)
+        if not np.isfinite(helio):
+            warnings.warn(f'{dap_file}: no finite heliocentric correction in primary header')
+        if 'HVCOR' in tab_PT.colnames:
+            raise ValueError('PT already contains HVCOR; refusing to overwrite it')
+        tab_PT['HVCOR'] = np.full(len(tab_PT), helio, dtype=float)
+        tab_PT['HVCOR'].unit = 'km / s'
+        tab_PT['HVCOR'].description = ('Add to uncorrected observed velocity '
+                                       'to obtain heliocentric velocity')
         tab_RSP = Table(dap_hdu['RSP'].data)
         tab_COEFFS = Table(dap_hdu['COEFFS'].data)
         tab_PE = (Table(dap_hdu['PM_ELINES'].data)
