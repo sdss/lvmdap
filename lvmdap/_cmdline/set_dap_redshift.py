@@ -93,10 +93,11 @@ def _main(cmd_args=sys.argv[1:]):
          f"'{HVCOR_KEY}'. Pass 0 to disable the correction."
   )
   parser.add_argument(
-    "--hvcor-sign", type=np.float64, default=+1.0, choices=[+1.0, -1.0],
-    help="sign with which HVCOR is added to the Gaia velocity. Use -1 if "
-         "the spectra being fitted are already in the heliocentric frame. "
-         "Defaults to +1."
+    "--hvcor-sign", type=np.float64, default=-1.0, choices=[+1.0, -1.0],
+    help="sign applied to HVCOR when converting Gaia heliocentric "
+         "velocity to the observed spectral frame. Use -1 for standard "
+         "LVM SFrames without heliocentric wavelength correction. "
+         "Defaults to -1."
   )
   parser.add_argument(
     "--ny-range", type=np.int64, nargs=2, default=None,
