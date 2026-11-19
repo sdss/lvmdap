@@ -592,27 +592,28 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     hdr_0['dap_ver']=dap_ver
     hdr_0['dap_date']=dap_date   
     hdu_m_hdr_0 = fits.PrimaryHDU(header=hdr_0) 
-    hdu_m_FE_B = fits.BinTableHDU(tab_m_fe_B,name='NP_ELINES_B')
-    hdu_m_FE_R = fits.BinTableHDU(tab_m_fe_R,name='NP_ELINES_R')
-    hdu_m_FE_I = fits.BinTableHDU(tab_m_fe_I,name='NP_ELINES_I')
-    hdu_m_PM_B = fits.BinTableHDU(tab_m_PM_B,name='PM_ELINES_B')
-    hdu_m_PM_R = fits.BinTableHDU(tab_m_PM_R,name='PM_ELINES_R')
-    hdu_m_PM_I = fits.BinTableHDU(tab_m_PM_I,name='PM_ELINES_I')
     tab_m_best_B, tab_m_best_R, tab_m_best_I = split_fe_table(
         tab_m_best, w_br=FIT_QUALITY_W_BR, w_ri=FIT_QUALITY_W_RI)
     hdu_m_RSP = fits.BinTableHDU(tab_m_rsp,name='RSP')
     hdu_m_COEFFS = fits.BinTableHDU(tab_m_coeffs,name='COEFFS')
-    hdu_m_dap =fits.HDUList([hdu_m_hdr_0,hdu_m_RSP,hdu_m_COEFFS,\
-                           hdu_m_FE_B,hdu_m_FE_R,hdu_m_FE_I,hdu_m_PM_B,hdu_m_PM_R,hdu_m_PM_I,\
-                            hdu_info])
+    hdu_m_dap = fits.HDUList([hdu_m_hdr_0, hdu_m_RSP, hdu_m_COEFFS])
+    for method, bands in (
+        ('NP', (tab_m_fe_B, tab_m_fe_R, tab_m_fe_I)),
+        ('PM', (tab_m_PM_B, tab_m_PM_R, tab_m_PM_I)),
+    ):
+        for band, table in zip(('B', 'R', 'I'), bands):
+            hdu_m_dap.extend(split_fits_emission_hdus(
+                table, f'{method}_ELINES_{band}'))
+    hdu_m_dap.append(hdu_info)
     for band, table in (('B', tab_m_best_B), ('R', tab_m_best_R),
                         ('I', tab_m_best_I)):
-        hdu_m_dap.append(fits.BinTableHDU(table, name=f'BEST_ELINES_{band}'))
+        hdu_m_dap.extend(split_fits_emission_hdus(table, f'BEST_ELINES_{band}'))
     if tab_m_PEK is not None:
         tab_m_PEK_B, tab_m_PEK_R, tab_m_PEK_I = split_fe_table(
             tab_m_PEK, w_br=FIT_QUALITY_W_BR, w_ri=FIT_QUALITY_W_RI)
         for band, table in (('B', tab_m_PEK_B), ('R', tab_m_PEK_R), ('I', tab_m_PEK_I)):
-            hdu_m_dap.append(fits.BinTableHDU(table, name=f'PEK_ELINES_{band}'))
+            hdu_m_dap.extend(split_fits_emission_hdus(
+                table, f'PEK_ELINES_{band}'))
     out_file_m_dap = os.path.join(args.output_path, f"m_{args.label}.dap.fits.gz")
     hdu_m_dap.writeto(out_file_m_dap,overwrite=True)
 
@@ -1219,27 +1220,29 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         print(f'# Wrote WCS-registered parameter cubes: {out_file_dap}')
     else:
         hdu_PT = fits.BinTableHDU(tab_PT,name='PT')
-        hdu_FE_B = fits.BinTableHDU(tab_fe_B,name='NP_ELINES_B')
-        hdu_FE_R = fits.BinTableHDU(tab_fe_R,name='NP_ELINES_R')
-        hdu_FE_I = fits.BinTableHDU(tab_fe_I,name='NP_ELINES_I')
-        hdu_PM_B = fits.BinTableHDU(tab_PM_B,name='PM_ELINES_B')
-        hdu_PM_R = fits.BinTableHDU(tab_PM_R,name='PM_ELINES_R')
-        hdu_PM_I = fits.BinTableHDU(tab_PM_I,name='PM_ELINES_I')
         hdu_RSP = fits.BinTableHDU(tab_rsp,name='RSP')
         hdu_COEFFS = fits.BinTableHDU(tab_coeffs,name='COEFFS')
         hdu_mask = fits.ImageHDU(data=input_mask, name='MASK')
         hdu_mask.header['COMMENT'] = 'Original DRP bitmask; nonzero marks a flagged pixel'
         hdu_badpix = fits.ImageHDU(data=bad_pixels.astype(np.uint8), name='BADPIX')
         hdu_badpix.header['COMMENT'] = 'Effective bad-pixel mask; 1=excluded/filled'
-        hdu_dap =fits.HDUList([hdu_hdr_0,hdu_PT,hdu_RSP,hdu_COEFFS,\
-                               hdu_FE_B,hdu_FE_R,hdu_FE_I,hdu_PM_B,hdu_PM_R,hdu_PM_I])
+        hdu_dap = fits.HDUList([hdu_hdr_0, hdu_PT, hdu_RSP, hdu_COEFFS])
+        for method, bands in (
+            ('NP', (tab_fe_B, tab_fe_R, tab_fe_I)),
+            ('PM', (tab_PM_B, tab_PM_R, tab_PM_I)),
+        ):
+            for band, table in zip(('B', 'R', 'I'), bands):
+                hdu_dap.extend(split_fits_emission_hdus(
+                    table, f'{method}_ELINES_{band}'))
         out_file_dap = os.path.join(args.output_path, f"{args.label}.dap.fits.gz")
         if tab_PEK is not None:
             for band, table in (('B', tab_PEK_B), ('R', tab_PEK_R), ('I', tab_PEK_I)):
-                hdu_dap.append(fits.BinTableHDU(table, name=f'PEK_ELINES_{band}'))
+                hdu_dap.extend(split_fits_emission_hdus(
+                    table, f'PEK_ELINES_{band}'))
         for band, table in (('B', tab_best_B), ('R', tab_best_R),
                             ('I', tab_best_I)):
-            hdu_dap.append(fits.BinTableHDU(table, name=f'BEST_ELINES_{band}'))
+            hdu_dap.extend(split_fits_emission_hdus(
+                table, f'BEST_ELINES_{band}'))
         hdu_dap.append(hdu_avg_el_fit_qa)
         hdu_dap.append(hdu_avg_param_stats)
         hdu_dap.append(hdu_mask)

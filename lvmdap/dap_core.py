@@ -5058,9 +5058,11 @@ def fit_pm_cluster_scipy(wl, gas_spec, eflux, lsf, cluster, z, args,
                         sigma_0 = float(np.sqrt(max(0.0, intrinsic_var)))
     velocity_bounds = getattr(args, 'pm_scipy_velocity_bounds', None)
     if velocity_bounds is None:
-        # FIT3D uses velocity_range=30 km/s around the current redshift.
+        # Match the FIT3D PM velocity interval configured in the YAML.
         velocity_center = float(z) * c_kms
-        velocity_bounds = (velocity_center - 30.0, velocity_center + 30.0)
+        velocity_range = float(getattr(args, 'velocity_tolerance', 30.0))
+        velocity_bounds = (velocity_center - velocity_range,
+                           velocity_center + velocity_range)
     velocity_bounds = tuple(map(float, velocity_bounds))
     sigma_kms_bounds = getattr(args, 'pm_scipy_sigma_kms_bounds', None)
 
@@ -5849,7 +5851,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
                         line_wavelengths=rest_waves,
                         redshift=z,
                         fit_padding=30,
-                        velocity_range=30,
+                        velocity_range=float(getattr(args, 'velocity_tolerance', 30.0)),
                         fixed_velocity=bool(gas_velocity_fixed and z_gas_input is not None),
                         sigma_guess=sigma_guess,
                         sigma_bounds=(sigma_min, sigma_max),
@@ -5902,7 +5904,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
                             redshift=z,
                             initial_velocity=restart_v,
                             fit_padding=30,
-                            velocity_range=30,
+                            velocity_range=float(getattr(args, 'velocity_tolerance', 30.0)),
                             fixed_velocity=bool(gas_velocity_fixed and z_gas_input is not None),
                             sigma_guess=restart_sigma,
                             sigma_bounds=(sigma_min, sigma_max),
@@ -6410,19 +6412,40 @@ def split_fe_table(tab_fe, w_br=FIT_QUALITY_W_BR, w_ri=FIT_QUALITY_W_RI):
     tab_fe_R = tab_fe[id_columns + colnames_R]
     tab_fe_I = tab_fe[id_columns + colnames_I]
 
-    # FITS binary tables support at most 999 columns
-    for name, tab in (
-        ('B', tab_fe_B),
-        ('R', tab_fe_R),
-        ('I', tab_fe_I)
-    ):
-        if len(tab.colnames) > 999:
-            raise ValueError(
-                f'{name} table has {len(tab.colnames)} columns '
-                '(FITS maximum is 999)'
-            )
-
+    # Keep the full in-memory tables. FITS' 999-column limit is enforced
+    # during serialization by split_fits_emission_hdus(), not here.
     return tab_fe_B, tab_fe_R, tab_fe_I
+
+
+def split_fits_emission_hdus(table, ext_name, max_columns=999):
+    """Write a wide emission-line table across FITS-safe extensions.
+
+    The first chunk keeps the historical EXTNAME (e.g. NP_ELINES_B), and
+    overflow chunks become NP_ELINES_B2, NP_ELINES_B3, etc. Fiber identity
+    columns are repeated in every chunk so the reader can validate alignment.
+    No measurement values, masks, or fitting choices are changed.
+    """
+    if not (1 <= int(max_columns) <= 999):
+        raise ValueError('max_columns must be in 1..999')
+    identifiers = [name for name in ('id', 'id_fib', 'fiberid', 'ID')
+                   if name in table.colnames]
+    if 'id' not in identifiers:
+        raise KeyError(f'{ext_name}: missing id column')
+    capacity = int(max_columns) - len(identifiers)
+    if capacity < 1:
+        raise ValueError('No room for emission-line columns')
+
+    values = [name for name in table.colnames if name not in identifiers]
+    parts = [values[start:start + capacity]
+             for start in range(0, len(values), capacity)] or [[]]
+    result = []
+    for idx, value_columns in enumerate(parts, 1):
+        name = ext_name if idx == 1 else f'{ext_name}{idx}'
+        hdu = fits.BinTableHDU(table[identifiers + value_columns], name=name)
+        hdu.header['NCHUNKS'] = (len(parts), 'Number of chunks for this emission table')
+        hdu.header['CHUNK'] = (idx, 'One-based emission-table chunk index')
+        result.append(hdu)
+    return result
 
 
 

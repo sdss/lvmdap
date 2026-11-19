@@ -3562,6 +3562,41 @@ def read_DAP_file(dap_file, verbose=False):
                 tab.rename_column(col, new)
         return tab
 
+    def read_wide_emission_band(hdus, ext_name, suffix=''):
+        """Reassemble FITS-safe chunks of an emission-line band table.
+
+        A single-extension (legacy) band is read unchanged. For a chunked
+        table, every identity column must match in the same row order.
+        """
+        if ext_name not in hdus:
+            raise KeyError(f'Missing emission table extension {ext_name}')
+        table = Table(hdus[ext_name].data)
+        n_chunks = int(hdus[ext_name].header.get('NCHUNKS', 1))
+        if n_chunks < 1:
+            raise ValueError(f'{ext_name}: invalid NCHUNKS={n_chunks}')
+        identity = ('id', 'id_fib', 'fiberid', 'ID')
+        for part in range(2, n_chunks + 1):
+            chunk_name = f'{ext_name}{part}'
+            if chunk_name not in hdus:
+                raise KeyError(f'{ext_name}: missing chunk {chunk_name}')
+            chunk = Table(hdus[chunk_name].data)
+            if int(hdus[chunk_name].header.get('NCHUNKS', n_chunks)) != n_chunks:
+                raise ValueError(f'{chunk_name}: inconsistent NCHUNKS')
+            for key in identity:
+                if (key in table.colnames) != (key in chunk.colnames):
+                    raise ValueError(f'{chunk_name}: inconsistent identity column {key}')
+                if key in table.colnames and not np.array_equal(
+                    text_values(table[key]), text_values(chunk[key])
+                ):
+                    raise ValueError(f'{chunk_name}: fiber order differs for {key}')
+            for column in chunk.colnames:
+                if column in identity:
+                    continue
+                if column in table.colnames:
+                    raise ValueError(f'{chunk_name}: duplicated column {column}')
+                table.add_column(chunk[column].copy())
+        return normalize_line_identifiers(table, suffix=suffix)
+
     def combine_band_global_metrics(tables, method):
         """Keep one global diagnostic per method when joining B/R/I.
 
@@ -3669,9 +3704,9 @@ def read_DAP_file(dap_file, verbose=False):
         tab_COEFFS = Table(dap_hdu['COEFFS'].data)
         tab_PE = (Table(dap_hdu['PM_ELINES'].data)
                   if 'PM_ELINES' in dap_hdu else None)
-        tab_NPE_B = normalize_line_identifiers(Table(dap_hdu['NP_ELINES_B'].data))
-        tab_NPE_R = normalize_line_identifiers(Table(dap_hdu['NP_ELINES_R'].data))
-        tab_NPE_I = normalize_line_identifiers(Table(dap_hdu['NP_ELINES_I'].data))
+        tab_NPE_B = read_wide_emission_band(dap_hdu, 'NP_ELINES_B')
+        tab_NPE_R = read_wide_emission_band(dap_hdu, 'NP_ELINES_R')
+        tab_NPE_I = read_wide_emission_band(dap_hdu, 'NP_ELINES_I')
 
         # The long SPS PM_ELINES extension is optional for 2.x files; it is
         # not the same product as the wide PM_ELINES_B/R/I measurements.
@@ -3693,25 +3728,24 @@ def read_DAP_file(dap_file, verbose=False):
                     raise KeyError(
                         f'DAP_VER={version_string}: missing required extension {ext}'
                     )
-                tab_PM_bands[band] = normalize_line_identifiers(
-                    Table(dap_hdu[ext].data), suffix='_pm'
-                )
+                tab_PM_bands[band] = read_wide_emission_band(
+                    dap_hdu, ext, suffix='_pm')
 
         # Optional BEST measurements, chosen per line and fiber using X_sq.
         tab_BEST_bands = {}
         for band in ('B', 'R', 'I'):
             ext = f'BEST_ELINES_{band}'
             if ext in dap_hdu:
-                tab_BEST_bands[band] = normalize_line_identifiers(
-                    Table(dap_hdu[ext].data), suffix='_best')
+                tab_BEST_bands[band] = read_wide_emission_band(
+                    dap_hdu, ext, suffix='_best')
 
         # Optional PEK second-pass output (wide, suffix '_pek').
         tab_PEK_bands = {}
         for band in ('B', 'R', 'I'):
             ext = f'PEK_ELINES_{band}'
             if ext in dap_hdu:
-                tab_PEK_bands[band] = normalize_line_identifiers(
-                    Table(dap_hdu[ext].data), suffix='_pek')
+                tab_PEK_bands[band] = read_wide_emission_band(
+                    dap_hdu, ext, suffix='_pek')
 
     np_bands = {'B': tab_NPE_B, 'R': tab_NPE_R, 'I': tab_NPE_I}
     combine_band_global_metrics(np_bands, 'np')
