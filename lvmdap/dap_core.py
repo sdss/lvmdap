@@ -4140,9 +4140,9 @@ def fit_individual_rss_spectrum(
             print(f'# Adopting the redshift derived from the absorption lines: {z_st}')
             z = z_st
             args.redshift[0] = z_st
-            z_fit_min = z + (float(args.redshift[2]) - float(args.redshift[0]))
-            z_fit_max = z + (float(args.redshift[3]) - float(args.redshift[0]))
-
+            z_fit_min = z - 15/__c__ #(float(args.redshift[2]) - float(args.redshift[0]))
+            z_fit_max = z + 15/__c__ #(float(args.redshift[3]) - float(args.redshift[0]))
+            args.redshift[1] = 1/__c__
     # ------------------------------------------------------------
     # 3. Fit the stellar population model on line-subtracted flux.
     # ------------------------------------------------------------
@@ -4839,6 +4839,10 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
     n_matched = np.zeros(nf, dtype=int)
     dw = np.gradient(w)
     n_failed = 0
+    # Opt-in, single-line velocity anchors are kept distinct from multi-line ones.
+    halpha_only = np.zeros(nf, dtype=bool)
+    use_halpha_only = str_to_bool(getattr(args, 'gas_map_halpha_only_fallback', False))
+    ha_rest = float(REFERENCE_LINES['Halpha'])
     for i in range(nf):
         try:
             good = (~bad[i, select] & np.isfinite(flux[i, select]) &
@@ -4914,6 +4918,40 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                     sn[i] = float(min(significant))
                     n_matched[i] = len(significant)
                     break
+
+            # A clean, significant Halpha line can supply its OWN velocity
+            # when the required multi-line solution is unavailable. Reuse
+            # the exact peak selection, systemic search limits, and gas-map
+            # S/N requirement above; do not relax any existing threshold.
+            if (use_halpha_only and not np.isfinite(measured_z[i]) and
+                    rest_min <= ha_rest <= rest_max):
+                solo = estimate_gas_redshift(
+                    wl=w, flux=gas, eflux=err[i, select], z=z_system,
+                    z_min=lo, z_max=hi,
+                    peak_threshold=float(getattr(args, 'gas_map_peak_threshold', 2.0)),
+                    n_cut_peaks=float(getattr(args, 'n_cut_peaks', 1.0)),
+                    velocity_tolerance=float(getattr(args, 'velocity_tolerance', 100.0)),
+                    min_matches=1, bad_pixel_mask=bad[i, select],
+                    reference_wavelength_range=(ha_rest, ha_rest),
+                    return_details=True, sn_weighted=True)
+                if solo['n_matches'] == 1:
+                    center = ha_rest * (1.0 + solo['z'])
+                    width = float(np.interp(center, w, lsf_i,
+                                            left=np.nan, right=np.nan))
+                    if np.isfinite(width) and width > 0:
+                        region = good & (np.abs(w - center) <= 3.0 * width)
+                        if np.count_nonzero(region) >= 2:
+                            value = float(np.sum(gas[region] * dw[region]))
+                            noise = float(np.sqrt(np.sum(
+                                (err[i, select][region] * dw[region])**2)))
+                            if noise > 0 and value / noise >= sn_cut:
+                                measured_z[i] = float(solo['z'])
+                                sn[i] = value / noise
+                                n_matched[i] = 1
+                                halpha_only[i] = True
+                                diagnostic(f'fiber {i}: Halpha-only velocity '
+                                           f'{measured_z[i]*c_kms:.2f} km/s '
+                                           f'(S/N={sn[i]:.2f})')
         except Exception as exc:
             n_failed += 1
             diagnostic(f'fiber {i}: {exc}; retained for interpolation/fallback')
@@ -4946,12 +4984,20 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                 diagnostic(f'linear gas interpolation: {exc}; retaining nearest/fallback')
         interp_z[anchors] = measured_z[anchors]
         sources[anchors] = 'measured'
+        sources[halpha_only] = 'halpha_only'
     else:
         print('# Gas map: no reliable emission-line anchors; adopting the '
               'interpolated stellar redshift map for ALL fibers')
     if n_failed:
         print(f'# Gas map: {n_failed}/{nf} fiber prepass failures; '
               'RSS analysis continues')
+    # Optional zero-based RSS row diagnostics; no influence on any fit.
+    for idx in (getattr(args, 'gas_map_debug_fibers', None) or []):
+        ii = int(idx)
+        if 0 <= ii < nf:
+            print(f'# Gas map fiber {ii}: source={sources[ii]}, '
+                  f'v={interp_z[ii]*c_kms:.3f} km/s, '
+                  f'n_matches={n_matched[ii]}, S/N={sn[ii]:.3g}')
     return {'z_gas_measured': measured_z, 'z_gas_interpolated': interp_z,
             'sn_gas': sn, 'n_matches': n_matched, 'source': sources}
 
@@ -5625,7 +5671,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
         i0 = i_fib*n_rsp
         i1 = (i_fib+1)*n_rsp
         coeffs_input = tab_coeffs_adopt["N.Coeff"][i0:i1]/np.sum(tab_coeffs_adopt["N.Coeff"][i0:i1])
-        redshift = tab_rsp_adopt["redshift"][i_fib]+np.min(np.diff(wl))/np.mean(wl)
+        redshift = tab_rsp_adopt["redshift"][i_fib] #- np.min(np.diff(wl))/np.mean(wl)
         wavenorm_corr = ssp.wavenorm*(1 + redshift)
         half_norm_range = 45  # Angstrom
         w_norm_min = wavenorm_corr - half_norm_range

@@ -810,14 +810,17 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             bad_pixels=bad_pixels)
         sources = np.asarray(gas_map['source']).astype(str)
         n_measured = int(np.count_nonzero(sources == 'measured'))
+        n_halpha_only = int(np.count_nonzero(sources == 'halpha_only'))
+        n_direct = n_measured + n_halpha_only
         n_interpolated = int(np.count_nonzero(sources == 'interpolated'))
         n_stellar = int(np.count_nonzero(sources == 'stellar'))
         print(f'# Gas-velocity prepass completed: {len(tab_PT)} fibers')
-        print(f'# Gas redshifts measured: {n_measured}; '
+        print(f'# Gas redshifts measured (multi-line): {n_measured}; '
+              f'Halpha-only: {n_halpha_only}; '
               f'spatially interpolated: {n_interpolated}; '
               f'stellar-map fallback: {n_stellar}')
-        if n_measured:
-            direct = sources == 'measured'
+        if n_direct:
+            direct = (sources == 'measured') | (sources == 'halpha_only')
             delta_v = 299792.458 * (
                 np.asarray(gas_map['z_gas_measured'], float)[direct]
                 - np.asarray(tab_rsp_interp['z'], float)[direct])
@@ -835,10 +838,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                       f'median={np.median(direct_sn):.2f}, '
                       f'min={np.min(direct_sn):.2f}, '
                       f'max={np.max(direct_sn):.2f}')
-        if n_measured == len(tab_PT):
+        if n_direct == len(tab_PT):
             print('# Gas-map interpolation not needed: all fibers have '
                   'qualifying direct gas-redshift estimates')
-        elif n_measured == 0:
+        elif n_direct == 0:
             print('# Gas-map interpolation unavailable: no anchors; '
                   'using the interpolated stellar-redshift map')
         else:

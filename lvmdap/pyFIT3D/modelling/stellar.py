@@ -552,8 +552,8 @@ class SSPModels(object):
             created `self.flux_models_obsframe` will be a 2D array
             ``(n_positive_coeffs, n_wavelength)``.
         """
-        delta_wavelengths = np.min(np.diff(wavelength))
-        redshift = redshift+delta_wavelengths/np.nanmean(wavelength)
+#        delta_wavelengths = np.min(np.diff(wavelength))
+#        redshift = redshift-delta_wavelengths/np.nanmean(wavelength)
 
         if coeffs is None:
             flux_models_obsframe = np.asarray([
