@@ -1914,14 +1914,17 @@ def create_dap_info_hdu(args):
 
 
 def load_general_wavelength_mask(wl, mask_file=None, sky_lines_file=None,
-                                 sky_half_width=None):
+                                 sky_half_width=None, sky_lsf=None,
+                                 sky_lsf_factor=1.0):
     """Return observed-frame exclusions defined by the DAP configuration.
 
     FIT3D mask-file: two Angstrom boundaries per non-comment line.
     Sky-line list: first column is the observed wavelength (Angstrom).
     Sky line widths are NOT supplied by the list; by default exclude only
     wavelength samples whose pixel bin contains a listed line center.
-    A positive sky_mask_half_width explicitly enlarges that exclusion.
+    A positive sky_mask_half_width explicitly sets a half-width.
+    Otherwise, when sky_lsf is supplied, exclude +/- sky_lsf_factor times
+    the instrumental Gaussian sigma (Angstrom) around each sky line.
     """
     wave = np.asarray(wl, dtype=float)
     excluded = np.zeros(wave.shape, dtype=bool)
@@ -1941,6 +1944,13 @@ def load_general_wavelength_mask(wl, mask_file=None, sky_lines_file=None,
                 if not np.isfinite(low) or not np.isfinite(high) or low >= high:
                     raise ValueError(f'{mask_file}:{line_number}: invalid wavelength bounds')
                 excluded |= (wave >= low) & (wave <= high)
+
+    if sky_lsf is not None:
+        sky_lsf = np.asarray(sky_lsf, dtype=float)
+        if sky_lsf.shape != wave.shape:
+            raise ValueError('sky_lsf must match wavelength shape')
+        if not np.isfinite(sky_lsf_factor) or sky_lsf_factor <= 0:
+            raise ValueError('sky_lsf_factor must be positive and finite')
 
     if active(sky_lines_file):
         if sky_half_width is None:
@@ -1967,7 +1977,10 @@ def load_general_wavelength_mask(wl, mask_file=None, sky_lines_file=None,
                     raise ValueError(f'{sky_lines_file}:{line_number}: invalid sky wavelength') from exc
                 if not np.isfinite(center):
                     raise ValueError(f'{sky_lines_file}:{line_number}: invalid sky wavelength')
-                if half is None:
+                if half is None and sky_lsf is not None:
+                    excluded |= (np.isfinite(sky_lsf) & (sky_lsf > 0) &
+                                 (np.abs(wave - center) <= sky_lsf_factor * sky_lsf))
+                elif half is None:
                     idx = int(np.searchsorted(edges, center, side='right') - 1)
                     if 0 <= idx < wave.size:
                         excluded[idx] = True
@@ -4086,6 +4099,7 @@ def fit_individual_rss_spectrum(
 
     try:
         out_fit_abs_lines = fit_emission_line_system(
+            bad_pixel_mask=bad_pixel_mask,
             wl=wl,
             flux=spec_stellar,
             eflux=eflux,
@@ -4237,6 +4251,7 @@ def fit_individual_rss_spectrum(
 
         try:
             fit_result = fit_emission_line_system(
+                bad_pixel_mask=bad_pixel_mask,
                 wl=wl,
                 flux=gas_spec,
                 eflux=eflux,
@@ -5537,6 +5552,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
             print(f'# Fitting the absorption lines for {i_fib}')
         try:
             out_fit_abs_lines = fit_emission_line_system(
+                bad_pixel_mask=bad_pixel_mask,
                 wl=wl,
                 flux=spec_stellar,
                 eflux=eflux,
@@ -5780,6 +5796,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
             if engine in ('fit3d', 'both'):
                 try:
                     fit_result = fit_emission_line_system(
+                        bad_pixel_mask=bad_pixel_mask,
                         wl=wl,
                         flux=gas_spec,
                         eflux=eflux,
@@ -5831,6 +5848,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
                                     pars[0, 2], sigma_min, sigma_max))
                     try:
                         second_fit = fit_emission_line_system(
+                            bad_pixel_mask=bad_pixel_mask,
                             wl=wl,
                             flux=gas_spec,
                             eflux=eflux,
@@ -6211,7 +6229,14 @@ def fit_individual_rss_spectrum_or_adopt_result(
         ax.plot(wl, flux, color='black', lw=1.5, label='Obs. spec.')
         ax.plot(wl, SPS.spectra['model_joint'], lw=1.5, alpha=0.7, color='yellow', label='Joint model')
         ax.plot(wl, stellar_model, lw=2.0, alpha=0.8, color='tab:red',label='Stellar model')
-        ax.fill_between(wl, (-1)*eflux, eflux, color='grey', alpha=0.6)
+        # Plot only measured uncertainties. Masked pixels carry artificially
+        # inflated fitting errors; showing them distorts the plot y-scale.
+        # The original eflux and bad_pixel_mask remain unchanged for all fits.
+        display_eflux = np.where(
+            ~bad_pixel_mask & np.isfinite(eflux) & (eflux > 0),
+            eflux, np.nan)
+        ax.fill_between(wl, -display_eflux, display_eflux,
+                        color='grey', alpha=0.6)
         ax.plot(wl, SPS.spectra['res_joint'], lw=2.0, color='tab:orange', label='Residual')
         if (fit_NP == True) and (len(tab_el)>0):
             ax.plot(wl, SPS.spectra['gas_model_NP'], lw=2.0, color='tab:blue', label='Non-parametric gas model')

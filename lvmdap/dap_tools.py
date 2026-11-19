@@ -134,6 +134,7 @@ def fit_emission_line_system(
     verbose=False,
     initial_velocity=None,
     fixed_velocity=False,
+    bad_pixel_mask=None,
 ):
     """
     Fit a system of emission lines using pyFIT3D.
@@ -274,6 +275,11 @@ def fit_emission_line_system(
     # immediately preceding model.
     line_wavelengths = np.sort(line_wavelengths)
 
+    bad = (np.zeros(wl.shape, dtype=bool) if bad_pixel_mask is None
+           else np.asarray(bad_pixel_mask, dtype=bool))
+    if bad.shape != wl.shape:
+        raise ValueError('bad_pixel_mask must have the same shape as wl')
+
     # Approximate observed positions, used only to select the data.
     observed_line_wavelengths = line_wavelengths * (1.0 + redshift)
 
@@ -281,7 +287,8 @@ def fit_emission_line_system(
     w_max = np.max(observed_line_wavelengths) + fit_padding
 
     fit_mask = (
-        (wl > w_min)
+        ~bad
+        & (wl > w_min)
         & (wl < w_max)
         & np.isfinite(wl)
         & np.isfinite(flux)
@@ -353,7 +360,8 @@ def fit_emission_line_system(
         zip(line_wavelengths, observed_line_wavelengths)
     ):
         local_mask = (
-            (wl > observed_wl - local_window)
+            ~bad
+            & (wl > observed_wl - local_window)
             & (wl < observed_wl + local_window)
             & np.isfinite(flux)
         )

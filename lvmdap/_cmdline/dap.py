@@ -116,8 +116,23 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         mask_file=getattr(args, 'mask_file', None),
         sky_lines_file=getattr(args, 'emission_lines_file_sky', None),
         sky_half_width=getattr(args, 'sky_mask_half_width', None),
+        sky_lsf=LSF_mean,
+        sky_lsf_factor=float(getattr(args, 'sky_mask_lsf_factor', 1.0)),
     )
     bad_pixels |= general_wave_mask[np.newaxis, :]
+    # load_input_data repaired only DRP/invalid pixels, before the sky mask
+    # existed. Rebuild fitting arrays with the COMPLETE mask. Synthetic values
+    # maintain continuity; their inflated errors prevent them from carrying
+    # statistical weight. Preserve bad_pixels for all subsequent measurements.
+    if np.any(general_wave_mask):
+        if mask_to_val:
+            rss_flux, rss_eflux = repair_masked_rss_spectra(
+                rss_flux, rss_eflux, bad_pixels)
+        else:
+            rss_flux = np.asarray(rss_flux, dtype=float).copy()
+            rss_eflux = np.asarray(rss_eflux, dtype=float).copy()
+            rss_flux[bad_pixels] = np.nan
+            rss_eflux[bad_pixels] = np.nan
     print(f'# General wavelength mask: {np.count_nonzero(general_wave_mask)} '
           f'/ {general_wave_mask.size} wavelength samples excluded')
     hdr_flux['NAXIS2']=len(tab_PT)
@@ -199,6 +214,22 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     int_flux_w_ce = integrated['int_flux_w_ce']
     rat_flux_cw = integrated['rat_flux_cw']
     int_lsf = integrated['int_lsf']
+    # The integrated average is NaN wherever *all* fibers were masked.
+    # pyFIT3D/RSP receives a finite interpolation with inflated uncertainty
+    # at exactly those positions; the measured integrated arrays stay intact.
+    # The unchanged boolean mask is still passed into NP/PM/PEK/BEST.
+    bad_integrated = (np.all(bad_pixels, axis=0)
+                      | ~np.isfinite(int_flux_cw)
+                      | ~np.isfinite(int_eflux)
+                      | (int_eflux <= 0))
+    int_fit_flux, int_fit_eflux = repair_masked_rss_spectra(
+        np.asarray(int_flux_cw, dtype=float)[np.newaxis, :],
+        np.asarray(int_eflux, dtype=float)[np.newaxis, :],
+        bad_integrated[np.newaxis, :])
+    int_fit_flux = int_fit_flux[0]
+    int_fit_eflux = int_fit_eflux[0]
+    print(f'# Integrated fit: {np.count_nonzero(bad_integrated)} '
+          f'wavelength samples repaired with inflated errors')
     SN_map = integrated['SN_map']
     high_SN_mask = integrated['high_SN_mask']
     #m_flux = int_flux_cw
@@ -305,8 +336,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     tab_m_elines, tab_m_PM, \
     tab_m_fe, hdu_m_sps, SPS = fit_individual_rss_spectrum_or_adopt_result(
         wl=wl__w,
-        flux=int_flux_cw,
-        eflux=int_eflux,
+        flux=int_fit_flux,
+        eflux=int_fit_eflux,
         lsf=lsf_mean,
         tab_PT=tab_PT,
         i_fib=i_fib,
@@ -324,12 +355,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         verbose=args.verbose,
         fit_PM=True,
         fit_NP=True,
-        bad_pixel_mask=(
-            np.all(bad_pixels, axis=0)
-            | ~np.isfinite(int_flux_cw)
-            | ~np.isfinite(int_eflux)
-            | (int_eflux <= 0)
-        ),
+        bad_pixel_mask=bad_integrated,
         empirical_errors = empirical_errors,
         pm_strong_clusters=pm_strong_clusters,
     )
