@@ -179,7 +179,8 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 dispersion_tolerance=None, fit_padding=20.0,
                 max_cluster_span=75.0, max_adjacent_distance=25.0,
                 min_valid_pixels=8, max_nfev=120, verbose=False,
-                reference_line='Halpha_6562.85', fixed_velocity=None):
+                reference_line='Halpha_6562.85', fixed_velocity=None,
+                map_velocity_bounds=None):
     """Refine the PM Gaussian solution with the common SciPy linked-line fitter.
 
     PM is always the initial kinematic solution.  NP does not replace that
@@ -237,6 +238,8 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
     fixed_vel = (np.full(nf, np.nan) if fixed_velocity is None else
                  np.broadcast_to(np.asarray(fixed_velocity, float), (nf,)))
     fixed_now = np.isfinite(fixed_vel)
+    if map_velocity_bounds is not None:
+        map_velocity_bounds = np.broadcast_to(np.asarray(map_velocity_bounds, float), (nf, 2))
     vs[fixed_now] = fixed_vel[fixed_now]
 
     if bad_pixel_mask is None:
@@ -386,6 +389,11 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
             finite_pm_v = pm_vel[np.isfinite(pm_vel)]
             initial_velocity = (float(np.median(finite_pm_v)) if finite_pm_v.size
                                 else float(vs[i]))
+            local_bounds = None
+            if map_velocity_bounds is not None and np.all(np.isfinite(map_velocity_bounds[i])) and not fixed_now[i]:
+                local_bounds = tuple(map_velocity_bounds[i])
+                initial_velocity = (np.clip(initial_velocity, *local_bounds)
+                                    if np.isfinite(initial_velocity) else np.mean(local_bounds))
             if fixed_now[i]:
                 initial_velocity = float(fixed_vel[i])
             if not np.isfinite(initial_velocity):
@@ -428,7 +436,9 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
             # The YAML tolerance is used only when an individual reported
             # uncertainty is unavailable/nonpositive.
             velocity_ranges = []
-            if not fixed_now[i]:
+            if local_bounds is not None:
+                velocity_bounds = local_bounds
+            elif not fixed_now[i]:
                 for key in names:
                     for table, suffix in ((tab_PM, '_pm'), (tab_fe, '')):
                         measurement = measurement_margin(

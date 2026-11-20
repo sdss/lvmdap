@@ -43,6 +43,21 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     _mem.report('after_imports')
     args = parse_dap_arguments(cmd_args)
     args = initialize_dap_parameters(args)
+    spatial_seeds = (str_to_bool(args.gas_map_spatial_peak_seed)
+                     and str_to_bool(args.gas_map_enabled))
+    if spatial_seeds:
+        settings = ('gas_map_spatial_peak_sn_cut', 'gas_map_spatial_difference_kms',
+                    'gas_map_spatial_fit_fraction')
+        for key in settings:
+            value = getattr(args, key)
+            if value is None or not np.isfinite(float(value)) or float(value) <= 0:
+                raise ValueError(f'{key} must be positive when spatial gas seeds are enabled')
+        fraction = float(args.gas_map_spatial_fit_fraction)
+        if fraction > 1:
+            raise ValueError('gas_map_spatial_fit_fraction cannot exceed 1')
+        original_width = float(getattr(args, 'velocity_tolerance', 30.0))
+        if not np.isfinite(original_width) or original_width <= 0:
+            raise ValueError('velocity_tolerance must be positive when spatial gas seeds are enabled')
     # Keep runtime numerical warnings visible only in verbose runs.
     if not args.verbose:
         warnings.filterwarnings('ignore', category=RuntimeWarning)
@@ -51,6 +66,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     ny_range = args.ny_range
     nx_range = args.nx_range
     out_plot_format = args.out_plot_format
+    fits_suffix = ".fits.gz" if args.gzip else ".fits"
     only_integrated = args.only_integrated
     sky_hack = args.sky_hack
     mask_to_val = args.mask_to_val
@@ -614,11 +630,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         for band, table in (('B', tab_m_PEK_B), ('R', tab_m_PEK_R), ('I', tab_m_PEK_I)):
             hdu_m_dap.extend(split_fits_emission_hdus(
                 table, f'PEK_ELINES_{band}'))
-    out_file_m_dap = os.path.join(args.output_path, f"m_{args.label}.dap.fits.gz")
+    out_file_m_dap = os.path.join(args.output_path, f"m_{args.label}.dap{fits_suffix}")
     hdu_m_dap.writeto(out_file_m_dap,overwrite=True)
 
     if args.dump_model == True:
-        out_file_m_model = os.path.join(args.output_path, f"m_{args.label}.model.fits.gz")
+        out_file_m_model = os.path.join(args.output_path, f"m_{args.label}.model{fits_suffix}")
         fits.PrimaryHDU(
             data=hdu_m_sps[0].data,
             header=hdu_m_sps[0].header,
@@ -803,12 +819,41 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
     # Gas-velocity map from the original RSS before the full EL fitting pass.
     gas_map = None
+    gas_fit_widths = np.full(len(tab_PT), np.nan)
+    pek_map_bounds = None
     if str_to_bool(getattr(args, 'gas_map_enabled', True)):
         print('# Gas-velocity prepass: [NII] 6548 to [SII] 6731')
         gas_map = estimate_rss_gas_velocity_map(
             wl__w, rss_flux, rss_eflux, LSF_rss, tab_el, tab_PT,
             np.asarray(tab_rsp_interp['z'], float), args,
             bad_pixels=bad_pixels)
+        if 'spatial_anchor' in gas_map:
+            usable = (gas_map['spatial_anchor'] | gas_map['spatial_supported'])
+            center = gas_map['z_gas_interpolated'] * 299792.458
+            narrow = usable & np.isfinite(center)
+            gas_fit_widths[narrow] = original_width * fraction
+            pek_map_bounds = np.column_stack((center - gas_fit_widths,
+                                              center + gas_fit_widths))
+            seeds = tab_PT[['id', 'ra', 'dec']].copy()
+            seeds['rss_row'] = np.arange(len(seeds))
+            for name in ('z_gas_measured', 'z_gas_interpolated', 'source',
+                         'sn_gas', 'peak_wave', 'peak_flux', 'neighbor_z',
+                         'spatial_anchor', 'spatial_rejected', 'spatial_supported'):
+                seeds[name] = gas_map[name]
+            seeds['peak_wave'].unit = 'Angstrom'
+            seeds['raw_velocity'] = seeds['z_gas_measured'] * 299792.458
+            seeds['seed_velocity'] = seeds['z_gas_interpolated'] * 299792.458
+            seeds['raw_velocity'].unit = seeds['seed_velocity'].unit = 'km/s'
+            seeds['integrated_gas_z'] = np.full(len(seeds), z_gas)
+            seeds['seed_minus_integrated'] = (seeds['z_gas_interpolated'] - z_gas) * 299792.458
+            seeds['seed_minus_integrated'].unit = 'km/s'
+            seeds['fit_halfwidth'] = gas_fit_widths
+            seeds['fit_halfwidth'].unit = 'km/s'
+            suffix = '.fits.gz' if getattr(args, 'gzip', True) else '.fits'
+            path = os.path.join(args.output_path, f'{args.label}.gas_spatial_seed{suffix}')
+            fits.HDUList([fits.PrimaryHDU(), fits.BinTableHDU(seeds, name='GAS_SPATIAL_SEED')]).writeto(
+                path, overwrite=True)
+            print(f'# Wrote spatial gas seeds: {path}')
         sources = np.asarray(gas_map['source']).astype(str)
         n_measured = int(np.count_nonzero(sources == 'measured'))
         n_halpha_only = int(np.count_nonzero(sources == 'halpha_only'))
@@ -835,13 +880,17 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             direct_sn = np.asarray(gas_map['sn_gas'], float)[direct]
             direct_sn = direct_sn[np.isfinite(direct_sn)]
             if direct_sn.size:
-                print(f'# Weakest qualifying matched gas-line S/N: '
+                sn_label = ('Supporting peak S/N' if 'spatial_anchor' in gas_map
+                            else 'Weakest qualifying matched gas-line S/N')
+                print(f'# {sn_label}: '
                       f'median={np.median(direct_sn):.2f}, '
                       f'min={np.min(direct_sn):.2f}, '
                       f'max={np.max(direct_sn):.2f}')
         if n_direct == len(tab_PT):
             print('# Gas-map interpolation not needed: all fibers have '
                   'qualifying direct gas-redshift estimates')
+        elif n_direct == 0 and 'spatial_anchor' in gas_map:
+            print('# Spatial gas map has no direct estimates; using the existing unseeded fit path')
         elif n_direct == 0:
             print('# Gas-map interpolation unavailable: no anchors; '
                   'using the interpolated stellar-redshift map')
@@ -902,6 +951,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                          if gas_map is not None and
                          np.isfinite(gas_map['z_gas_interpolated'][i]) else None),
             gas_velocity_fixed=str_to_bool(getattr(args, 'gas_map_fixed_velocity', True)),
+            gas_fit_halfwidth=(gas_fit_widths[i] if np.isfinite(gas_fit_widths[i]) else None),
             plot=args.plot,
             adopt_st_z = True,
             SN_cut_st_z = args.SN_CUT, 
@@ -1089,6 +1139,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                             else None),
             wl=wl__w,
             lsf_spectrum=LSF_rss,       # per-fiber Gaussian sigma [Angstrom]
+            map_velocity_bounds=pek_map_bounds,
             bad_pixel_mask=bad_pixels,
             velocity_tolerance=getattr(args, 'pek_velocity_tolerance', None),
             dispersion_tolerance=getattr(args, 'pek_dispersion_tolerance', None),
@@ -1209,7 +1260,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             'BEST_ELINES_I': tab_best_I,
         })
         out_file_dap = os.path.join(
-            args.output_path, f'{args.label}.cube.dap.fits.gz')
+            args.output_path, f'{args.label}.cube.dap{fits_suffix}')
         write_dap_parameter_cubes(
             out_file_dap, args.lvm_file, tab_PT, parameter_tables,
             primary_header=hdr_0, info=hdu_info,
@@ -1234,7 +1285,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             for band, table in zip(('B', 'R', 'I'), bands):
                 hdu_dap.extend(split_fits_emission_hdus(
                     table, f'{method}_ELINES_{band}'))
-        out_file_dap = os.path.join(args.output_path, f"{args.label}.dap.fits.gz")
+        out_file_dap = os.path.join(args.output_path, f"{args.label}.dap{fits_suffix}")
         if tab_PEK is not None:
             for band, table in (('B', tab_PEK_B), ('R', tab_PEK_R), ('I', tab_PEK_I)):
                 hdu_dap.extend(split_fits_emission_hdus(
@@ -1255,7 +1306,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # and the fit quality of the averaged gas spectrum (AVG_EL_FIT_QA)
     # are retained, including all global NP/PM/PEK X_sq measurements.
     out_file_avg_dap = os.path.join(
-        args.output_path, f"avg_{args.label}.dap.fits.gz")
+        args.output_path, f"avg_{args.label}.dap{fits_suffix}")
     fits.HDUList([
         fits.PrimaryHDU(header=hdu_hdr_0.header.copy()),
         fits.BinTableHDU(tab_avg_param_stats, name='AVG_PARAM_STATS'),
@@ -1390,7 +1441,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     output_model /= flux_scaling
     avg_output_model /= flux_scaling
     out_file_avg_model = os.path.join(
-        args.output_path, f"avg_{args.label}.model.fits.gz")
+        args.output_path, f"avg_{args.label}.model{fits_suffix}")
     fits.PrimaryHDU(
         header=avg_model_header, data=avg_output_model).writeto(
             out_file_avg_model, overwrite=True)
@@ -1398,14 +1449,14 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     if args.dump_model == True:
         if args.verbose == True:
             print("# Writing output model to FITS file")
-        out_file_model = os.path.join(args.output_path, f"{args.label}.model.fits.gz")
+        out_file_model = os.path.join(args.output_path, f"{args.label}.model{fits_suffix}")
         model_header = hdu_i_sps[0].header.copy()
         if getattr(args, 'in_cube', False):
             # Avoid an extra multi-GiB allocation for a dense 4-D image.
             # (plane,RSS row,wavelength) is indexed via SPAXEL_INDEX in
-            # <label>.cube.dap.fits.gz; no model pixels are rearranged.
+            # the companion parameter cube; no model pixels are rearranged.
             model_header['CUBEMODE'] = True
-            model_header['MAPFILE'] = f'{args.label}.cube.dap.fits.gz'
+            model_header['MAPFILE'] = os.path.basename(out_file_dap)
             model_header['COMMENT'] = ('MODEL is plane/RSS-row/wave; '
                                        'SPAXEL_INDEX provides xpix/ypix mapping')
         hdu_model = fits.PrimaryHDU(

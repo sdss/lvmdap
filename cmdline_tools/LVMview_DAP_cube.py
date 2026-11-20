@@ -182,7 +182,10 @@ def dap_has_pek(dap_file: str) -> bool:
 
 
 def guess_model_file(dap_file: str) -> Optional[str]:
-    for repl in ('.model.fits.gz', '.model.fits', '.output.fits.gz'):
+    model_suffixes = ('.model.fits', '.model.fits.gz')
+    if dap_file.endswith('.gz'):
+        model_suffixes = model_suffixes[::-1]
+    for repl in (*model_suffixes, '.output.fits.gz'):
         cand = re.sub(r'\.dap\.fits(\.gz)?$', repl, dap_file)
         if cand != dap_file and os.path.exists(cand):
             return cand
@@ -547,7 +550,7 @@ class DAPViewApp(tk.Tk):
     def open_model(self) -> None:
         path = filedialog.askopenfilename(
             title="Select MODEL file",
-            filetypes=[("MODEL files", "*.model.fits.gz *.output.fits.gz"), ("FITS", "*.fits *.fits.gz"),
+            filetypes=[("MODEL files", "*.model.fits *.model.fits.gz *.output.fits.gz"), ("FITS", "*.fits *.fits.gz"),
                        ("All", "*.*")])
         if path:
             self.load(None, path)
@@ -1213,7 +1216,10 @@ def guess_cube_model_file(dap_file: str) -> Optional[str]:
     prefix = re.sub(r'\.cube\.dap\.fits(?:\.gz)?$', '', dap_file, flags=re.IGNORECASE)
     if prefix == dap_file:
         return None
-    for suffix in ('.model.fits.gz', '.model.fits'):
+    model_suffixes = ('.model.fits', '.model.fits.gz')
+    if dap_file.lower().endswith('.gz'):
+        model_suffixes = model_suffixes[::-1]
+    for suffix in model_suffixes:
         candidate = prefix + suffix
         if os.path.isfile(candidate):
             return candidate

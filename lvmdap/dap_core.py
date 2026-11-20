@@ -1663,6 +1663,15 @@ def parse_dap_arguments(cmd_args=None):
     )
 
     parser.add_argument(
+        "--gzip",
+        type=str_to_bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="Compress output FITS products with gzip (default: False)",
+    )
+
+    parser.add_argument(
         "--plot",
         type=np.int64,
         default=0,
@@ -1843,6 +1852,10 @@ def initialize_dap_parameters(args):
         'gas_map_padding': 60.0,
         'gas_map_velocity_half_range_kms': 300.0,
         'gas_map_compare_halpha': True,
+        'gas_map_spatial_peak_seed': False,
+        'gas_map_spatial_peak_sn_cut': None,
+        'gas_map_spatial_difference_kms': None,
+        'gas_map_spatial_fit_fraction': 0.25,
         # Optional second independent FIT3D pass for each PM strong cluster.
         # No quality threshold: compare both candidate models on the same pixels.
         'pm_fit3d_recovery': False,
@@ -4766,6 +4779,10 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
         stellar_fallback = np.where(np.isfinite(stellar_z), stellar_z,
                                     z_system).astype(float)
 
+    spatial_mode = str_to_bool(getattr(args, 'gas_map_spatial_peak_seed', False))
+    if spatial_mode:
+        from lvmdap.spatial_gas_seed import measure_peak_seed, filter_spatial_seeds
+
     def fallback(reason):
         print(f'# Gas map: {reason}; using the interpolated stellar map')
         return {'z_gas_measured': np.full(nf, np.nan),
@@ -4843,6 +4860,10 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
     halpha_only = np.zeros(nf, dtype=bool)
     use_halpha_only = str_to_bool(getattr(args, 'gas_map_halpha_only_fallback', False))
     ha_rest = float(REFERENCE_LINES['Halpha'])
+    if spatial_mode:
+        peak_wave = np.full(nf, np.nan)
+        peak_flux = np.full(nf, np.nan)
+
     for i in range(nf):
         try:
             good = (~bad[i, select] & np.isfinite(flux[i, select]) &
@@ -4879,6 +4900,12 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                 method=str(getattr(args, 'smooth_method', 'spline')),
                 degree=int(getattr(args, 'n_leg', 11)))
             gas = np.asarray(d['eline_residual'], float)
+            if spatial_mode:
+                measured_z[i], peak_wave[i], peak_flux[i], sn[i] = measure_peak_seed(
+                    w, gas, err[i, select], good, np.asarray(catalog['wl'], float),
+                    lo, hi, ha_rest if use_halpha_only else None,
+                    float(getattr(args, 'gas_map_peak_threshold', 2.0)))
+                continue
             candidate = estimate_gas_redshift(
                 wl=w, flux=gas, eflux=err[i, select], z=z_system,
                 z_min=lo, z_max=hi,
@@ -4956,6 +4983,18 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
             n_failed += 1
             diagnostic(f'fiber {i}: {exc}; retained for interpolation/fallback')
             continue
+        finally:
+            if not getattr(args, 'verbose', False):
+                print_progress_bar(i, nf, label='Gas-velocity prepass', bar_width=40)
+
+    if spatial_mode:
+        seed, source, anchors, rejected, supported, local = filter_spatial_seeds(
+            measured_z, sn, coords, sn_cut=float(args.gas_map_spatial_peak_sn_cut),
+            difference_kms=float(args.gas_map_spatial_difference_kms))
+        return dict(z_gas_measured=measured_z, z_gas_interpolated=seed,
+                    source=source, sn_gas=sn, n_matches=n_matched, peak_wave=peak_wave,
+                    peak_flux=peak_flux, spatial_anchor=anchors, spatial_rejected=rejected,
+                    spatial_supported=supported, neighbor_z=local)
 
     anchors = np.isfinite(measured_z)
     interp_z = stellar_fallback.copy()
@@ -5004,7 +5043,8 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
 
 def fit_pm_cluster_scipy(wl, gas_spec, eflux, lsf, cluster, z, args,
                          bad_pixel_mask=None, sigma_bounds=None,
-                         fit3d_initial_params=None, fixed_velocity=False):
+                         fit3d_initial_params=None, fixed_velocity=False,
+                         velocity_halfwidth=None):
     """Fit a PM cluster with empirical LSF and the existing FIT3D bounds.
 
     In the DAP PM loop ``sigma_bounds`` contains the same *observed* widths
@@ -5057,6 +5097,9 @@ def fit_pm_cluster_scipy(wl, gas_spec, eflux, lsf, cluster, z, args,
                         velocity_0 = fit3d_v
                         sigma_0 = float(np.sqrt(max(0.0, intrinsic_var)))
     velocity_bounds = getattr(args, 'pm_scipy_velocity_bounds', None)
+    if velocity_halfwidth is not None:
+        center = float(z) * c_kms
+        velocity_bounds = (center - velocity_halfwidth, center + velocity_halfwidth)
     if velocity_bounds is None:
         # Match the FIT3D PM velocity interval configured in the YAML.
         velocity_center = float(z) * c_kms
@@ -5439,7 +5482,8 @@ def fit_individual_rss_spectrum_or_adopt_result(
     empirical_errors = True,  # True -> per-pixel-noise joint Fisher errors
     pm_strong_clusters = None,  # Optional short-list FIT3D, complete PM by linear amplitudes
     verbose = False,
-    bad_pixel_mask=None
+    bad_pixel_mask=None,
+    gas_fit_halfwidth=None,
 ):
     """Fit one RSS spectrum and return its DAP products.
 
@@ -5851,7 +5895,8 @@ def fit_individual_rss_spectrum_or_adopt_result(
                         line_wavelengths=rest_waves,
                         redshift=z,
                         fit_padding=30,
-                        velocity_range=float(getattr(args, 'velocity_tolerance', 30.0)),
+                        velocity_range=(gas_fit_halfwidth if gas_fit_halfwidth is not None
+                                        else float(getattr(args, 'velocity_tolerance', 30.0))),
                         fixed_velocity=bool(gas_velocity_fixed and z_gas_input is not None),
                         sigma_guess=sigma_guess,
                         sigma_bounds=(sigma_min, sigma_max),
@@ -5904,7 +5949,8 @@ def fit_individual_rss_spectrum_or_adopt_result(
                             redshift=z,
                             initial_velocity=restart_v,
                             fit_padding=30,
-                            velocity_range=float(getattr(args, 'velocity_tolerance', 30.0)),
+                            velocity_range=(gas_fit_halfwidth if gas_fit_halfwidth is not None
+                                        else float(getattr(args, 'velocity_tolerance', 30.0))),
                             fixed_velocity=bool(gas_velocity_fixed and z_gas_input is not None),
                             sigma_guess=restart_sigma,
                             sigma_bounds=(sigma_min, sigma_max),
@@ -5943,6 +5989,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
                         bad_pixel_mask=bad_pixel_mask,
                         sigma_bounds=(sigma_min, sigma_max),
                         fixed_velocity=bool(gas_velocity_fixed and z_gas_input is not None),
+                        velocity_halfwidth=gas_fit_halfwidth,
                         fit3d_initial_params=(
                             candidates['fit3d'][0]
                             if engine == 'both' and 'fit3d' in candidates
@@ -6161,6 +6208,8 @@ def fit_individual_rss_spectrum_or_adopt_result(
             plot=int(bool(plot)),
             sigma_we=1.0,
             verbose=verbose,
+            template_velocity_range=(min(60., gas_fit_halfwidth)
+                                     if gas_fit_halfwidth is not None else 60.),
             fixed_velocity=bool(gas_velocity_fixed and z_gas_input is not None),
             bad_pixel_mask=bad_pixel_mask[np.newaxis, :] if bad_pixel_mask is not None else None,
         )

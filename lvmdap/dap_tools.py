@@ -5572,6 +5572,10 @@ def find_redshift_weights(
             velocity_tolerance,
         )
 
+        # Refinement can move an initially valid seed outside the search.
+        if not zmin <= z <= zmax:
+            continue
+
         nmatch = len(matches)
 
         if nmatch < min_matches:

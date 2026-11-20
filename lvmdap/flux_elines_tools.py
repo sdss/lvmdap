@@ -815,6 +815,7 @@ def flux_elines_RSS_EW_tab(
     weak_line_snr=None, min_template_snr=None,
     full_refit_mc=False,
     fixed_velocity=False,
+    template_velocity_range=60.0,
 ):
     """NP moment measurements, with MC Gaussian deblending and weak-line fallback.
 
@@ -921,7 +922,8 @@ def flux_elines_RSS_EW_tab(
                     essp=None if essp is None else essp[i],
                     min_snr=min_template_snr, rng=rng,
                     full_refit_mc=full_refit_mc,
-                    fixed_velocity=fixed_velocity)
+                    fixed_velocity=fixed_velocity,
+                    velocity_range=template_velocity_range)
                 if verbose:
                     print(f'# NP blend: {[(names[k], waves[k]) for k in indices]} '
                           f'accepted={np.isfinite(estimated[0]).sum()}')
@@ -971,7 +973,8 @@ def flux_elines_RSS_EW_tab(
                     essp=None if essp is None else essp[i],
                     min_snr=min_template_snr, rng=rng,
                     full_refit_mc=full_refit_mc,
-                    fixed_velocity=fixed_velocity)
+                    fixed_velocity=fixed_velocity,
+                    velocity_range=template_velocity_range)
                 out[[m*ne+k for m in range(8)], i] = estimated[:,0]
                 if verbose:
                     print(f'# NP template fallback: {names[k]} '
@@ -993,6 +996,7 @@ def flux_elines_RSS_EW_cl(
     weak_line_snr=None, min_template_snr=None,
     full_refit_mc=False,
     fixed_velocity=False,
+    template_velocity_range=60.0,
 ):
     """Wrapper retaining the LVM-DAP FE data/header return convention."""
     out, hdr = flux_elines_RSS_EW_tab(
@@ -1008,6 +1012,7 @@ def flux_elines_RSS_EW_cl(
         weak_line_snr=weak_line_snr, min_template_snr=min_template_snr,
         full_refit_mc=full_refit_mc,
         fixed_velocity=fixed_velocity,
+        template_velocity_range=template_velocity_range,
     )
     if plot == 1:
         import matplotlib.pyplot as plt

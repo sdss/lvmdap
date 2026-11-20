@@ -120,6 +120,10 @@ director.
 
 ### `lvm-dap-conf` Command
 
+Output products use uncompressed `.fits` by default. Set `gzip: true` to
+write `.fits.gz` instead. Plot output defaults to PNG. Set
+`out-plot-format: "pdf"` to request PDF for plots that support it.
+
 #### Example YAML Configuration
 ```yaml
 # output directory
@@ -200,8 +204,8 @@ single_rsp: False
  nx_range:
   - 100
   - 3000
-  out-plot-format: "pdf"
-# Format of the output plot format : "png"
+ out-plot-format: "png"
+ gzip: false
  only-integrated: True
 # Fit only the integrated spectrum or not
  auto-redshift: True
