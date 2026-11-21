@@ -1855,6 +1855,8 @@ def initialize_dap_parameters(args):
         'gas_map_spatial_peak_seed': False,
         'gas_map_spatial_peak_sn_cut': None,
         'gas_map_spatial_difference_kms': None,
+        'gas_map_spatial_neighbors': 6,
+        'gas_map_spatial_n_sigma': None,
         'gas_map_spatial_fit_fraction': 0.25,
         # Optional second independent FIT3D pass for each PM strong cluster.
         # No quality threshold: compare both candidate models on the same pixels.
@@ -4986,6 +4988,16 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
         finally:
             if not getattr(args, 'verbose', False):
                 print_progress_bar(i, nf, label='Gas-velocity prepass', bar_width=40)
+
+    if spatial_mode and getattr(args, 'gas_map_spatial_n_sigma', None) is not None:
+        from lvmdap.spatial_gas_seed import filter_joint_spatial_seeds
+        result = filter_joint_spatial_seeds(
+            measured_z, peak_flux, sn, coords,
+            sn_cut=float(args.gas_map_spatial_peak_sn_cut),
+            neighbors=int(float(args.gas_map_spatial_neighbors)),
+            n_sigma=float(args.gas_map_spatial_n_sigma))
+        return dict(result, z_gas_measured=measured_z, sn_gas=sn,
+                    n_matches=n_matched, peak_wave=peak_wave, peak_flux=peak_flux)
 
     if spatial_mode:
         seed, source, anchors, rejected, supported, local = filter_spatial_seeds(

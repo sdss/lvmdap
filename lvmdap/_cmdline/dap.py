@@ -46,8 +46,13 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     spatial_seeds = (str_to_bool(args.gas_map_spatial_peak_seed)
                      and str_to_bool(args.gas_map_enabled))
     if spatial_seeds:
-        settings = ('gas_map_spatial_peak_sn_cut', 'gas_map_spatial_difference_kms',
-                    'gas_map_spatial_fit_fraction')
+        joint = args.gas_map_spatial_n_sigma is not None
+        threshold = 'gas_map_spatial_n_sigma' if joint else 'gas_map_spatial_difference_kms'
+        settings = ('gas_map_spatial_peak_sn_cut', threshold, 'gas_map_spatial_fit_fraction')
+        if joint:
+            neighbors = float(args.gas_map_spatial_neighbors)
+            if not neighbors.is_integer() or neighbors < 2:
+                raise ValueError('gas_map_spatial_neighbors must be an integer of at least 2')
         for key in settings:
             value = getattr(args, key)
             if value is None or not np.isfinite(float(value)) or float(value) <= 0:
@@ -840,6 +845,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                          'sn_gas', 'peak_wave', 'peak_flux', 'neighbor_z',
                          'spatial_anchor', 'spatial_rejected', 'spatial_supported'):
                 seeds[name] = gas_map[name]
+            for name in ('neighbor_peak_flux', 'neighbor_velocity_std', 'neighbor_peak_flux_std'):
+                if name in gas_map:
+                    seeds[name] = gas_map[name]
+            if 'neighbor_velocity_std' in seeds.colnames:
+                seeds['neighbor_velocity_std'].unit = 'km/s'
             seeds['peak_wave'].unit = 'Angstrom'
             seeds['raw_velocity'] = seeds['z_gas_measured'] * 299792.458
             seeds['seed_velocity'] = seeds['z_gas_interpolated'] * 299792.458

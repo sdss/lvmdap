@@ -87,3 +87,55 @@ def filter_spatial_seeds(raw, peak_sn, coords, *, sn_cut, difference_kms):
                 pass  # Nearest anchors remain available for degenerate geometry.
         seed[fill], source[fill] = values, 'interpolated'
     return seed, source, anchors, rejected, supported, local
+
+
+def filter_joint_spatial_seeds(raw, peak_flux, peak_sn, coords, *, sn_cut, neighbors, n_sigma):
+    """Reject joint velocity/peak-flux outliers and interpolate all retained seeds."""
+    valid = np.all(np.isfinite(coords), axis=1)
+    measured = valid & np.isfinite(raw) & np.isfinite(peak_flux)
+    reference = measured & np.isfinite(peak_sn) & (peak_sn >= sn_cut)
+    seed = np.where(measured, raw, np.nan)
+    source = np.where(measured, 'measured', 'unsupported').astype('U12')
+    rejected = np.zeros(len(raw), bool)
+    supported = np.zeros(len(raw), bool)
+    local_z, local_flux, std_z, std_flux = np.full((4, len(raw)), np.nan)
+    rows = np.flatnonzero(valid)
+    ref = np.flatnonzero(reference)
+    if ref.size >= neighbors:
+        from astropy.coordinates import SkyCoord
+        sky = SkyCoord(coords[rows, 0], coords[rows, 1], unit='deg')
+        xyz = sky.cartesian.xyz.value.T
+        take = min(neighbors + 1, len(ref))
+        indices = ref[cKDTree(xyz[reference[rows]]).query(xyz, k=take)[1]]
+        for i, candidates in zip(rows, indices):
+            peers = candidates[candidates != i][:neighbors]
+            if len(peers) < neighbors:
+                continue
+            local_z[i], local_flux[i] = np.median(raw[peers]), np.median(peak_flux[peers])
+            std_z[i], std_flux[i] = np.std(raw[peers], ddof=1), np.std(peak_flux[peers], ddof=1)
+            supported[i] = True
+        rejected = (measured & supported &
+                    (np.abs(raw - local_z) > n_sigma * std_z) &
+                    (np.abs(peak_flux - local_flux) > n_sigma * std_flux))
+    anchors = measured & ~rejected
+    missing = (~measured | rejected) & valid
+    seed[rejected] = np.nan
+    source[rejected] = 'unsupported'
+    if np.any(anchors) and np.any(missing):
+        x, y = coords[rows].T
+        dx = (x-x[0]+180) % 360 - 180
+        xy = np.c_[dx*np.cos(np.deg2rad(np.median(y))), y]
+        anchor_xy, target = xy[anchors[rows]], xy[missing[rows]]
+        values = raw[anchors][cKDTree(anchor_xy).query(target)[1]]
+        if np.linalg.matrix_rank(anchor_xy-anchor_xy.mean(axis=0)) == 2:
+            from scipy.spatial import QhullError
+            try:
+                linear = griddata(anchor_xy, raw[anchors], target, method='linear')
+                values = np.where(np.isfinite(linear), linear, values)
+            except QhullError:
+                pass  # Use nearest for degenerate geometry.
+        seed[missing], source[missing] = values, 'interpolated'
+    return dict(z_gas_interpolated=seed, source=source, spatial_anchor=anchors,
+                spatial_rejected=rejected, spatial_supported=supported,
+                neighbor_z=local_z, neighbor_peak_flux=local_flux,
+                neighbor_velocity_std=std_z*C_KMS, neighbor_peak_flux_std=std_flux)
