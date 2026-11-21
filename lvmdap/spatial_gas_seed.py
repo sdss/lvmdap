@@ -47,6 +47,21 @@ def measure_peak_seed(wave, gas, error, good, rest, zmin, zmax, halpha, peak_thr
     return z, centers[best], gas[p], gas[p] / error[p]
 
 
+def guard_halpha_identity(raw, peak_wave, peak_sn, *, rest, integrated_z, halfwidth, sn_cut):
+    """Reidentify a strong supporting peak consistent with integrated Halpha.
+
+    Only revise a finite guess when its own supporting peak is inside the
+    integrated Halpha velocity window but outside its guessed Halpha window.
+    The original guess is kept by the caller for audit.
+    """
+    peak_z = peak_wave / rest - 1
+    replaced = (np.isfinite(raw) & np.isfinite(peak_z) & np.isfinite(peak_sn) &
+                (peak_sn >= sn_cut) &
+                (np.abs(peak_z - integrated_z) * C_KMS <= halfwidth) &
+                (np.abs(peak_z - raw) * C_KMS > halfwidth))
+    return np.where(replaced, peak_z, raw), replaced
+
+
 def filter_spatial_seeds(raw, peak_sn, coords, *, sn_cut, difference_kms):
     """Replace low-S/N disagreements, using only high-S/N interpolation anchors."""
     valid = np.all(np.isfinite(coords), axis=1)
@@ -89,7 +104,58 @@ def filter_spatial_seeds(raw, peak_sn, coords, *, sn_cut, difference_kms):
     return seed, source, anchors, rejected, supported, local
 
 
-def filter_joint_spatial_seeds(raw, peak_flux, peak_sn, coords, *, sn_cut, neighbors, n_sigma):
+def guess_halpha_flux(wave, gas, error, lsf, good, center):
+    """Signed Gaussian area from measured flux density at the predicted center."""
+    missing = (np.nan, np.nan)
+    if not np.isfinite(center) or len(wave) < 2:
+        return missing
+    j = np.searchsorted(wave, center)
+    if j == len(wave):
+        return missing
+    if wave[j] == center:
+        pixels, weights = [j], np.ones(1)
+    elif j == 0:
+        return missing
+    else:
+        pixels = [j - 1, j]
+        fraction = (center - wave[j - 1]) / (wave[j] - wave[j - 1])
+        weights = np.array([1 - fraction, fraction])
+    if not np.all(good[pixels]):
+        return missing
+    intensity = np.dot(weights, gas[pixels])
+    noise = np.linalg.norm(weights * error[pixels])
+    sigma = np.dot(weights, lsf[pixels])
+    if not (np.isfinite(intensity) and np.isfinite(noise) and noise > 0 and
+            np.isfinite(sigma) and sigma > 0):
+        return missing
+    return intensity * np.sqrt(2 * np.pi) * sigma, intensity / noise
+
+
+def joint_spatial_settings(args):
+    """Resolve separate thresholds, with the old common threshold as fallback."""
+    common = getattr(args, 'gas_map_spatial_n_sigma', None)
+    velocity = getattr(args, 'gas_map_spatial_velocity_n_sigma', None)
+    flux = getattr(args, 'gas_map_spatial_flux_n_sigma', None)
+    if common is None and velocity is None and flux is None:
+        return None
+    velocity = common if velocity is None else velocity
+    flux = common if flux is None else flux
+    for key, value in (('gas_map_spatial_velocity_n_sigma', velocity),
+                       ('gas_map_spatial_flux_n_sigma', flux)):
+        if value is None or not np.isfinite(float(value)) or float(value) <= 0:
+            raise ValueError(f'{key} must resolve to a positive value')
+    neighbors = float(getattr(args, 'gas_map_spatial_neighbors', 6))
+    iterations = float(getattr(args, 'gas_map_spatial_iterations', 1))
+    if not neighbors.is_integer() or neighbors < 2:
+        raise ValueError('gas_map_spatial_neighbors must be an integer of at least 2')
+    if not iterations.is_integer() or iterations < 1:
+        raise ValueError('gas_map_spatial_iterations must be a positive integer')
+    return dict(neighbors=int(neighbors), velocity_n_sigma=float(velocity),
+                flux_n_sigma=float(flux), iterations=int(iterations))
+
+
+def filter_joint_spatial_seeds(raw, peak_flux, peak_sn, coords, *, sn_cut, neighbors,
+                               velocity_n_sigma, flux_n_sigma, iterations):
     """Reject joint velocity/peak-flux outliers and interpolate all retained seeds."""
     valid = np.all(np.isfinite(coords), axis=1)
     measured = valid & np.isfinite(raw) & np.isfinite(peak_flux)
@@ -100,23 +166,35 @@ def filter_joint_spatial_seeds(raw, peak_flux, peak_sn, coords, *, sn_cut, neigh
     supported = np.zeros(len(raw), bool)
     local_z, local_flux, std_z, std_flux = np.full((4, len(raw)), np.nan)
     rows = np.flatnonzero(valid)
-    ref = np.flatnonzero(reference)
-    if ref.size >= neighbors:
+    rejected_iteration = np.zeros(len(raw), dtype=np.int32)
+    if np.count_nonzero(reference) >= neighbors:
         from astropy.coordinates import SkyCoord
         sky = SkyCoord(coords[rows, 0], coords[rows, 1], unit='deg')
         xyz = sky.cartesian.xyz.value.T
-        take = min(neighbors + 1, len(ref))
-        indices = ref[cKDTree(xyz[reference[rows]]).query(xyz, k=take)[1]]
-        for i, candidates in zip(rows, indices):
-            peers = candidates[candidates != i][:neighbors]
-            if len(peers) < neighbors:
-                continue
-            local_z[i], local_flux[i] = np.median(raw[peers]), np.median(peak_flux[peers])
-            std_z[i], std_flux[i] = np.std(raw[peers], ddof=1), np.std(peak_flux[peers], ddof=1)
-            supported[i] = True
-        rejected = (measured & supported &
-                    (np.abs(raw - local_z) > n_sigma * std_z) &
-                    (np.abs(peak_flux - local_flux) > n_sigma * std_flux))
+        for iteration in range(1, iterations + 1):
+            active = reference & ~rejected
+            ref = np.flatnonzero(active)
+            if ref.size < neighbors:
+                break
+            take = min(neighbors + 1, len(ref))
+            indices = ref[cKDTree(xyz[active[rows]]).query(xyz, k=take)[1]]
+            supported[~rejected] = False
+            for i, candidates in zip(rows, indices):
+                if rejected[i]:
+                    continue
+                peers = candidates[candidates != i][:neighbors]
+                if len(peers) < neighbors:
+                    continue
+                local_z[i], local_flux[i] = np.median(raw[peers]), np.median(peak_flux[peers])
+                std_z[i], std_flux[i] = np.std(raw[peers], ddof=1), np.std(peak_flux[peers], ddof=1)
+                supported[i] = True
+            new = (measured & ~rejected & supported &
+                   (np.abs(raw - local_z) > velocity_n_sigma * std_z) &
+                   (np.abs(peak_flux - local_flux) > flux_n_sigma * std_flux))
+            if not np.any(new):
+                break
+            rejected_iteration[new] = iteration
+            rejected |= new
     anchors = measured & ~rejected
     missing = (~measured | rejected) & valid
     seed[rejected] = np.nan
@@ -138,4 +216,5 @@ def filter_joint_spatial_seeds(raw, peak_flux, peak_sn, coords, *, sn_cut, neigh
     return dict(z_gas_interpolated=seed, source=source, spatial_anchor=anchors,
                 spatial_rejected=rejected, spatial_supported=supported,
                 neighbor_z=local_z, neighbor_peak_flux=local_flux,
-                neighbor_velocity_std=std_z*C_KMS, neighbor_peak_flux_std=std_flux)
+                neighbor_velocity_std=std_z*C_KMS, neighbor_peak_flux_std=std_flux,
+                spatial_rejected_iteration=rejected_iteration)

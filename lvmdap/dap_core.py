@@ -1853,10 +1853,14 @@ def initialize_dap_parameters(args):
         'gas_map_velocity_half_range_kms': 300.0,
         'gas_map_compare_halpha': True,
         'gas_map_spatial_peak_seed': False,
+        'gas_map_spatial_halpha_identity_guard': False,
         'gas_map_spatial_peak_sn_cut': None,
         'gas_map_spatial_difference_kms': None,
         'gas_map_spatial_neighbors': 6,
         'gas_map_spatial_n_sigma': None,
+        'gas_map_spatial_velocity_n_sigma': None,
+        'gas_map_spatial_flux_n_sigma': None,
+        'gas_map_spatial_iterations': 1,
         'gas_map_spatial_fit_fraction': 0.25,
         # Optional second independent FIT3D pass for each PM strong cluster.
         # No quality threshold: compare both candidate models on the same pixels.
@@ -4752,7 +4756,7 @@ def fit_masked_residual_continuum(wl, residual, line_mask, dw, *,
 
 def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                                   tab_el, tab_pt, z_st, args,
-                                  bad_pixels=None):
+                                  bad_pixels=None, integrated_gas_z=None):
     """S/N-ranked [NII]--[SII] gas-velocity prepass, entirely in memory.
 
     Explore +/- gas_map_velocity_half_range_kms around args.redshift[0].
@@ -4863,6 +4867,18 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
     use_halpha_only = str_to_bool(getattr(args, 'gas_map_halpha_only_fallback', False))
     ha_rest = float(REFERENCE_LINES['Halpha'])
     if spatial_mode:
+        from lvmdap.spatial_gas_seed import joint_spatial_settings
+        joint_settings = joint_spatial_settings(args)
+    else:
+        joint_settings = None
+    if joint_settings is not None:
+        # Include sample brackets around all possible Halpha centers, including
+        # an optional identity-guard replacement, without keeping whole spectra.
+        ia = max(0, np.searchsorted(w, ha_rest * (1 + lo)) - 1)
+        ib = min(len(w), np.searchsorted(w, ha_rest * (1 + hi), side='right') + 1)
+        ha_slice = slice(ia, ib)
+        ha_data = {}
+    if spatial_mode:
         peak_wave = np.full(nf, np.nan)
         peak_flux = np.full(nf, np.nan)
 
@@ -4907,6 +4923,9 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                     w, gas, err[i, select], good, np.asarray(catalog['wl'], float),
                     lo, hi, ha_rest if use_halpha_only else None,
                     float(getattr(args, 'gas_map_peak_threshold', 2.0)))
+                if joint_settings is not None and np.isfinite(measured_z[i]):
+                    ha_data[i] = (gas[ha_slice].copy(), err[i, select][ha_slice],
+                                  lsf[i, select][ha_slice], good[ha_slice].copy())
                 continue
             candidate = estimate_gas_redshift(
                 wl=w, flux=gas, eflux=err[i, select], z=z_system,
@@ -4989,15 +5008,33 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
             if not getattr(args, 'verbose', False):
                 print_progress_bar(i, nf, label='Gas-velocity prepass', bar_width=40)
 
-    if spatial_mode and getattr(args, 'gas_map_spatial_n_sigma', None) is not None:
-        from lvmdap.spatial_gas_seed import filter_joint_spatial_seeds
+    identity = {}
+    if spatial_mode and str_to_bool(getattr(args, 'gas_map_spatial_halpha_identity_guard', False)):
+        from lvmdap.spatial_gas_seed import guard_halpha_identity
+        original_z = measured_z.copy()
+        replaced = np.zeros(nf, dtype=bool)
+        if integrated_gas_z is not None and np.isfinite(integrated_gas_z) and rest_min <= ha_rest <= rest_max:
+            halfwidth = (float(getattr(args, 'velocity_tolerance', 30.0)) *
+                         float(args.gas_map_spatial_fit_fraction))
+            measured_z, replaced = guard_halpha_identity(
+                original_z, peak_wave, sn, rest=ha_rest, integrated_z=integrated_gas_z,
+                halfwidth=halfwidth, sn_cut=float(args.gas_map_spatial_peak_sn_cut))
+        identity = dict(z_before_halpha_guard=original_z, halpha_identity_replaced=replaced)
+
+    if joint_settings is not None:
+        from lvmdap.spatial_gas_seed import filter_joint_spatial_seeds, guess_halpha_flux
+        halpha_flux, halpha_sn = np.full((2, nf), np.nan)
+        for i, data in ha_data.items():
+            halpha_flux[i], halpha_sn[i] = guess_halpha_flux(
+                w[ha_slice], *data, ha_rest * (1 + measured_z[i]))
         result = filter_joint_spatial_seeds(
-            measured_z, peak_flux, sn, coords,
-            sn_cut=float(args.gas_map_spatial_peak_sn_cut),
-            neighbors=int(float(args.gas_map_spatial_neighbors)),
-            n_sigma=float(args.gas_map_spatial_n_sigma))
+            measured_z, halpha_flux, halpha_sn, coords,
+            sn_cut=float(args.gas_map_spatial_peak_sn_cut), **joint_settings)
+        result['neighbor_halpha_flux_guess'] = result.pop('neighbor_peak_flux')
+        result['neighbor_halpha_flux_std'] = result.pop('neighbor_peak_flux_std')
         return dict(result, z_gas_measured=measured_z, sn_gas=sn,
-                    n_matches=n_matched, peak_wave=peak_wave, peak_flux=peak_flux)
+                    n_matches=n_matched, peak_wave=peak_wave, peak_flux=peak_flux,
+                    halpha_flux_guess=halpha_flux, halpha_peak_sn=halpha_sn, **identity)
 
     if spatial_mode:
         seed, source, anchors, rejected, supported, local = filter_spatial_seeds(
@@ -5006,7 +5043,7 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
         return dict(z_gas_measured=measured_z, z_gas_interpolated=seed,
                     source=source, sn_gas=sn, n_matches=n_matched, peak_wave=peak_wave,
                     peak_flux=peak_flux, spatial_anchor=anchors, spatial_rejected=rejected,
-                    spatial_supported=supported, neighbor_z=local)
+                    spatial_supported=supported, neighbor_z=local, **identity)
 
     anchors = np.isfinite(measured_z)
     interp_z = stellar_fallback.copy()

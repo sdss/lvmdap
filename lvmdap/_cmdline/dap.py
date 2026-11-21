@@ -46,13 +46,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     spatial_seeds = (str_to_bool(args.gas_map_spatial_peak_seed)
                      and str_to_bool(args.gas_map_enabled))
     if spatial_seeds:
-        joint = args.gas_map_spatial_n_sigma is not None
-        threshold = 'gas_map_spatial_n_sigma' if joint else 'gas_map_spatial_difference_kms'
-        settings = ('gas_map_spatial_peak_sn_cut', threshold, 'gas_map_spatial_fit_fraction')
-        if joint:
-            neighbors = float(args.gas_map_spatial_neighbors)
-            if not neighbors.is_integer() or neighbors < 2:
-                raise ValueError('gas_map_spatial_neighbors must be an integer of at least 2')
+        from lvmdap.spatial_gas_seed import joint_spatial_settings
+        joint = joint_spatial_settings(args)
+        settings = ('gas_map_spatial_peak_sn_cut', 'gas_map_spatial_fit_fraction')
+        if joint is None:
+            settings += ('gas_map_spatial_difference_kms',)
         for key in settings:
             value = getattr(args, key)
             if value is None or not np.isfinite(float(value)) or float(value) <= 0:
@@ -831,7 +829,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         gas_map = estimate_rss_gas_velocity_map(
             wl__w, rss_flux, rss_eflux, LSF_rss, tab_el, tab_PT,
             np.asarray(tab_rsp_interp['z'], float), args,
-            bad_pixels=bad_pixels)
+            bad_pixels=bad_pixels, integrated_gas_z=z_gas)
         if 'spatial_anchor' in gas_map:
             usable = (gas_map['spatial_anchor'] | gas_map['spatial_supported'])
             center = gas_map['z_gas_interpolated'] * 299792.458
@@ -845,7 +843,11 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                          'sn_gas', 'peak_wave', 'peak_flux', 'neighbor_z',
                          'spatial_anchor', 'spatial_rejected', 'spatial_supported'):
                 seeds[name] = gas_map[name]
-            for name in ('neighbor_peak_flux', 'neighbor_velocity_std', 'neighbor_peak_flux_std'):
+            for name in ('neighbor_peak_flux', 'neighbor_velocity_std', 'neighbor_peak_flux_std',
+                         'z_before_halpha_guard', 'halpha_identity_replaced',
+                         'halpha_flux_guess', 'halpha_peak_sn',
+                         'neighbor_halpha_flux_guess', 'neighbor_halpha_flux_std',
+                         'spatial_rejected_iteration'):
                 if name in gas_map:
                     seeds[name] = gas_map[name]
             if 'neighbor_velocity_std' in seeds.colnames:
