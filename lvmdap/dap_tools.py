@@ -3499,6 +3499,8 @@ def read_DAP_file(dap_file, verbose=False):
       New PM_ELINES bands: original wide column names ('*_pm').
       Global output diagnostics: X_sq/RMS (NP), X_sq_pm/RMS_pm (PM),
       X_sq_PEK/RMS_PEK (PEK), and optional X_sq_BEST/RMS_BEST.
+      Optional GAS_SPATIAL_SEED diagnostics use the 'gas_seed_' prefix.
+      Integrated gas redshift is available in result.meta['GASZINT'] when present.
       Optional BEST_ELINES_{B,R,I} include line-by-line method provenance.
       Older files with unsuffixed PM/PEK globals are also supported.
 
@@ -3719,6 +3721,18 @@ def read_DAP_file(dap_file, verbose=False):
         tab_SIGMA = (Table(dap_hdu['ELINES_SIGMA_CHI'].data)
                      if 'ELINES_SIGMA_CHI' in dap_hdu else None)
 
+        gas_seed_hdu = dap_hdu['GAS_SPATIAL_SEED'] if 'GAS_SPATIAL_SEED' in dap_hdu else None
+        tab_SEED = None
+        if gas_seed_hdu is not None:
+            tab_SEED = Table.read(gas_seed_hdu)
+            tab_SEED.remove_columns([name for name in ('ra', 'dec')
+                                     if name in tab_SEED.colnames])
+            for name in list(tab_SEED.colnames):
+                if name != 'id':
+                    tab_SEED.rename_column(name, 'gas_seed_' + name)
+            integrated_gas_z = gas_seed_hdu.header.get('GASZINT')
+            tab_SEED.meta.clear()
+
         # New in DAP 2.0.0: parametric line measurements in B/R/I wide tables.
         tab_PM_bands = {}
         if is_v2:
@@ -3833,6 +3847,15 @@ def read_DAP_file(dap_file, verbose=False):
 
     if tab_SIGMA is not None:
         tab_DAP = right_join(tab_DAP, tab_SIGMA, 'ELINES_SIGMA_CHI')
+
+    if tab_SEED is not None:
+        # Preserve the existing reader order even when extension rows are shuffled.
+        tab_DAP['__gas_seed_join_order'] = np.arange(len(tab_DAP))
+        tab_DAP = right_join(tab_DAP, tab_SEED, 'GAS_SPATIAL_SEED')
+        tab_DAP.sort('__gas_seed_join_order')
+        tab_DAP.remove_column('__gas_seed_join_order')
+        if integrated_gas_z is not None:
+            tab_DAP.meta['GASZINT'] = integrated_gas_z
 
     if verbose:
         print(f'# PT fibers: {len(tab_PT)}')

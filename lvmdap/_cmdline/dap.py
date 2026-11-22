@@ -824,6 +824,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     gas_map = None
     gas_fit_widths = np.full(len(tab_PT), np.nan)
     pek_map_bounds = None
+    hdu_gas_seeds = None
     if str_to_bool(getattr(args, 'gas_map_enabled', True)):
         print('# Gas-velocity prepass: [NII] 6548 to [SII] 6731')
         gas_map = estimate_rss_gas_velocity_map(
@@ -856,16 +857,13 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             seeds['raw_velocity'] = seeds['z_gas_measured'] * 299792.458
             seeds['seed_velocity'] = seeds['z_gas_interpolated'] * 299792.458
             seeds['raw_velocity'].unit = seeds['seed_velocity'].unit = 'km/s'
-            seeds['integrated_gas_z'] = np.full(len(seeds), z_gas)
             seeds['seed_minus_integrated'] = (seeds['z_gas_interpolated'] - z_gas) * 299792.458
             seeds['seed_minus_integrated'].unit = 'km/s'
             seeds['fit_halfwidth'] = gas_fit_widths
             seeds['fit_halfwidth'].unit = 'km/s'
-            suffix = '.fits.gz' if getattr(args, 'gzip', True) else '.fits'
-            path = os.path.join(args.output_path, f'{args.label}.gas_spatial_seed{suffix}')
-            fits.HDUList([fits.PrimaryHDU(), fits.BinTableHDU(seeds, name='GAS_SPATIAL_SEED')]).writeto(
-                path, overwrite=True)
-            print(f'# Wrote spatial gas seeds: {path}')
+            hdu_gas_seeds = fits.BinTableHDU(seeds, name='GAS_SPATIAL_SEED')
+            if np.isfinite(z_gas):
+                hdu_gas_seeds.header['GASZINT'] = (float(z_gas), 'Integrated gas redshift')
         sources = np.asarray(gas_map['source']).astype(str)
         n_measured = int(np.count_nonzero(sources == 'measured'))
         n_halpha_only = int(np.count_nonzero(sources == 'halpha_only'))
@@ -1314,6 +1312,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         hdu_dap.append(hdu_avg_param_stats)
         hdu_dap.append(hdu_mask)
         hdu_dap.append(hdu_badpix)
+        if hdu_gas_seeds is not None:
+            hdu_dap.append(hdu_gas_seeds)
         hdu_dap.append(hdu_info)
         hdu_dap.writeto(out_file_dap,overwrite=True)
 
