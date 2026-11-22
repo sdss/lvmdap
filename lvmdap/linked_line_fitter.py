@@ -64,7 +64,7 @@ def fit_linked_lines(wl, flux, eflux, rest_waves, lsf_spectrum, *,
                      velocity_bounds=None, sigma_kms_bounds=None,
                      flux_links=None, fixed_fluxes=None,
                      background_degree=0, fit_padding=30.0,
-                     bad_pixel_mask=None, max_nfev=150):
+                     bad_pixel_mask=None, max_nfev=150, fit_window_velocity=None):
     """Fit one blend/cluster using separable weighted least squares.
 
     Emission lines have Gaussian profiles normalized to integrated flux.
@@ -78,6 +78,8 @@ def fit_linked_lines(wl, flux, eflux, rest_waves, lsf_spectrum, *,
     each trial *observed* line wavelength. Intrinsic dispersion is in km/s.
     `background_degree=-1` disables nuisance background; 0 and 1 include
     a constant or affine background, not returned in the gas-only model.
+
+    `fit_window_velocity` can retain a previous fit window for a restart.
 
     Returns a dict with per-line flux/velocity/observed sigma and 1-sigma
     errors, local gas-only model, full model with nuisance background,
@@ -133,7 +135,8 @@ def fit_linked_lines(wl, flux, eflux, rest_waves, lsf_spectrum, *,
         raise ValueError('Initial kinematics must be finite, sigma >= 0')
 
     # Preserve original mask/errors and select a fixed fit window once.
-    centers_initial = rest * (1 + np.array([vfix.get(g, v0) for g in vg]) / _C)
+    window_velocity = v0 if fit_window_velocity is None else float(fit_window_velocity)
+    centers_initial = rest * (1 + np.array([vfix.get(g, window_velocity) for g in vg]) / _C)
     window = ((wave >= np.min(centers_initial) - fit_padding)
               & (wave <= np.max(centers_initial) + fit_padding))
     usable = (window & ~bad & np.isfinite(data) & np.isfinite(errs)

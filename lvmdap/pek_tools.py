@@ -180,7 +180,7 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 max_cluster_span=75.0, max_adjacent_distance=25.0,
                 min_valid_pixels=8, max_nfev=120, verbose=False,
                 reference_line='Halpha_6562.85', fixed_velocity=None,
-                map_velocity_bounds=None):
+                map_velocity_bounds=None, restart_velocity=None):
     """Refine the PM Gaussian solution with the common SciPy linked-line fitter.
 
     PM is always the initial kinematic solution.  NP does not replace that
@@ -197,6 +197,10 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
     retains the SciPy result only if it has a strictly smaller chi-square;
     otherwise the PEK table/model are exact copies of PM for that cluster.
     Thus a valid PM cluster cannot be degraded by PEK.
+
+    With a finite map bound and a supplied restart velocity, Halpha
+    groups can retry from the map when their starts differ by >=10 km/s.
+    The restart must improve the cluster and the local Halpha residual.
 
     Line fluxes remain signed and are solved linearly by ``fit_linked_lines``;
     no PM/NP flux prior, sign restriction, S/N cut, or extra scientific
@@ -240,6 +244,8 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
     fixed_now = np.isfinite(fixed_vel)
     if map_velocity_bounds is not None:
         map_velocity_bounds = np.broadcast_to(np.asarray(map_velocity_bounds, float), (nf, 2))
+    restart = (None if restart_velocity is None else
+               np.broadcast_to(np.asarray(restart_velocity, float), (nf,)))
     vs[fixed_now] = fixed_vel[fixed_now]
 
     if bad_pixel_mask is None:
@@ -559,10 +565,8 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 continue
 
             fixed = ({0: float(fixed_vel[i])} if fixed_now[i] else None)
-            candidate = fit_linked_lines(
-                wave, flux[i], err[i], rest, row_lsf,
+            fit_options = dict(
                 fixed_velocities=fixed,
-                initial_velocity=initial_velocity,
                 initial_sigma_kms=initial_sigma_kms,
                 velocity_bounds=velocity_bounds,
                 sigma_kms_bounds=sigma_bounds,
@@ -571,13 +575,18 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 max_nfev=max_nfev,
                 background_degree=-1,
             )
+            candidate = fit_linked_lines(
+                wave, flux[i], err[i], rest, row_lsf,
+                initial_velocity=initial_velocity, **fit_options)
 
-            candidate_valid = (
-                candidate.get('success', False) and
-                np.all(np.isfinite(candidate['flux'])) and
-                np.all(np.isfinite(candidate['vel'])) and
-                np.all(np.isfinite(candidate['disp'])) and
-                np.all(candidate['disp'] > 0))
+            def valid_fit(fit):
+                return (fit.get('success', False) and
+                        np.all(np.isfinite(fit['flux'])) and
+                        np.all(np.isfinite(fit['vel'])) and
+                        np.all(np.isfinite(fit['disp'])) and
+                        np.all(fit['disp'] > 0))
+
+            candidate_valid = valid_fit(candidate)
 
             # Compare candidate and PM on the SAME +/-3-sigma common window
             # later used by BEST/X_sq.  Include NP in the window definition
@@ -640,6 +649,45 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
 
             use_candidate = candidate_valid and (
                 not pm_valid or candidate_chi < pm_chi)
+
+            if restart is not None and local_bounds is not None and np.isfinite(restart[i]):
+                new_start = float(np.clip(restart[i], *local_bounds))
+                if 'Halpha_6562.85' in names and abs(new_start - initial_velocity) >= 10.0:
+                    j = names.index('Halpha_6562.85')
+                    retry = fit_linked_lines(
+                        wave, flux[i], err[i], rest, row_lsf,
+                        initial_velocity=new_start, fit_window_velocity=initial_velocity,
+                        **fit_options)
+                    if valid_fit(retry):
+                        if use_candidate or pm_valid:
+                            base_vel = candidate['vel'] if use_candidate else pm_vel
+                            base_disp = candidate['disp'] if use_candidate else pm_disp
+                            base_model = (candidate['model'] if use_candidate else
+                                          gaussian_model(wave, rest, pm_flux, pm_vel, pm_disp))
+                            expand_score_window(retry['vel'], retry['disp'])
+                            compare = ((wave >= max(lo_score, window_low)) &
+                                       (wave <= min(hi_score, window_high)) &
+                                       ~bad[i] & np.isfinite(flux[i]) &
+                                       np.isfinite(err[i]) & (err[i] > 0) &
+                                       np.isfinite(row_lsf) & (row_lsf > 0))
+                            residual_base = (flux[i, compare] - base_model[compare]) / err[i, compare]
+                            residual_retry = (flux[i, compare] - retry['model'][compare]) / err[i, compare]
+                            improvement = residual_base**2 - residual_retry**2
+                            accepted = improvement.sum() > 1.0
+                            centers = rest[j] * (1.0 + np.array([base_vel[j], retry['vel'][j]])/_C)
+                            sigmas = np.array([base_disp[j], retry['disp'][j]])
+                            local_wave = wave[compare]
+                            local = ((local_wave >= np.min(centers - 3.0*sigmas)) &
+                                     (local_wave <= np.max(centers + 3.0*sigmas)))
+                            accepted &= improvement[local].sum() > 0
+                        else:
+                            accepted = True
+                        if accepted:
+                            candidate = retry
+                            use_candidate = True
+                            if verbose:
+                                print(f'PEK fiber {i} cluster {names[0]}..{names[-1]}: '
+                                      'accept spatial velocity restart')
 
             if not use_candidate:
                 if pm_valid:

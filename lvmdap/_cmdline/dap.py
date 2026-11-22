@@ -1152,6 +1152,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             wl=wl__w,
             lsf_spectrum=LSF_rss,       # per-fiber Gaussian sigma [Angstrom]
             map_velocity_bounds=pek_map_bounds,
+            restart_velocity=(gas_map['z_gas_interpolated'] * 299792.458
+                              if pek_map_bounds is not None
+                              and str_to_bool(getattr(args, 'pek_halpha_restart', False))
+                              else None),
             bad_pixel_mask=bad_pixels,
             velocity_tolerance=getattr(args, 'pek_velocity_tolerance', None),
             dispersion_tolerance=getattr(args, 'pek_dispersion_tolerance', None),

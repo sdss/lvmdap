@@ -1867,6 +1867,7 @@ def initialize_dap_parameters(args):
         'pm_fit3d_recovery': False,
         # Optional second-stage constrained Gaussian emission-line fit.
         'fit_PEK': True,
+        'pek_halpha_restart': False,
         'pek_fit_padding': 20.0,            # Angstrom outside each cluster
         'pek_max_cluster_span': 75.0,       # Angstrom
         'pek_max_adjacent_distance': 25.0,  # Angstrom
@@ -5621,7 +5622,8 @@ def fit_individual_rss_spectrum_or_adopt_result(
     # ------------------------------------------------------------
     # 1. Decompose this fiber (or reuse a supplied decomposition).
     # ------------------------------------------------------------
-    if (tab_rsp_adopt is not None) and (tab_coeffs_adopt is not None):
+    adopting_stellar_fit = tab_rsp_adopt is not None and tab_coeffs_adopt is not None
+    if adopting_stellar_fit:
         eline_spec = np.zeros(wl.shape, dtype=float)
         spec_stellar, stellar_emission_mask = interpolate_emission_line_regions(
             wl, flux, lsf, tab_el, z,
@@ -5757,7 +5759,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
     # 3. Fit the stellar population model on line-subtracted flux.
     # ------------------------------------------------------------
 
-    if (tab_rsp_adopt is not None) and (tab_coeffs_adopt is not None):
+    if adopting_stellar_fit:
         if verbose:
             print(f'# Adopting the stellar population fit from the a previous fit for {i_fib}')
         SPS = SPS_master
@@ -5828,10 +5830,13 @@ def fit_individual_rss_spectrum_or_adopt_result(
     # 4. Correct low-frequency stellar continuum residuals.
     # ------------------------------------------------------------
     model_uncorr = np.asarray(SPS.spectra['model_ssp_min_uncorr'], dtype=float)
-    model_uncorr_joint = np.asarray(SPS.spectra['model_joint'], dtype=float)
+    # The adopted branch updates only the current stellar model. Its shared
+    # SPS still holds the preceding spectrum's joint model at this point.
+    continuum_reference = (model_uncorr if adopting_stellar_fit else
+                           np.asarray(SPS.spectra['model_joint'], dtype=float))
     # wave, spec, dw, method="legendre", degree=11, spline_k=3, spline_s=0.0, min_points_bin=1, return_nodes=False
     res_smooth = fit_masked_residual_continuum(
-        wl, spec_stellar - model_uncorr_joint,
+        wl, spec_stellar - continuum_reference,
         stellar_emission_mask,
         float(getattr(args, 'n_medium', 11.0)),
         method=str(getattr(args, 'smooth_method', 'spline')),
