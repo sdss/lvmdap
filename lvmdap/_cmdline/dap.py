@@ -45,10 +45,15 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     args = initialize_dap_parameters(args)
     spatial_seeds = (str_to_bool(args.gas_map_spatial_peak_seed)
                      and str_to_bool(args.gas_map_enabled))
+    weighted_halpha = str_to_bool(args.gas_map_halpha_weighted_seed)
+    if weighted_halpha and not spatial_seeds:
+        raise ValueError('Halpha-weighted seeds require the spatial gas prepass')
     if spatial_seeds:
         from lvmdap.spatial_gas_seed import joint_spatial_settings
         joint = joint_spatial_settings(args)
         settings = ('gas_map_spatial_peak_sn_cut', 'gas_map_spatial_fit_fraction')
+        if weighted_halpha and joint is None:
+            raise ValueError('Halpha-weighted seeds require joint spatial settings')
         if joint is None:
             settings += ('gas_map_spatial_difference_kms',)
         for key in settings:
@@ -830,7 +835,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         gas_map = estimate_rss_gas_velocity_map(
             wl__w, rss_flux, rss_eflux, LSF_rss, tab_el, tab_PT,
             np.asarray(tab_rsp_interp['z'], float), args,
-            bad_pixels=bad_pixels, integrated_gas_z=z_gas)
+            bad_pixels=bad_pixels, integrated_gas_z=z_gas,
+            integrated_lines=tab_m_best if weighted_halpha else None)
         if 'spatial_anchor' in gas_map:
             usable = (gas_map['spatial_anchor'] | gas_map['spatial_supported'])
             center = gas_map['z_gas_interpolated'] * 299792.458
@@ -871,7 +877,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         n_interpolated = int(np.count_nonzero(sources == 'interpolated'))
         n_stellar = int(np.count_nonzero(sources == 'stellar'))
         print(f'# Gas-velocity prepass completed: {len(tab_PT)} fibers')
-        print(f'# Gas redshifts measured (multi-line): {n_measured}; '
+        measured_label = 'Halpha-primary' if weighted_halpha else 'multi-line'
+        print(f'# Gas redshifts measured ({measured_label}): {n_measured}; '
               f'Halpha-only: {n_halpha_only}; '
               f'spatially interpolated: {n_interpolated}; '
               f'stellar-map fallback: {n_stellar}')
@@ -892,6 +899,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             if direct_sn.size:
                 sn_label = ('Supporting peak S/N' if 'spatial_anchor' in gas_map
                             else 'Weakest qualifying matched gas-line S/N')
+                if weighted_halpha:
+                    sn_label = 'Matched Halpha S/N'
                 print(f'# {sn_label}: '
                       f'median={np.median(direct_sn):.2f}, '
                       f'min={np.min(direct_sn):.2f}, '

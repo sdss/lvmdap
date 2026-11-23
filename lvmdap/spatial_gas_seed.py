@@ -218,3 +218,75 @@ def filter_joint_spatial_seeds(raw, peak_flux, peak_sn, coords, *, sn_cut, neigh
                 neighbor_z=local_z, neighbor_peak_flux=local_flux,
                 neighbor_velocity_std=std_z*C_KMS, neighbor_peak_flux_std=std_flux,
                 spatial_rejected_iteration=rejected_iteration)
+
+
+def integrated_seed_weights(table, catalog, halpha, sn_cut):
+    """Use positive, significant integrated BEST flux ratios as support weights."""
+    weights = {}
+    if table is not None and len(table) == 1:
+        fluxes = {}
+        for line in catalog:
+            # Match the wavelength precision used in the BEST column names.
+            wave_key = f"{float(line['wl']):.2f}"
+            wave = float(wave_key)
+            key = f"{line['id']}_{wave_key}_best"
+            flux_col, error_col = 'flux_' + key, 'e_flux_' + key
+            if flux_col not in table.colnames or error_col not in table.colnames:
+                continue
+            flux, error = table[flux_col][0], table[error_col][0]
+            if (not np.ma.is_masked(flux) and not np.ma.is_masked(error)
+                    and np.isfinite(flux) and np.isfinite(error)
+                    and flux > 0 and error > 0 and flux >= sn_cut * error):
+                fluxes[wave] = float(flux)
+        if halpha in fluxes:
+            weights = {wave: flux / fluxes[halpha] for wave, flux in fluxes.items()}
+    weights[halpha] = 1.0
+    return weights
+
+
+def measure_halpha_weighted_seed(wave, gas, error, lsf, good, zmin, zmax,
+                                 halpha, weights, sn_cut):
+    """Require matched Halpha evidence before scoring any supporting line."""
+    absent = (np.nan,) * 5
+    z = zmin + np.arange(int(np.floor((zmax - zmin) * C_KMS / 5.0)) + 1) * (5.0 / C_KMS)
+    valid = good & np.isfinite(gas) & np.isfinite(error) & (error > 0)
+    if not valid.any():
+        return absent
+
+    def measure(rest):
+        center = rest * (1 + z)
+        sigma = np.interp(center, wave, lsf, left=np.nan, right=np.nan)
+        if not np.any(np.isfinite(sigma)):
+            return np.full(z.shape, np.nan), np.full(z.shape, np.nan)
+        pad = 5 * np.nanmax(sigma)
+        line = valid & (wave >= center[0] - pad) & (wave <= center[-1] + pad)
+        x, y, e = wave[line], gas[line], error[line]
+        if len(x) < 2:
+            return np.full(z.shape, np.nan), np.full(z.shape, np.nan)
+        dx = (x[:, None] - center) / sigma
+        profile = np.exp(-0.5 * dx**2) / (np.sqrt(2 * np.pi) * sigma)
+        weighted = profile / e[:, None]
+        norm = np.linalg.norm(weighted, axis=0)
+        numerator = np.sum((y / e)[:, None] * weighted, axis=0)
+        usable = (np.sum(np.abs(dx) <= 1, axis=0) >= 2) & (norm > 0)
+        flux = np.full(z.shape, np.nan)
+        sn = np.full(z.shape, np.nan)
+        np.divide(numerator, norm**2, out=flux, where=usable)
+        np.divide(numerator, norm, out=sn, where=usable)
+        return flux, sn
+
+    flux, sn = measure(halpha)
+    accepted = np.isfinite(sn) & (sn >= sn_cut)
+    if not accepted.any():
+        return absent
+    score = np.where(accepted, sn**2, -np.inf)
+    for rest, weight in weights.items():
+        if rest != halpha and weight > 0:
+            _, support_sn = measure(rest)
+            score += weight * np.maximum(np.where(np.isfinite(support_sn), support_sn, 0), 0)**2
+    best = int(np.argmax(score))
+    center = halpha * (1 + z[best])
+    sigma = np.interp(center, wave, lsf)
+    core = np.flatnonzero(valid & (np.abs(wave - center) <= sigma))
+    pixel = core[np.argmax(gas[core])]
+    return z[best], wave[pixel], gas[pixel], sn[best], flux[best]
