@@ -8,14 +8,6 @@ from lvmdap.dap_tools import find_redshift
 from lvmdap.pyFIT3D.common.tools import peak_finder
 
 C_KMS = 299792.458
-_SEED_SUPPORT_LINES = {
-    '[NII]_6548.05': 6548.05,
-    '[NII]_6583.45': 6583.45,
-    '[SII]_6716.44': 6716.44,
-    '[SII]_6730.82': 6730.82,
-}
-
-
 def _measured_peaks(wave, gas, good, peak_threshold):
     """Run the existing peak finder and retain peaks on measured pixels."""
     if np.count_nonzero(good) < 5:
@@ -232,7 +224,13 @@ def filter_joint_spatial_seeds(raw, peak_flux, peak_sn, coords, *, sn_cut, neigh
                 spatial_rejected_iteration=rejected_iteration)
 
 
-def integrated_seed_weights(table, catalog, halpha, sn_cut):
+def _separate_from_halpha(rest, halpha, zmin, zmax):
+    """Require support and Halpha search windows to be disjoint."""
+    return (rest * (1 + zmax) + 0.5 < halpha * (1 + zmin)
+            or rest * (1 + zmin) - 0.5 > halpha * (1 + zmax))
+
+
+def integrated_seed_weights(table, catalog, halpha, sn_cut, zmin, zmax):
     """Use positive, significant integrated BEST flux ratios as support weights."""
     primary = f'Halpha_{halpha:.2f}'
     weights = {}
@@ -240,7 +238,8 @@ def integrated_seed_weights(table, catalog, halpha, sn_cut):
         fluxes = {}
         for line in catalog:
             identity = f"{line['id']}_{float(line['wl']):.2f}"
-            if identity != primary and identity not in _SEED_SUPPORT_LINES:
+            rest = float(identity.rsplit('_', 1)[1])
+            if identity != primary and not _separate_from_halpha(rest, halpha, zmin, zmax):
                 continue
             flux_col = f'flux_{identity}_best'
             error_col = f'e_flux_{identity}_best'
@@ -276,9 +275,12 @@ def measure_halpha_weighted_seed(wave, gas, error, lsf, good, zmin, zmax,
     candidates = np.flatnonzero((trial_z >= zmin) & (trial_z <= zmax))
     best = absent
     best_score = -np.inf
-    supporting = sorted(((identity, weight) for identity, weight in weights.items()
-                         if identity in _SEED_SUPPORT_LINES and weight > 0),
-                        key=lambda item: -item[1])
+    supporting = []
+    for identity, weight in weights.items():
+        rest = float(identity.rsplit('_', 1)[1])
+        if weight > 0 and _separate_from_halpha(rest, halpha, zmin, zmax):
+            supporting.append((rest, weight))
+    supporting.sort(key=lambda item: -item[1])
     for i in candidates:
         flux, sn = guess_halpha_flux(wave, gas, error, lsf, valid, centers[i])
         if not np.isfinite(sn) or sn < sn_cut:
@@ -289,8 +291,7 @@ def measure_halpha_weighted_seed(wave, gas, error, lsf, good, zmin, zmax,
         available = np.ones(len(pixels), dtype=bool)
         available[i] = False
         # Each measured peak can support only one identity per candidate.
-        for identity, weight in supporting:
-            rest = _SEED_SUPPORT_LINES[identity]
+        for rest, weight in supporting:
             distance = np.abs(centers - rest * (1 + z))
             matched = np.flatnonzero(available & (distance <= 0.5))
             if matched.size:

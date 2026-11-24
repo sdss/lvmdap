@@ -4883,7 +4883,9 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
         if not rest_min <= ha_rest <= rest_max:
             raise ValueError('Halpha-weighted seeds require Halpha in the gas-map interval')
         halpha_cut = float(args.gas_map_spatial_peak_sn_cut)
-        line_weights = integrated_seed_weights(integrated_lines, catalog, ha_rest, halpha_cut)
+        line_weights = integrated_seed_weights(integrated_lines, catalog, ha_rest, halpha_cut, lo, hi)
+        if len(line_weights) == 1:
+            print('# Halpha-primary gas seed: no eligible integrated support weights; using Halpha alone')
         print(f'# Halpha-primary gas seed line weights: {line_weights}')
         matched_halpha_flux = np.full(nf, np.nan)
     if joint_settings is not None and not weighted_halpha:

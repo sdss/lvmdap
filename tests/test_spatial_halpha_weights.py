@@ -29,7 +29,7 @@ class TestWeightedHalpha(unittest.TestCase):
         table = Table({'flux_Halpha_6562.85_best': [50.], 'e_flux_Halpha_6562.85_best': [1.],
                        'flux_[NII]_6583.45_best': [75.], 'e_flux_[NII]_6583.45_best': [1.],
                        'flux_HeII_6560.10_best': [75.], 'e_flux_HeII_6560.10_best': [1.]})
-        weights = integrated_seed_weights(table, self.catalog, self.ha, 5.)
+        weights = integrated_seed_weights(table, self.catalog, self.ha, 5., -250/C_KMS, 250/C_KMS)
         self.assertEqual(weights, {'Halpha_6562.85': 1., '[NII]_6583.45': 1.5})
         gas = (self.profile(self.ha, 0, 75) + self.profile(self.ha, 200, 60) +
                self.profile(self.nii, 200, 95))
@@ -63,15 +63,28 @@ class TestWeightedHalpha(unittest.TestCase):
             np.array([self.ha, self.nii]), -250/C_KMS, 250/C_KMS, self.ha, 2.)
         self.assertAlmostEqual(z*C_KMS, 0.)
 
-    def test_same_wavelength_different_identity_does_not_supply_weight(self):
+    def test_weight_requires_matching_integrated_identity(self):
         catalog = Table({'id': ['Halpha', 'WrongID'], 'wl': [self.ha, self.nii]})
         table = Table({'flux_Halpha_6562.85_best': [50.], 'e_flux_Halpha_6562.85_best': [1.],
-                       'flux_WrongID_6583.45_best': [150.], 'e_flux_WrongID_6583.45_best': [1.]})
-        self.assertEqual(integrated_seed_weights(table, catalog, self.ha, 5.),
+                       'flux_[NII]_6583.45_best': [150.], 'e_flux_[NII]_6583.45_best': [1.]})
+        self.assertEqual(integrated_seed_weights(table, catalog, self.ha, 5., -250/C_KMS, 250/C_KMS),
                          {'Halpha_6562.85': 1.})
 
+    def test_detected_catalogue_lines_define_support(self):
+        catalog = Table({'id': ['Halpha', 'HeI', '[NII]'],
+                         'wl': [self.ha, 6678.15, 6583.46]})
+        table = Table({'flux_Halpha_6562.85_best': [50.], 'e_flux_Halpha_6562.85_best': [1.],
+                       'flux_HeI_6678.15_best': [9.], 'e_flux_HeI_6678.15_best': [1.],
+                       'flux_[NII]_6583.46_best': [75.], 'e_flux_[NII]_6583.46_best': [1.]})
+        self.assertEqual(integrated_seed_weights(
+            table, catalog, self.ha, 5., -250/C_KMS, 250/C_KMS),
+            {'Halpha_6562.85': 1., 'HeI_6678.15': .18, '[NII]_6583.46': 1.5})
+        table['e_flux_HeI_6678.15_best'][0] = 3.
+        weights = integrated_seed_weights(table, catalog, self.ha, 5., -250/C_KMS, 250/C_KMS)
+        self.assertNotIn('HeI_6678.15', weights)
+
     def test_no_integrated_halpha_uses_halpha_only(self):
-        self.assertEqual(integrated_seed_weights(None, self.catalog, self.ha, 5.),
+        self.assertEqual(integrated_seed_weights(None, self.catalog, self.ha, 5., -250/C_KMS, 250/C_KMS),
                          {'Halpha_6562.85': 1.})
 
 
