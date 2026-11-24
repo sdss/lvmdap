@@ -17,39 +17,58 @@ lvm-dap-conf --help
 
 ## Quickstart with DR20 exposure 00004297
 
-Run these commands from the root of the source checkout after installation. The example uses the bundled MaStar templates, line lists and mask. Gaia matching is optional.
+Run these commands from the root of the LVM-DAP source checkout after installation. Keep the checkout available because the fit uses its line lists and mask. The quickstart uses the DESI RSPs bundled in the checkout and fits the full exposure. Gaia matching is optional.
 
 ### 1. Prepare a work directory and download the exposure
 
 ```sh
-mkdir -p ../lvmdap-quickstart
-cp -R _examples _legacy _fitting-data ../lvmdap-quickstart/
-cd ../lvmdap-quickstart
+lvmdap_checkout="$(pwd -P)"
+mkdir -p ../lvmdap-desi-test
+cp -R _examples _legacy _rsp ../lvmdap-desi-test/
+cd ../lvmdap-desi-test
 mkdir -p results
 
 curl --fail --location --output lvmSFrame-00004297.fits \
   'https://dr20.sdss.org/sas/dr20/spectro/lvm/redux/1.2.0/0011XX/11111/60191/lvmSFrame-00004297.fits'
 ```
 
-You can also download the file from the archive in a browser and save it as `lvmSFrame-00004297.fits` in the work directory. The file is about 489 MiB. [SDSS DR20 LVM data access](https://www.sdss.org/dr20/lvm/data/)
+You can also download the exposure in a browser and save it as `lvmSFrame-00004297.fits` in the test directory. Allow about 489 MiB for the input and additional space for the fit products. [SDSS DR20 LVM data access](https://www.sdss.org/dr20/lvm/data/)
 
-### 2. Fit a small subset as a smoke test
+### 2. Create a local YAML from the SN5 configuration
 
-```sh
-cp _examples/lvm-dap_SN5_general.yaml fit-smoke.yaml
-printf '\nny_range: [0, 5]\n' >> fit-smoke.yaml
-lvm-dap-conf lvmSFrame-00004297.fits run-4297-smoke fit-smoke.yaml
-```
-
-Run the fit from the work directory so the relative paths in the YAML resolve. `lvmdap_dir: .` points the loader at this directory, and the `../_fitting-data` and `../_legacy` prefixes in YAML values resolve to the copied assets. The SN5 example uses the bundled four-template RSP file for both template inputs, writes uncompressed FITS files to `results/`, and disables plots.
-
-The slice selects the first five input rows. The pipeline applies its normal fiber selection within that slice. Look in `results/` for `run-4297-smoke.dap.fits`, `run-4297-smoke.model.fits`, and the integrated and averaged products with the `m_` and `avg_` prefixes. For a full exposure, pass the original example YAML and use a new label:
+The source configuration is [`_legacy/lvm-dap_SN5_general.yaml`](_legacy/lvm-dap_SN5_general.yaml). Its operational paths refer to a separate installation and template store. The following command writes a local `fit.yaml` with the results directory, the path to your source checkout, and the bundled templates. Run it in the same shell as step 1.
 
 ```sh
-lvm-dap-conf lvmSFrame-00004297.fits run-4297 _examples/lvm-dap_SN5_general.yaml
+python - "$lvmdap_checkout" <<'PYTHON'
+from pathlib import Path
+import sys
+import yaml
+
+source = Path("_legacy/lvm-dap_SN5_general.yaml")
+config = yaml.safe_load(source.read_text())
+config.update({
+    "output_path": str(Path("results").resolve()),
+    "lvmdap_dir": sys.argv[1],
+    "rsp-file": str(Path("_rsp/rsp-4.fits").resolve()),
+    "rsp-nl-file": str(Path("_rsp/rsp-36.fits").resolve()),
+    "use_gaia_vel": False,
+    "clear_outputs": False,
+})
+Path("fit.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+PYTHON
 ```
 
-The three positional arguments are the input FITS file, an output label, and the YAML configuration. Use `--in_rss` for generic RSS or `--lvmsim` for LVM simulator input.
+The example keeps `sigma-inst: 0.01` and the SN5 settings. It uses the bundled `rsp-4.fits` for stellar decomposition and `rsp-36.fits` for the nonlinear parameters. The 342-template production library in the source YAML is a separate asset. Run from the test directory so the component files referenced by the strong-line configuration are available under `_legacy/`.
+
+### 3. Fit the exposure
+
+```sh
+lvm-dap-conf lvmSFrame-00004297.fits run-4297 fit.yaml
+```
+
+The three positional arguments are the input FITS file, an output label, and the YAML configuration. The example writes gzip-compressed products. In `results/`, look for `run-4297.dap.fits.gz`, `run-4297.model.fits.gz`, and their integrated and averaged counterparts prefixed with `m_` and `avg_`. The full fit can take substantially longer than a small subset. To test a subset, copy `fit.yaml`, add `ny_range: [0, 5]` to the copy, and fit with a fresh label.
+
+Use `--in_rss` for generic RSS or `--lvmsim` for LVM simulator input.
 
 ### Common YAML settings
 
@@ -81,17 +100,15 @@ Keep hyphens and underscores as shown. Use YAML booleans such as `true` and `fal
 
 ## Optional: match the pointing to a Gaia redshift prior
 
-The direct quickstart runs with the redshift settings in the example YAML. For a Gaia-based prior, run these commands from the same work directory after preparing `fit-smoke.yaml`. `lvm-dap-yaml-set-z` finds the nearest populated cell in a Gaia radial-velocity map (FITS or ECSV). It uses the good-fiber pointing from the input LVM exposure unless RA and Dec are overridden. For standard LVM SFrames, the default conversion to the observed spectral frame is `v_Gaia - HVCOR`, with HVCOR read from the primary header keyword `HIERARCH WAVE HELIORV_SCI`. The command derives the redshift prior and bounds from the cell velocity and dispersion.
+The direct quickstart runs with the redshift settings in the example YAML. For a Gaia-based prior, run these commands from the same work directory after preparing `fit.yaml`. `lvm-dap-yaml-set-z` finds the nearest populated cell in a Gaia radial-velocity map (FITS or ECSV). It uses the good-fiber pointing from the input LVM exposure unless RA and Dec are overridden. For standard LVM SFrames, the default conversion to the observed spectral frame is `v_Gaia - HVCOR`, with HVCOR read from the primary header keyword `HIERARCH WAVE HELIORV_SCI`. The command derives the redshift prior and bounds from the cell velocity and dispersion.
 
 ```sh
-lvm-dap-yaml-set-z --dry-run lvmSFrame-00004297.fits _legacy/gaia_rv_map.fits fit-smoke.yaml fit-smoke-gaia.yaml
-lvm-dap-yaml-set-z lvmSFrame-00004297.fits _legacy/gaia_rv_map.fits fit-smoke.yaml fit-smoke-gaia.yaml
-lvm-dap-conf lvmSFrame-00004297.fits run-4297-smoke-gaia fit-smoke-gaia.yaml
+lvm-dap-yaml-set-z --dry-run lvmSFrame-00004297.fits _legacy/gaia_rv_map.fits fit.yaml fit-gaia.yaml
+lvm-dap-yaml-set-z lvmSFrame-00004297.fits _legacy/gaia_rv_map.fits fit.yaml fit-gaia.yaml
+lvm-dap-conf lvmSFrame-00004297.fits run-4297-gaia fit-gaia.yaml
 ```
 
 This writes the four-element `redshift` array, sets `auto-redshift: true`, and updates `auto_z_min`, `auto_z_max` and `auto_z_del`. Use `--create-missing` if the base configuration lacks those entries. The helper computes a suggested step by dividing the range into 40 intervals. The default bounds span ±3 cell dispersions, with a dispersion floor of 20 km/s. Options include `--min-stars`, `--max-sep` (degrees), `--weighted`, `--nsigma`, and `--sigma-max`. Use `--hvcor` or `--hvcor-sign` only after verifying the wavelength frame.
-
-For a full exposure with Gaia matching, use `_examples/lvm-dap_SN5_general.yaml` as the helper input and save and fit a separate full-exposure YAML.
 
 **Grid-step compatibility:** This checkout's main DAP command reads `auto_z_d`, while the matching helper writes `auto_z_del`. The current integrated peak matcher uses the configured bounds and measured peak wavelengths. It does not scan a grid at the helper's suggested step. The Gaia match provides a prior for the spectral fit.
 
