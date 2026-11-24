@@ -204,6 +204,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         max_cluster_span=float(getattr(args, "max_cluster_span", 300.0)),
         max_adjacent_distance=float(getattr(args, "max_adjacent_distance", 100.0)),
     )
+    integrated_line_clusters = pm_strong_clusters
+    integrated_lines = tab_vstack(integrated_line_clusters)
     print(f'# PM strong lines: {sum(len(c) for c in pm_strong_clusters)} '
           f'/ {len(tab_el)} long-list lines')
 
@@ -366,8 +368,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         lsf=lsf_mean,
         tab_PT=tab_PT,
         i_fib=i_fib,
-        tab_el=tab_el,
-        el_clusters=el_clusters,
+        tab_el=integrated_lines,
+        el_clusters=integrated_line_clusters,
         hdr_flux=hdr_flux,
         args_copy=args,
         z_guess=args.redshift[0],
@@ -382,7 +384,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         fit_NP=True,
         bad_pixel_mask=bad_integrated,
         empirical_errors = empirical_errors,
-        pm_strong_clusters=pm_strong_clusters,
+        pm_strong_clusters=integrated_line_clusters,
+        continuum_lines=tab_el,
     )
     # Read the stellar-population solution, not the emission-line redshift.
     z_stars = float(tab_m_rsp['redshift'][0])
@@ -458,7 +461,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     # ------------------------------------------------------------
     tab_m_PEK = None
     m_pek_model = None
-    if getattr(args, 'fit_PEK', True):
+    if (getattr(args, 'fit_PEK', True) and
+            f'vel_{label_strongest_line}_pm' in tab_m_PM.colnames):
         ha_vel = float(tab_m_PM[f'vel_{label_strongest_line}_pm'][0])
         ha_disp = float(tab_m_PM[f'disp_{label_strongest_line}_pm'][0])
         if not (np.isfinite(ha_vel) and np.isfinite(ha_disp) and ha_disp > 0):
@@ -475,7 +479,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                 error_spectrum=int_eflux,
                 vel_interp=ha_vel,
                 disp_interp=ha_disp,
-                tab_el=tab_el,
+                tab_el=integrated_lines,
                 tab_PM=tab_m_PM,
                 tab_fe=tab_m_fe,
                 reference_line=label_strongest_line,
@@ -538,10 +542,10 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     m_best_input_gas = (np.asarray(hdu_m_sps[0].data[0], dtype=float) -
                         np.asarray(hdu_m_sps[0].data[1], dtype=float))
     tab_m_best = select_best_emission_lines(
-        tab_el, tab_m_fe, tab_m_PM, tab_m_PEK,
+        integrated_lines, tab_m_fe, tab_m_PM, tab_m_PEK,
         wl=wl__w, gas_spectrum=m_best_input_gas, error_spectrum=int_eflux,
         bad_pixel_mask=bad_m_best,
-        el_clusters=el_clusters)
+        el_clusters=integrated_line_clusters)
     m_best_gas = create_best_emission_model(wl__w, tab_m_best)
     # The integrated spectrum is 1D while the BEST model builder returns
     # (n_spectra, n_wave).  Select its only row for this single-spectrum QA;

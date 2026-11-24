@@ -5103,6 +5103,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
     verbose = False,
     bad_pixel_mask=None,
     gas_fit_halfwidth=None,
+    continuum_lines=None,
 ):
     """Fit one RSS spectrum and return its DAP products.
 
@@ -5191,11 +5192,13 @@ def fit_individual_rss_spectrum_or_adopt_result(
     # ------------------------------------------------------------
     # 1. Decompose this fiber (or reuse a supplied decomposition).
     # ------------------------------------------------------------
+    if continuum_lines is None:
+        continuum_lines = tab_el
     adopting_stellar_fit = tab_rsp_adopt is not None and tab_coeffs_adopt is not None
     if adopting_stellar_fit:
         eline_spec = np.zeros(wl.shape, dtype=float)
         spec_stellar, stellar_emission_mask = interpolate_emission_line_regions(
-            wl, flux, lsf, tab_el, z,
+            wl, flux, lsf, continuum_lines, z,
             mask_nsigma=3.0, bad_pixel_mask=bad_pixel_mask,
         )
         if verbose:
@@ -5206,7 +5209,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
         decomp = decompose_spectrum_masked_iterative(
             wl,
             flux,
-            tab_el=tab_el,
+            tab_el=continuum_lines,
             redshift=z,
             mask_nsigma=3.0,
             lsf=lsf,
@@ -5240,7 +5243,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
             eflux=eflux,
             eline_spec=eline_spec,
             lsf=lsf,
-            tab_el=tab_el,
+            tab_el=continuum_lines,
             z_guess=z,
             peak_threshold=float(getattr(args, 'peak_threshold', 1.0)),
             n_cut_peaks=float(getattr(args, 'n_cut_peaks', 2.0)),
@@ -5320,7 +5323,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
     # The original observed spectrum and errors remain unchanged.
     if z_gas_input is not None and np.isfinite(z_gas_input):
         spec_stellar, gas_emission_mask = interpolate_emission_line_regions(
-            wl, spec_stellar, lsf, tab_el, float(z_gas_input),
+            wl, spec_stellar, lsf, continuum_lines, float(z_gas_input),
             mask_nsigma=3.0, bad_pixel_mask=bad_pixel_mask)
         stellar_emission_mask = stellar_emission_mask | gas_emission_mask
 
