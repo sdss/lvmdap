@@ -122,7 +122,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     ###############################################################################
     # This is the default tab_el_strong. We dynamically select later a better list
     ###############################################################################
-    tab_el_strong = read_tab_EL(args.emission_lines_file)
+    configured_strong_lines = read_tab_EL(args.emission_lines_file)
+    tab_el_strong = configured_strong_lines
     ######################################################################
     # We mask the non-science spectra and broken fibers ones
     ######################################################################
@@ -833,7 +834,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             wl__w, rss_flux, rss_eflux, LSF_rss, tab_el, tab_PT,
             np.asarray(tab_rsp_interp['z'], float), args,
             bad_pixels=bad_pixels, integrated_gas_z=z_gas,
-            integrated_lines=tab_m_best if weighted_halpha else None)
+            integrated_lines=tab_m_best if weighted_halpha else None,
+            spatial_search_lines=configured_strong_lines)
         if 'spatial_anchor' in gas_map:
             usable = (gas_map['spatial_anchor'] | gas_map['spatial_supported'])
             center = gas_map['z_gas_interpolated'] * 299792.458

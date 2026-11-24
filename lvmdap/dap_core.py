@@ -2317,7 +2317,6 @@ REFERENCE_LINES = {
     "Hbeta": 4861.36,
     "[OIII]4959": 4958.91,
     "[OIII]5007": 5006.84,
-    "[OI]6300": 6300.30,
     "[NII]6548": 6548.05,
     "Halpha": 6562.85,
     "[NII]6583": 6583.45,
@@ -2339,7 +2338,6 @@ LINE_WEIGHTS = {
     "Hbeta": 2.5,
     "[OIII]4959": 2.0,
     "[OIII]5007": 3.0,
-    "[OI]6300": 1.2,
     "[NII]6548": 1.5,
     "Halpha": 3.0,
     "[NII]6583": 2.5,
@@ -4284,7 +4282,7 @@ def fit_masked_residual_continuum(wl, residual, line_mask, dw, *,
 def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                                   tab_el, tab_pt, z_st, args,
                                   bad_pixels=None, integrated_gas_z=None,
-                                  integrated_lines=None):
+                                  integrated_lines=None, spatial_search_lines=None):
     """S/N-ranked [NII]--[SII] gas-velocity prepass, entirely in memory.
 
     Explore +/- gas_map_velocity_half_range_kms around args.redshift[0].
@@ -4295,6 +4293,8 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
     Require gas_map_min_matches distinct matched lines, each with integrated
     S/N >= gas_map_sn_cut. An unusable prepass returns the stellar map;
     individual failed fibers do not interrupt RSS processing.
+    Spatial search identities can be supplied independently of the
+    long catalogue used for continuum decomposition.
     """
     from scipy.interpolate import griddata
 
@@ -4377,6 +4377,16 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                          (rest_catalog <= rest_max) & np.isfinite(rest_catalog)]
         if len(catalog) < n_matches_min:
             return fallback('insufficient [NII]--[SII] reference lines')
+        search_catalog = catalog
+        if spatial_mode and spatial_search_lines is not None:
+            search_wave = np.asarray(spatial_search_lines['wl'], float)
+            search_catalog = spatial_search_lines[
+                np.isfinite(search_wave) & (search_wave >= rest_min) &
+                (search_wave <= rest_max)]
+        if spatial_mode:
+            # Sky residuals at [O I] 6300 must not supply a redshift identity.
+            search_wave = np.asarray(search_catalog['wl'], float)
+            search_catalog = search_catalog[np.round(search_wave, 2) != 6300.30]
         coords = np.column_stack((np.asarray(tab_pt['ra'], float),
                                   np.asarray(tab_pt['dec'], float)))
         if coords.shape != (nf, 2):
@@ -4394,6 +4404,9 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
     halpha_only = np.zeros(nf, dtype=bool)
     use_halpha_only = str_to_bool(getattr(args, 'gas_map_halpha_only_fallback', False))
     ha_rest = float(REFERENCE_LINES['Halpha'])
+    spatial_rest = np.asarray(search_catalog['wl'], float)
+    halpha_eligible = (spatial_search_lines is None or
+                       np.any(np.round(spatial_rest, 2) == ha_rest))
     if spatial_mode:
         from lvmdap.spatial_gas_seed import joint_spatial_settings
         joint_settings = joint_spatial_settings(args)
@@ -4407,8 +4420,11 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
             raise ValueError('Halpha-weighted seeds require joint spatial settings')
         if not rest_min <= ha_rest <= rest_max:
             raise ValueError('Halpha-weighted seeds require Halpha in the gas-map interval')
+        if not halpha_eligible:
+            return fallback('Halpha absent from the spatial search catalogue')
         halpha_cut = float(args.gas_map_spatial_peak_sn_cut)
-        line_weights = integrated_seed_weights(integrated_lines, catalog, ha_rest, halpha_cut, lo, hi)
+        line_weights = integrated_seed_weights(
+            integrated_lines, search_catalog, ha_rest, halpha_cut, lo, hi)
         if len(line_weights) == 1:
             print('# Halpha-primary gas seed: no eligible integrated support weights; using Halpha alone')
         print(f'# Halpha-primary gas seed line weights: {line_weights}')
@@ -4469,8 +4485,8 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                 continue
             if spatial_mode:
                 measured_z[i], peak_wave[i], peak_flux[i], sn[i] = measure_peak_seed(
-                    w, gas, err[i, select], good, np.asarray(catalog['wl'], float),
-                    lo, hi, ha_rest if use_halpha_only else None,
+                    w, gas, err[i, select], good, spatial_rest, lo, hi,
+                    ha_rest if use_halpha_only and halpha_eligible else None,
                     float(getattr(args, 'gas_map_peak_threshold', 2.0)))
                 if joint_settings is not None and np.isfinite(measured_z[i]):
                     ha_data[i] = (gas[ha_slice].copy(), err[i, select][ha_slice],
@@ -4563,7 +4579,8 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
         from lvmdap.spatial_gas_seed import guard_halpha_identity
         original_z = measured_z.copy()
         replaced = np.zeros(nf, dtype=bool)
-        if integrated_gas_z is not None and np.isfinite(integrated_gas_z) and rest_min <= ha_rest <= rest_max:
+        if (halpha_eligible and integrated_gas_z is not None and
+                np.isfinite(integrated_gas_z) and rest_min <= ha_rest <= rest_max):
             halfwidth = (float(getattr(args, 'velocity_tolerance', 30.0)) *
                          float(args.gas_map_spatial_fit_fraction))
             measured_z, replaced = guard_halpha_identity(
