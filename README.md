@@ -23,9 +23,9 @@ Run these commands from the root of the LVM-DAP source checkout after installati
 
 ```sh
 lvmdap_checkout="$(pwd -P)"
-mkdir -p ../lvmdap-desi-test
-cp -R _examples _legacy _rsp ../lvmdap-desi-test/
-cd ../lvmdap-desi-test
+mkdir -p ../lvmdap-fit-test
+cp -R _examples _legacy _rsp ../lvmdap-fit-test/
+cd ../lvmdap-fit-test
 mkdir -p results
 
 curl --fail --location --output lvmSFrame-00004297.fits \
@@ -69,6 +69,14 @@ lvm-dap-conf lvmSFrame-00004297.fits run-4297 fit.yaml
 The three positional arguments are the input FITS file, an output label, and the YAML configuration. The example writes gzip-compressed products. In `results/`, look for `run-4297.dap.fits.gz`, `run-4297.model.fits.gz`, and their integrated and averaged counterparts prefixed with `m_` and `avg_`. The full fit can take substantially longer than a small subset. To test a subset, copy `fit.yaml`, add `ny_range: [0, 5]` to the copy, and fit with a fresh label.
 
 Use `--in_rss` for generic RSS or `--lvmsim` for LVM simulator input.
+
+### 4. Visualize the results
+
+From the test directory, open the DAP table and its companion spectral model in the interactive viewer.
+
+```sh
+../lvmdap/cmdline_tools/LVMview_DAP_model.py results/run-4297.dap.fits.gz results/run-4297.model.fits.gz
+```
 
 ### Common YAML settings
 
