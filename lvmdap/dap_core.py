@@ -4937,7 +4937,8 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                 (measured_z[i], peak_wave[i], peak_flux[i], sn[i],
                  matched_halpha_flux[i]) = measure_halpha_weighted_seed(
                     w, gas, err[i, select], lsf_i, good, lo, hi,
-                    ha_rest, line_weights, halpha_cut)
+                    ha_rest, line_weights, halpha_cut,
+                    float(getattr(args, 'gas_map_peak_threshold', 2.0)))
                 continue
             if spatial_mode:
                 measured_z[i], peak_wave[i], peak_flux[i], sn[i] = measure_peak_seed(

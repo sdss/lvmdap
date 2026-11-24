@@ -8,19 +8,24 @@ from lvmdap.dap_tools import find_redshift
 from lvmdap.pyFIT3D.common.tools import peak_finder
 
 C_KMS = 299792.458
+_SEED_SUPPORT_LINES = {
+    '[NII]_6548.05': 6548.05,
+    '[NII]_6583.45': 6583.45,
+    '[SII]_6716.44': 6716.44,
+    '[SII]_6730.82': 6730.82,
+}
 
 
-def measure_peak_seed(wave, gas, error, good, rest, zmin, zmax, halpha, peak_threshold):
-    """Return redshift and wavelength, flux density, and S/N of its strongest support."""
-    absent = (np.nan,) * 4
+def _measured_peaks(wave, gas, good, peak_threshold):
+    """Run the existing peak finder and retain peaks on measured pixels."""
     if np.count_nonzero(good) < 5:
-        return absent
+        return np.empty(0, dtype=int), np.empty(0, dtype=float)
     filled = np.interp(wave, wave[good], gas[good])
     pixels, _, centers, _ = peak_finder(wave, filled, 2, peak_threshold=peak_threshold, dmin=2)
     pixels = np.asarray(pixels, dtype=int)
     centers = np.asarray(centers, dtype=float)
     if not pixels.size:
-        return absent
+        return np.empty(0, dtype=int), np.empty(0, dtype=float)
     # Interpolation is for detection. Use the measured pixel wavelength if
     # the subpixel centroid's immediate neighborhood contains missing data.
     interior = (pixels > 0) & (pixels < len(wave) - 1)
@@ -28,7 +33,14 @@ def measure_peak_seed(wave, gas, error, good, rest, zmin, zmax, halpha, peak_thr
     neighbors[interior] = good[pixels[interior]-1] & good[pixels[interior]+1]
     centers = np.where(neighbors, centers, wave[pixels])
     keep = good[pixels] & np.isfinite(centers) & (gas[pixels] > 0)
-    keep &= np.any((centers[:, None] >= rest * (1 + zmin)) &
+    return pixels[keep], centers[keep]
+
+
+def measure_peak_seed(wave, gas, error, good, rest, zmin, zmax, halpha, peak_threshold):
+    """Return redshift and wavelength, flux density, and S/N of its strongest support."""
+    absent = (np.nan,) * 4
+    pixels, centers = _measured_peaks(wave, gas, good, peak_threshold)
+    keep = np.any((centers[:, None] >= rest * (1 + zmin)) &
                    (centers[:, None] <= rest * (1 + zmax)), axis=1)
     pixels, centers = pixels[keep], centers[keep]
     if not pixels.size:
@@ -222,71 +234,70 @@ def filter_joint_spatial_seeds(raw, peak_flux, peak_sn, coords, *, sn_cut, neigh
 
 def integrated_seed_weights(table, catalog, halpha, sn_cut):
     """Use positive, significant integrated BEST flux ratios as support weights."""
+    primary = f'Halpha_{halpha:.2f}'
     weights = {}
     if table is not None and len(table) == 1:
         fluxes = {}
         for line in catalog:
-            # Match the wavelength precision used in the BEST column names.
-            wave_key = f"{float(line['wl']):.2f}"
-            wave = float(wave_key)
-            key = f"{line['id']}_{wave_key}_best"
-            flux_col, error_col = 'flux_' + key, 'e_flux_' + key
+            identity = f"{line['id']}_{float(line['wl']):.2f}"
+            if identity != primary and identity not in _SEED_SUPPORT_LINES:
+                continue
+            flux_col = f'flux_{identity}_best'
+            error_col = f'e_flux_{identity}_best'
             if flux_col not in table.colnames or error_col not in table.colnames:
                 continue
             flux, error = table[flux_col][0], table[error_col][0]
             if (not np.ma.is_masked(flux) and not np.ma.is_masked(error)
                     and np.isfinite(flux) and np.isfinite(error)
                     and flux > 0 and error > 0 and flux >= sn_cut * error):
-                fluxes[wave] = float(flux)
-        if halpha in fluxes:
-            weights = {wave: flux / fluxes[halpha] for wave, flux in fluxes.items()}
-    weights[halpha] = 1.0
+                fluxes[identity] = float(flux)
+        if primary in fluxes:
+            weights = {identity: flux / fluxes[primary]
+                       for identity, flux in fluxes.items()}
+    weights[primary] = 1.0
     return weights
 
 
 def measure_halpha_weighted_seed(wave, gas, error, lsf, good, zmin, zmax,
-                                 halpha, weights, sn_cut):
-    """Require matched Halpha evidence before scoring any supporting line."""
+                                 halpha, weights, sn_cut, peak_threshold):
+    """Rank redshift candidates anchored on detected, significant Halpha peaks."""
     absent = (np.nan,) * 5
-    z = zmin + np.arange(int(np.floor((zmax - zmin) * C_KMS / 5.0)) + 1) * (5.0 / C_KMS)
     valid = good & np.isfinite(gas) & np.isfinite(error) & (error > 0)
-    if not valid.any():
+    pixels, centers = _measured_peaks(wave, gas, valid, peak_threshold)
+    if not len(pixels):
         return absent
 
-    def measure(rest):
-        center = rest * (1 + z)
-        sigma = np.interp(center, wave, lsf, left=np.nan, right=np.nan)
-        if not np.any(np.isfinite(sigma)):
-            return np.full(z.shape, np.nan), np.full(z.shape, np.nan)
-        pad = 5 * np.nanmax(sigma)
-        line = valid & (wave >= center[0] - pad) & (wave <= center[-1] + pad)
-        x, y, e = wave[line], gas[line], error[line]
-        if len(x) < 2:
-            return np.full(z.shape, np.nan), np.full(z.shape, np.nan)
-        dx = (x[:, None] - center) / sigma
-        profile = np.exp(-0.5 * dx**2) / (np.sqrt(2 * np.pi) * sigma)
-        weighted = profile / e[:, None]
-        norm = np.linalg.norm(weighted, axis=0)
-        numerator = np.sum((y / e)[:, None] * weighted, axis=0)
-        usable = (np.sum(np.abs(dx) <= 1, axis=0) >= 2) & (norm > 0)
-        flux = np.full(z.shape, np.nan)
-        sn = np.full(z.shape, np.nan)
-        np.divide(numerator, norm**2, out=flux, where=usable)
-        np.divide(numerator, norm, out=sn, where=usable)
-        return flux, sn
-
-    flux, sn = measure(halpha)
-    accepted = np.isfinite(sn) & (sn >= sn_cut)
-    if not accepted.any():
+    dz = 5.0 / C_KMS
+    grid = np.arange(zmin, zmax, dz)
+    if not grid.size:
         return absent
-    score = np.where(accepted, sn**2, -np.inf)
-    for rest, weight in weights.items():
-        if rest != halpha and weight > 0:
-            _, support_sn = measure(rest)
-            score += weight * np.maximum(np.where(np.isfinite(support_sn), support_sn, 0), 0)**2
-    best = int(np.argmax(score))
-    center = halpha * (1 + z[best])
-    sigma = np.interp(center, wave, lsf)
-    core = np.flatnonzero(valid & (np.abs(wave - center) <= sigma))
-    pixel = core[np.argmax(gas[core])]
-    return z[best], wave[pixel], gas[pixel], sn[best], flux[best]
+    peak_sn = gas[pixels] / error[pixels]
+    trial_z = centers / halpha - 1.0
+    candidates = np.flatnonzero((trial_z >= zmin) & (trial_z <= zmax))
+    best = absent
+    best_score = -np.inf
+    supporting = sorted(((identity, weight) for identity, weight in weights.items()
+                         if identity in _SEED_SUPPORT_LINES and weight > 0),
+                        key=lambda item: -item[1])
+    for i in candidates:
+        flux, sn = guess_halpha_flux(wave, gas, error, lsf, valid, centers[i])
+        if not np.isfinite(sn) or sn < sn_cut:
+            continue
+        step = int(np.clip(np.rint((trial_z[i] - zmin) / dz), 0, grid.size - 1))
+        z = grid[step]
+        score = sn
+        available = np.ones(len(pixels), dtype=bool)
+        available[i] = False
+        # Each measured peak can support only one identity per candidate.
+        for identity, weight in supporting:
+            rest = _SEED_SUPPORT_LINES[identity]
+            distance = np.abs(centers - rest * (1 + z))
+            matched = np.flatnonzero(available & (distance <= 0.5))
+            if matched.size:
+                j = matched[np.argmin(distance[matched])]
+                score += weight * peak_sn[j]
+                available[j] = False
+        if score > best_score:
+            best_score = score
+            best = (z, centers[i], gas[pixels[i]], sn, flux)
+    return best
