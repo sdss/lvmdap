@@ -1,321 +1,135 @@
 # Local Volume Mapper Data Analysis Pipeline (LVM-DAP)
 
-## Introduction
-The **LVM-DAP** is the official data analysis pipeline for the **SDSS-V Local Volume Mapper (LVM)**. It provides routines and scripts to analyze and fit spectral data from LVM observations.
+LVM-DAP analyzes spectra from the SDSS-V Local Volume Mapper. It fits the integrated spectrum, models the stellar continuum, measures emission lines, and writes spectral models and fit diagnostics. The YAML-driven pipeline accepts LVM exposures, generic row-stacked spectra (RSS), LVM simulations, and reconstructed 3DCubeGen FITS cubes.
 
-### Main Scripts:
-- **`lvm-dap-conf`**: Fits FITS files in LVM format using a predefined configuration file.
-- **`lvm-dap-gen-out-mod`**: Generates output models from spectral data.
-- **`lvm-dap-sim`**: Simulates spectral data based on predefined parameters.
-- **'lvm-dap-yaml-edit'**: Allows to modify in command-like an entry of the configuration YAML file.
-- **'lvm-dap-clean-st-mw'**: Clean the forground MW ISM and stellar contribution from a LVM exposure to analyze any potential Local Volume (extragalactic) target.
-### Deprecated Scripts
-- **`lvm-dap`**: Runs spectral fitting for LVM data.
+## Install from source
 
+Use an isolated Python environment. The project's setup example uses Python 3.11. Install pyPipe3D if it is unavailable to your package installer.
 
----
-## Installation
-
-### Recommended Setup
-It is recommended to install **LVM-DAP** in a virtual environment to avoid dependency issues. Options include:
-- [Conda/Miniconda](https://docs.conda.io/en/latest/miniconda.html) (Recommended)
-- [venv](https://docs.python.org/3.8/library/venv.html) 
-- [pipenv](https://pipenv.pypa.io/en/latest/)
-
-### Prerequisites
-**LVM-DAP** depends on **pyPipe3D** ([pyPipe3D](http://ifs.astroscu.unam.mx/pyPipe3D/), Lacerda et al. 2022). Install pyPipe3D before proceeding.
-
-### Installation Steps
-```bash
-# Create and activate a Conda environment
-conda create --name lvmdap python=3.11
+```sh
+conda create -n lvmdap python=3.11
 conda activate lvmdap
-
-# In some cases it is needed to install the following version of 
-# matplotlib
-pip install matplotlib==3.7.3
-
-
-# Clone LVM-DAP
-# For users who only need to run the pipeline:
 git clone https://github.com/sdss/lvmdap.git
-
-# For developers who will push changes back to the repository:
-git clone git@github.com:sdss/lvmdap.git
-
-# Install LVM-DAP
 cd lvmdap
-pip install . --user
-
-
-
-
+python -m pip install .
+lvm-dap-conf --help
 ```
 
-### Additional Data
-Download and store the required fitting data from:
-[Download LVM fitting data](https://tinyurl.com/mudr6yw7)
+Copy the example [_legacy/lvm-dap_fast.yaml](_legacy/lvm-dap_fast.yaml) to `fit.yaml` as a starting point. Set `lvmdap_dir` to your checkout and `output_path` to your results directory. Obtain the fitting data and update `rsp-file`, `rsp-nl-file`, and the line-list, mask, and fit-configuration paths. The example contains `ask-file`, a typo. Remove `ask-file`. If you intend to apply the wavelength-band list, set the existing `mask_file` entry to its path. Remove its `ny_range: [0, 5]` to fit the full exposure. Use absolute paths for external inputs. For repository-local resources, the loader replaces literal `..` in string values with `lvmdap_dir`.
 
-### Environmental Variables
-Not needed
+## Run an LVM exposure
 
-### Directory Structure
-After a successful installation, the directory should be structured as follows:
-```
-├── dist
-├── lvmdap
-├── _examples
-├── _fitting_data
-├── _legacy    
-├── notebooks
-├── poetry.lock
-├── pyproject.toml
-├── README.md
-├── README.rst
-└── setup.py
+```sh
+lvm-dap-conf lvmSFrame-00006110.fits run-00006110 fit.yaml
 ```
 
----
-## Running Tests
+The three positional arguments are the input FITS file, an output label, and the YAML configuration. Use `--in_rss` for generic RSS or `--lvmsim` for LVM simulator input. Use a fresh output label when comparing runs. Check `clear_outputs` in reused YAML files before running.
 
-### Test 1: Running DAP main script on a FITS File
+### Common YAML settings
 
-1. Download the example FITS file:
-   - [Download example FITS](https://tinyurl.com/mudr6yw7)
+The following keys supplement a working fit configuration. Keep the existing template and wavelength settings for your dataset.
 
-2. Place it inside `_examples/data/`
-
-3. Edit the file '_legacy/lvm-dap_fast.yaml' chaning the local directories to match the ones in your computer
-
-4. Run the following command:
-
-```bash
-
-lvm-dap-conf _examples/data/lvmSFrame-example.fits.gz dap-4-example _legacy/lvm-dap_fast.yaml
-
-```
-
-### Test 2: Running the notebook lvm-dap-conf.ipynb located in the notebook
-director.
-
-
-1. Download the example FITS file:
-   - [Download example FITS](https://tinyurl.com/mudr6yw7)
-
-2. Place it inside a local directory
-
-3. Copy the notebook into that directory.
-
-4: Copy the file: _examples/data/lvmSFrame-example.fits.gz dap-4-example _legacy/lvm-dap_fast.yaml
-    into that directory
-
-3. Edit the notebook and change the 'lvm_file', 'label' and 'yaml_path' variables.
-
-4. Run the notebook cell by cell
-
-
-
----
-## Usage
-
-### `lvm-dap-conf` Command
-
-Output products use uncompressed `.fits` by default. Set `gzip: true` to
-write `.fits.gz` instead. Plot output defaults to PNG. Set
-`out-plot-format: "pdf"` to request PDF for plots that support it.
-
-#### Example YAML Configuration
 ```yaml
-# output directory
- output_path: "/disk-a/sanchez/LVM/LVM/ver_231113/output_dap/"
-# LVM-DAP software directory  
- lvmdap_dir: "/home/sanchez/sda2/code/python/lvmdap"
-# rsp-file for the full stellar decomposition 
- rsp-file: "../_fitting-data/_basis-binned_mastar/stellar-basis-spectra-binned-4-mastar.fits.gz"
-# rsp-file for the derivation of the non-linear (NL) parameters (vel, vel_disp, Av)
- rsp-nl-file: "../_fitting-data/_basis-binned_mastar/stellar-basis-spectra-binned-4-mastar.fits.gz"
-# approximate instrumental resolution in AA
- sigma-inst: 1
-# input format for fitting the data (deprecated)
-input-fmt: rss
-# redshift range (or velocity) to explore in the NL
- redshift:
-  -  0.0      # guess
-  -  0.0001   # delta
-  -  -0.0003  # min
-  -  0.0003   # max
-# velocity dispersion in km/s range to explore in the NL
- sigma:
-  - 1  # guess
-  - 5  # delta
-  - 1  # min
-  - 15 # max
-# Dust attenuation in the V-band
- AV:
-  - 0    # guess
-  - 0.3  # delta
-  - 0.0  # min
-  - 1.5  # max
-# list of strong emission lines to analyze
- emission-lines-file: ../_legacy/emission_lines_strong.LVM 
-# emission-lines-file-long: ../_legacy/emission_lines_long_list.LVM
-# full list of emission lines to analyze using the non-parametric fitting procedure
-emission-lines-file-long: ../_legacy/emission_lines_strong.LVM
-# Wavelength range in which the full stellar decomposition is peformed
-w-range:
-  - 3700
-  - 9500
-# Wavelength range in which the kinematics parameters (vel,vel_disp) are fitted
-w-range-nl:
-  - 3800
-  - 4200
-# File comprising the wavelength bands to be masked (e.g., the bands between spectrographs)
- mask-file: ../_legacy/mask_bands_LVM.txt
-# File with a set wavelengths to mask (narrow range around the designed wavelength)
- mask_file: none
-# Configuration file defining the emission lines to fit during the RSP fitting.
- config-file: ../_legacy/auto_ssp_LVM.config
-# Flag indicating if any previous file with the same label should be removed
- clear_outputs: True
-# not used so far. Possible binning the wavelength range to speed-up the fitting procedure
- bin-nl: 3
-# not used so far. Possible binning in the derivation of Av to speed-up the process
- bin-AV: 50
-# Flag to ignore the emission line fitting during the RSP analysis
- ignore_gas: False
-# Initial guess for the velocity dispersion for the emission lines analysis in AA
- sigma-gas: 0.8
-# Flag to perform the emission line fitting one once during the RSP analysis
-single-gas-fit: True
-# Flag indicating if instead of a decomposition the code looks for the best RSP in the template that
-# matchs with the observed spectra
-single_rsp: False
-# Flag indicating wether to generate plots or not along the fitting process
- do_plots: 1
-# Flux range for plotting. When set ot [-1,1] it will automatically determine the required range
- flux-scale-org:
-  - -1 # min
-  - 1  # max
-# Range of fibers to fit in case that you do not want to fit the full RSS
- ny_range:
-  - 500
-  - 503
-# Not used so far: range of spectral pixels to perform the fitting
- nx_range:
-  - 100
-  - 3000
- out-plot-format: "png"
- gzip: false
- only-integrated: True
-# Fit only the integrated spectrum or not
- auto-redshift: True
-# Find the central redshift automatically using the integrated spectrum
-auto_z_min: -0.005
-auto_z_max: 0.01
-auto_z_del: 0.0001
-# Parameters that define the range min,max and delta
-auto_z_bg: True
-# Subtract the background to detect Ha+NII in the integrated spectrum to find the central redshift
-auto_z_sc: True
-# Correct the residual background for the integrated spectrum
-sky-hack: False
-# Appply a correction of the sky spectrum (deprecated, useful for DRP<1.0.3)
-SN_CUT: 20
-# SN cut for the multi-RSP analysis
-SN_CUT_INT: 0.1
-# SN cut for the single-RSP analysis
+output_path: /path/to/results
+gzip: false
+out-plot-format: png
+flux-scale-org: [-1, 1]
+only-integrated: false
 ```
 
-```bash
-lvm-dap-conf [-h] [-d] lvm_file label config_yaml
-```
-- **`lvm_file`**: FITS file in LVM format
-- **`label`**: Label for the current run
-- **`config_yaml`**: Configuration file for fitting parameters
+| Key | Purpose |
+| --- | --- |
+| `rsp-file`, `rsp-nl-file` | Libraries for stellar decomposition and nonlinear fitting |
+| `redshift`, `sigma`, `AV` | Four values in the order guess, step, lower bound, upper bound. Redshift is dimensionless, stellar dispersion is in km/s, and attenuation is in magnitudes. |
+| `w-range`, `w-range-nl` | Wavelength ranges for stellar decomposition and nonlinear fitting |
+| `emission-lines-file`, `emission-lines-file-long`, `config-file` | Line catalogues and strong-line fit configuration |
+| `ny_range` | Optional RSS row selection. Review sample configurations before running a full exposure. |
+| `only-integrated` | Stop after the integrated fit when true |
+| `gzip` | Write compressed `.fits.gz` when true. Default is uncompressed `.fits`. You can also pass `--gzip`. |
+| `out-plot-format` | PNG by default. Choose `pdf` for plots that support it. Plot generation is controlled separately. |
+| `flux-scale-org` | Plot flux range `[min, max]`. Use `[-1, 1]` for automatic scaling. Supply this YAML key when `--flux-scale` is omitted or left at its default. |
+| `remask` | Opt-in supplemental LSF-aware masking |
+| `SN_CUT`, `SN_CUT_INT` | S/N settings for the fiber and integrated stellar analysis |
 
-### `lvm-dap-gen-out-mod` Command
-```bash
-lvm-dap-gen-out-mod [-h] [-d] [-output_path OUTPUT_PATH] [--plot PLOT] [--flux-scale min max] lvm_file DAP_table_in label config_yaml
-```
-- **`lvm_file`**: Input LVM spectrum that was fitted
-- **`DAP_table_in`**: DAP file generated by the LVM-DAP fitting
-- **`label`**: Label for the output file (e.g., LABEL.output.fits.gz)
-- **`config_yaml`**: Configuration file with fitting parameters
+Keep hyphens and underscores as shown. Use YAML booleans such as `true` and `false`.
 
-**Options:**
-- `-d, --debug` : Enable debugging mode (default: False)
-- `-output_path OUTPUT_PATH` : Directory to store the results
-- `--plot PLOT` : Whether to plot (1) or not (0, default). If 2, saves a plot without displaying on screen
-- `--flux-scale min max` : Scale of the flux in the input spectrum
+## Match the pointing to a Gaia redshift prior
 
-### `lvm-dap-sim` Command
-```bash
-lvm-dap-sim [-h] [-n_sim n_sim] [-n_st n_st] [-f_st f_scale_st] [-f_el f_scale_el] [-dap_fwhm dap_fwhm] [-d] lvm_file label config_yaml
-```
-- **`lvm_file`**: Input LVM spectrum for the simulation
-- **`label`**: Label for the current run
-- **`config_yaml`**: Configuration file with fitting parameters
+`lvm-dap-yaml-set-z` finds the nearest populated cell in a Gaia radial-velocity map (FITS or ECSV). It uses the good-fiber pointing from the input LVM exposure unless RA and Dec are overridden. For standard LVM SFrames, the default conversion to the observed spectral frame is `v_Gaia - HVCOR`, with HVCOR read from the primary header keyword `HIERARCH WAVE HELIORV_SCI`. The command derives the redshift prior and bounds from the cell velocity and dispersion.
 
-**Options:**
-- `-h, --help` : Show help message and exit
-- `-n_sim n_sim` : Number of simulated spectra (default: 10)
-- `-n_st n_st` : Number of stars included in the model (default: 10)
-- `-f_st f_scale_st` : Scaling factor applied to stellar population spectra (~S/N level, default: 1.0)
-- `-f_el f_scale_el` : Scaling factor applied to emission lines relative to reference (default: 1.0)
-- `-dap_fwhm dap_fwhm` : Scaling factor applied to DAP non-parametric dispersion for emission lines (default: 2.354)
-- `-d, --debug` : Enable debugging mode (default: False)
-
-### 'lvm-dap-yaml-edit' Command
-```bash
-lvm-dap-yaml-edit [-h] [--create-missing] input_yaml output_yaml
-``` 
-- **`input_yaml`**: Input configuration file with fitting parameters
-- **`output_yaml`**: Output configuration file with fitting parameters
-
-**Options:**
-  -h, --help        show this help message and exit
-  --create-missing  Allow creating missing keys along a path (default: error if key missing).
-
-**Example: **
-```bash
-lvm-dap-yaml-edit lvm-dap_SD_fast_SN20_ofelia_nosky_hack_cl.yaml lvm-dap_SD_fast_SN20_ofelia_nosky_hack_cl_00033656.yaml --auto-redshift=False --redshift="(0.00136,0.0002,0.0010,0.0016)
+```sh
+lvm-dap-yaml-set-z --dry-run lvmSFrame-00006110.fits gaia-rv-map.fits fit.yaml fit-6110.yaml
+lvm-dap-yaml-set-z lvmSFrame-00006110.fits gaia-rv-map.fits fit.yaml fit-6110.yaml
+lvm-dap-conf lvmSFrame-00006110.fits run-00006110-gaia fit-6110.yaml
 ```
 
-### `lvm-dap-clean-st-mm' Command
-```bash
-lvm-dap-clean-st-mw [-h] [--use-cache] [--DIR_DAP DIR_DAP] [-d] outputfile dap_file m_lim n_spec
+This writes the four-element `redshift` array, sets `auto-redshift: true`, and updates `auto_z_min`, `auto_z_max` and `auto_z_del`. Use `--create-missing` if the base configuration lacks those entries. The helper computes a suggested step by dividing the range into 40 intervals. The default bounds span ±3 cell dispersions, with a dispersion floor of 20 km/s. Options include `--min-stars`, `--max-sep` (degrees), `--weighted`, `--nsigma`, and `--sigma-max`. Use `--hvcor` or `--hvcor-sign` only after verifying the wavelength frame.
+
+**Grid-step compatibility:** This checkout's main DAP command reads `auto_z_d`, while the matching helper writes `auto_z_del`. The current integrated peak matcher uses the configured bounds and measured peak wavelengths. It does not scan a grid at the helper's suggested step. The Gaia match provides a prior for the spectral fit.
+
+## Analyze a 3DCubeGen cube
+
+```sh
+lvm-dap-conf --in-cube reconstructed.fits run-cube cube-fit.yaml
 ```
 
-- **`outputfile`**: Output cleaned RSS file. We recommend to use the same name as the *.output.fits.gz with the subfix *.clean.figs.gz
-- **`dap_file`**: DAP output file generated by the standard LVM-DAP analysis (redshift zero). An *.output.fits.gz file should be located in the same directory as the DAP file.
-- **`m_lim`**: Limiting magnitud to find GAIA stars in the field.
-- **`n_spec`**: Maximum number of GAIA spectra to considered.
+Use a working fit YAML adjusted for the cube's wavelength coverage and templates. The input is a 3DCubeGen reconstruction with flux in HDU 0 and matching **1σ errors** in HDU 1, both in Python array order `(wavelength, y, x)`. The reader uses the spectral and celestial WCS and fits usable spaxels through the RSS workflow. Flux and errors use the same conversion factor derived from the flux HDU's `BUNIT` or an explicit override.
 
-**options:***
-  -h, --help         show this help message and exit
-  --use-cache        If set, reuse Gaia cached query (<gaia_cache>/<expnum>_ids.ecsv) when present.
-  --DIR_DAP DIR_DAP  Optional base directory. If provided, relative paths for outputfile/dap_file are resolved inside it.
-  -d, --debug        Debug mode (full tracebacks).
+| Cube key | Default | Purpose |
+| --- | --- | --- |
+| `cube_x_range`, `cube_y_range` | Full axis | Optional crop as zero-based `[start, stop)` indices in the original cube |
+| `create_cube_mask` | `true` | Expand invalid-sample masks over a 3×3 spatial footprint at each wavelength. With `false`, keep pointwise masking. |
+| `cube_input_scale` | From flux `BUNIT` | Explicit positive multiplier into DAP fit units when needed |
+| `cube_lsf_sigma` | Unset | Explicit instrumental Gaussian sigma in Å. The reconstructed cube has no preserved instrumental LSF, so supply a value only when independently justified. |
 
-### `lvm-dap` Command (Deprecated: Do not use it)
+Cube mode uses its own input path. Keep `--in_rss` and `--lvmsim` off. The full cube product is `LABEL.cube.dap.fits` (or `.fits.gz`), with WCS-registered parameter planes, a `PLANE_INDEX` catalogue, and a `SPAXEL_INDEX` table. The companion `LABEL.model.fits` stores spectra indexed by the fitted RSS rows. The integrated and averaged products keep their usual layouts.
 
-`lvm-dap` is now deprecated. Users are encouraged to use `lvm-dap-conf`, `lvm-dap-gen-out-mod`, or `lvm-dap-sim` instead.
-```bash
-lvm-dap [-h] [--config-file CONFIG_FILE] spectrum-file rsp-file sigma-inst label
+```sh
+python cmdline_tools/LVMview_DAP_cube.py run-cube.cube.dap.fits --list-planes
 ```
-- **`spectrum-file`**: Input spectrum to fit
-- **`rsp-file`**: The resolved stellar population basis
-- **`sigma-inst`**: The resolution downgrade parameter
-- **`label`**: Label for the run
 
----
-## Troubleshooting & Additional Notes
-- If you encounter installation issues, check **numpy version** compatibility.
-- Ensure **pyPipe3D** is installed **before** LVM-DAP.
-- For support, refer to the **[official repository](https://github.com/sdss/lvmdap)**.
+## Gas discovery and emission-line fits
 
----
-## References
-- SDSS-V Local Volume Mapper: [LVM Project](https://www.sdss.org/sdss5/instruments/lvm/)
-- [pyPipe3D Documentation](http://ifs.astroscu.unam.mx/pyPipe3D/)
+The gas velocity prepass seeds parametric (PM), nonparametric (NP), and constrained Gaussian (PEK) measurements. BEST records the selected method per line. The integrated redshift, per-fiber peak discovery and final fit width are separate stages.
 
+| YAML key | Default | Role |
+| --- | --- | --- |
+| `gas_map_enabled` | `true` | Run the gas-velocity prepass |
+| `gas_map_fixed_velocity` | `true` | Use the fixed-velocity gas fitting mode when the prepass supplies a velocity |
+| `gas_map_wave_min`, `gas_map_wave_max`, `gas_map_padding` | `6548.05`, `6730.82`, `60.0` Å | Configure the prepass wavelength interval and padding |
+| `gas_map_velocity_half_range_kms` | `300.0` | Discovery half-range in km/s |
+| `gas_map_sn_cut`, `gas_map_min_matches`, `gas_map_peak_threshold` | `5.0`, `2`, `2.0` | Control matched-line significance, count, and peak finding |
+| `gas_map_halpha_only_fallback` | `false` | Allow an Hα-only seed when the standard multiline prepass has no accepted solution |
+| `gas_map_compare_halpha` | `true` | Run the fixed-versus-refined Hα diagnostic where applicable |
+| `velocity_tolerance` | Stage-specific fallback | Explicit value in km/s. Several discovery and fitting stages read it, so changing it can affect more than the final fit window. |
+| `pm_fit_engine` | `fit3d` | PM engine. Alternate engines are opt-in. |
+| `pm_fit3d_recovery` | `false` | Compare a second FIT3D candidate fit for each strong-line cluster |
+| `fit_PEK` | `true` | Run the PEK stage |
+| `pek_velocity_tolerance` | Unset | Optional PEK velocity tolerance in km/s |
+| `pek_fit_padding`, `pek_max_cluster_span`, `pek_max_adjacent_distance` | `20.0`, `75.0`, `25.0` Å | Control PEK cluster fitting windows and grouping |
+| `pek_halpha_restart` | `false` | Opt in to the Hα-seeded alternate PEK fit where eligible |
+
+### Experimental spatial peak seeds
+
+Enable `gas_map_spatial_peak_seed: true` with the gas map enabled. Supply a positive `gas_map_spatial_peak_sn_cut` and choose the spatial filter configuration for your test:
+
+- **Velocity difference:** Set a positive `gas_map_spatial_difference_kms`.
+- **Joint velocity and Hα flux:** Set both `gas_map_spatial_velocity_n_sigma` and `gas_map_spatial_flux_n_sigma`, or use `gas_map_spatial_n_sigma` as a common value. `gas_map_spatial_neighbors` defaults to 6 spatial neighbors, and `gas_map_spatial_iterations` defaults to 1.
+- **Optional Hα identity guard:** `gas_map_spatial_halpha_identity_guard` defaults to `false`.
+- **Optional weighted ranking:** `gas_map_halpha_weighted_seed` defaults to `false` and requires joint spatial settings. The peak finder supplies Hα candidates. Eligible supporting lines are ranked using flux ratios from the integrated BEST fit by line identity. A supporting line whose search window overlaps Hα is excluded. The weights are reported in the run log.
+- **Fit window:** `gas_map_spatial_fit_fraction` defaults to `0.25` and must be greater than 0 and at most 1. It scales the configured `velocity_tolerance` for the spatial-seed fit half-width where used. This fraction does not change the prepass discovery half-range.
+
+A narrow fit interval can limit recovery from an incorrect seed. Check the seed map and line residuals when testing these options.
+
+## FITS products and utilities
+
+- `LABEL.dap.fits` contains PT, stellar results, emission-line tables by method and arm, fit diagnostics and masks. Wide tables can span several extensions. When spatial-seed diagnostics are written in RSS mode, `GAS_SPATIAL_SEED` appears before the final `INFO` extension. Access extensions by name and use `lvmdap.dap_tools.read_DAP_file` for version-aware RSS table reading.
+- `LABEL.model.fits` contains the observed spectra and model components. Inspect the plane metadata before indexing the arrays.
+- `m_LABEL.dap.fits` contains integrated products. `avg_LABEL.dap.fits` contains averaged-fiber products from full runs. Each can have a companion model product.
+- `lvm-dap-yaml-edit` edits configuration keys and can create missing keys with `--create-missing`. Example: `lvm-dap-yaml-edit --create-missing fit.yaml fit-gzip.yaml --gzip=true`.
+- `lvm-dap-gen-out-mod` writes `LABEL.output.fits.gz`. `lvm-dap-sim` generates simulated spectra.
+- For Gaia-assisted foreground cleaning, run `lvm-dap-conf` with `gzip: true`, then run `lvm-dap-gen-out-mod` with the same label. Place `LABEL.output.fits.gz` next to `LABEL.dap.fits.gz`. The cleaner infers the companion path from the DAP filename, including its compression suffix. Run `lvm-dap-clean-st-mw outputfile dap_file m_lim n_spec SN_spec`, where `SN_spec` is the minimum continuum S/N used to estimate the MW ISM contribution.
+- The source checkout includes `cmdline_tools/LVMview_DAP_model.py` for model spectra and `cmdline_tools/LVMcompare_two_DAP_files.py` for product comparisons. Run each script with `--help` for usage.
+- `lvm-dap-conf-v120` and `lvm-dap-outdate` are legacy entry points. Auxiliary commands include `lvm-dap-cube2map`, `lvm-dap-coadd-cubes`, `lvm-dap-gas-cube-extractor`, `lvm-dap-preprocess-muse`, `lvm-dap-preprocess-manga`, `lvm-dap-mwm-dap`, and `lvm-dap-clean-outputs`. See their command-specific help.
+
+For instrument context and software, see the [SDSS-V Local Volume Mapper](https://www.sdss.org/sdss5/instruments/lvm/) and the [LVM-DAP repository](https://github.com/sdss/lvmdap).

@@ -707,9 +707,6 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         rss_eflux_st = rss_eflux[mask_st]
         lsf_rss_st = LSF_rss[mask_st]
         tab_PT_st = tab_PT[mask_st]
-        z_org = args.redshift[0]
-        z_min = args.redshift[1]
-        z_max = args.redshift[2]
         tab_rsp_st = TableAccumulator(batch_size=64)
         tab_coeffs_st = TableAccumulator(batch_size=64)
         tab_elines_st = TableAccumulator(batch_size=64)
@@ -796,14 +793,14 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         #####################################################
 
         if (args.do_plots==1):
-            vmin = args.redshift[1]*__c__
-            vmax = args.redshift[2]*__c__
+            vmin = args.redshift[2] * __c__
+            vmax = args.redshift[3] * __c__
             import matplotlib.pyplot as plt
             fig, ax = plt.subplots(1, 2, figsize=(12.5, 6))
             ax[0].scatter(tab_PT_st['ra'], tab_PT_st['dec'], c = tab_rsp_st['z']*__c__, \
-                s= 150, cmap='Spectral', alpha = 0.5 , edgecolor='none')
+                s= 150, cmap='Spectral', vmin=vmin, vmax=vmax, alpha = 0.5 , edgecolor='none')
             ax[1].scatter(tab_PT['ra'], tab_PT['dec'], c = tab_rsp_interp['z']*__c__, \
-                s= 150, cmap='Spectral', alpha = 0.5 , edgecolor='none')
+                s= 150, cmap='Spectral', vmin=vmin, vmax=vmax, alpha = 0.5 , edgecolor='none')
             ax[0].scatter(tab_PT['ra'], tab_PT['dec'], color='None', alpha = 0.5 , s = 150, edgecolor='Black')
             ax[1].scatter(tab_PT['ra'], tab_PT['dec'], color='None', alpha = 0.5 , s = 150,edgecolor='Black')
             fig.savefig(os.path.join(args.output_path, f'vel_map_interp_{args.label}.png'), dpi=300)
