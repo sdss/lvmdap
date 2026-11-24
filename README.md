@@ -15,6 +15,28 @@ python -m pip install .
 lvm-dap-conf --help
 ```
 
+## Directory structure
+
+| Path | Contents |
+| --- | --- |
+| [`lvmdap/`](lvmdap/) | Python package, fitting routines, and command entry points |
+| [`_examples/`](_examples/) | Example scripts and analysis files |
+| [`_legacy/`](_legacy/) | YAML configurations, emission-line catalogues, wavelength masks, and Gaia velocity map |
+| [`_rsp/`](_rsp/) | Bundled DESI resolved stellar population (RSP) templates used in the quickstart |
+| [`_fitting-data/`](_fitting-data/) | Bundled MaStar templates for earlier examples |
+| [`cmdline_tools/`](cmdline_tools/) | Standalone viewers and comparison tools |
+| [`notebooks/`](notebooks/) | Worked examples for fitting, template building, and product inspection |
+| [`datamodel/`](datamodel/) | Repository data-model examples |
+| [`docs/`](docs/) and [`tests/`](tests/) | Documentation source and regression tests |
+
+## DR20 data access and visualization
+
+**Use LVMvis first to explore the public DAP results.** It lets you select an exposure and fiber, inspect the observed spectrum, and compare the model components and residuals in the browser. For files produced by your own run, use the local viewer in the quickstart. [Open LVMvis](https://dr20.sdss.org/lvmvis/) · [LVMvis guide](https://www.sdss.org/dr20/data_access/lvmvis/)
+
+- Start with the DR20 LVM data-access page for product descriptions, FITS data models, and links to the archive. Use `drpall` and `dapall` to identify exposures and products, and consult `qcall` for quality flags. [SDSS DR20](https://www.sdss.org/dr20/) · [DR20 LVM data access](https://www.sdss.org/dr20/lvm/data/)
+- Download reduced spectra such as the quickstart `lvmSFrame` from the DRP archive. [DR20 LVM DRP archive](https://dr20.sdss.org/sas/dr20/spectro/lvm/redux/1.2.0/)
+- Download the released DAP measurement tables and their companion spectral models from the DAP archive. The DR20 archive uses DAP version `1.2.0.251218`. [DR20 LVM DAP archive](https://dr20.sdss.org/sas/dr20/spectro/lvm/analysis/1.2.0/1.2.0.251218/)
+
 ## Quickstart with DR20 exposure 00004297
 
 Run these commands from the root of the LVM-DAP source checkout after installation. Keep the checkout available because the fit uses its line lists and mask. The quickstart uses the DESI RSPs bundled in the checkout and fits the full exposure. Gaia matching is optional.
@@ -185,4 +207,24 @@ A narrow fit interval can limit recovery from an incorrect seed. Check the seed 
 - The source checkout includes `cmdline_tools/LVMview_DAP_model.py` for model spectra and `cmdline_tools/LVMcompare_two_DAP_files.py` for product comparisons. Run each script with `--help` for usage.
 - `lvm-dap-conf-v120` and `lvm-dap-outdate` are legacy entry points. Auxiliary commands include `lvm-dap-cube2map`, `lvm-dap-coadd-cubes`, `lvm-dap-gas-cube-extractor`, `lvm-dap-preprocess-muse`, `lvm-dap-preprocess-manga`, `lvm-dap-mwm-dap`, and `lvm-dap-clean-outputs`. See their command-specific help.
 
-For instrument context and software, see the [SDSS-V Local Volume Mapper](https://www.sdss.org/sdss5/instruments/lvm/) and the [LVM-DAP repository](https://github.com/sdss/lvmdap).
+## References
+
+Cite the pipeline paper when using LVM-DAP. The survey overview describes LVM's scientific motivation and design, and the Helix paper explains the public Helix data and DAP products.
+
+- Sánchez et al. (2025), *The SDSS-V Local Volume Mapper: Data Analysis Pipeline*, AJ **169**, 52. [SciXplorer](https://scixplorer.org/abs/2025AJ....169...52S/abstract) · [Journal article](https://doi.org/10.3847/1538-3881/ad93bb)
+- Drory et al. (2024), *The SDSS-V Local Volume Mapper (LVM): Scientific Motivation and Project Overview*, AJ **168**, 198. [SciXplorer](https://scixplorer.org/abs/2024AJ....168..198D/abstract) · [Journal article](https://doi.org/10.3847/1538-3881/ad6de9)
+- Sánchez et al. (2026), *SDSS-V Local Volume Mapper (LVM): Helix Nebula public data, Data Analysis Pipeline data products*, RMxAA **62**, 87. [SciXplorer](https://scixplorer.org/abs/2026RMxAA..62a..87S/abstract) · [arXiv](https://arxiv.org/abs/2602.10072)
+
+## LVM-DAP video tutorials
+
+These YouTube tutorials cover the workflow and data products. Use the quickstart above for current commands and example settings.
+
+1. [Introduction to LVM-DAP](https://youtu.be/vSBJbKHStoE)
+2. [Installing LVM-DAP](https://www.youtube.com/watch?v=NfZtoQMA8xA)
+3. [LVM SFrame format and visualization](https://www.youtube.com/watch?v=QaNu5cUktgg)
+4. [Running LVM-DAP with scripts and notebooks](https://youtu.be/ZkkZU96XWbQ)
+5. [Exploring DAP FITS tables with TOPCAT](https://www.youtube.com/watch?v=wikAIyVp2j8)
+6. [Reading DAP products in Python](https://www.youtube.com/watch?v=phUuCq2syKM)
+7. [LVM-DAP YAML and configuration files](https://www.youtube.com/watch?v=qoudb9Th7WA)
+8. [Generating a spectral model from DAP outputs](https://www.youtube.com/watch?v=8QoLYO2F0VY)
+9. [RSP template format, use, and construction](https://www.youtube.com/watch?v=d5CtkOs3-qE)
