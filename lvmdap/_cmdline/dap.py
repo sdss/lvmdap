@@ -284,6 +284,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
     #####################################################################
 
     gas_args = copy(args)
+    if getattr(args, 'gas_prior_redshift', None) is not None:
+        gas_args.redshift = list(args.redshift)
+        gas_args.redshift[0] = args.gas_prior_redshift
     (gas_args,
      out_decompose_flux_rss,
      find_z_out_w,
@@ -920,7 +923,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             print(f'# Gas-map spatial interpolation used for '
                   f'{n_interpolated} fibers')
         print('# Full-RSS gas-velocity mode: '
-              + ('fixed' if str_to_bool(getattr(args, 'gas_map_fixed_velocity', True))
+              + ('fixed' if str_to_bool(getattr(args, 'gas_map_fixed_velocity', False))
                  else 'initial guess'))
 
     ##############################################################################
@@ -972,7 +975,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             z_gas_input=(float(gas_map['z_gas_interpolated'][i])
                          if gas_map is not None and
                          np.isfinite(gas_map['z_gas_interpolated'][i]) else None),
-            gas_velocity_fixed=str_to_bool(getattr(args, 'gas_map_fixed_velocity', True)),
+            gas_velocity_fixed=str_to_bool(getattr(args, 'gas_map_fixed_velocity', False)),
             gas_fit_halfwidth=(gas_fit_widths[i] if np.isfinite(gas_fit_widths[i]) else None),
             plot=args.plot,
             adopt_st_z = True,
@@ -1157,7 +1160,7 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             reference_line=label_strongest_line,
             fixed_velocity=(gas_map['z_gas_interpolated'] * 299792.458
                             if gas_map is not None and
-                            str_to_bool(getattr(args, 'gas_map_fixed_velocity', True))
+                            str_to_bool(getattr(args, 'gas_map_fixed_velocity', False))
                             else None),
             wl=wl__w,
             lsf_spectrum=LSF_rss,       # per-fiber Gaussian sigma [Angstrom]

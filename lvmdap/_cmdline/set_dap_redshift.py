@@ -156,7 +156,15 @@ def _main(cmd_args=sys.argv[1:]):
     help="report the values but do not write the output YAML"
   )
 
+  parser.add_argument("--gas-velocity-scale", type=float, default=None)
+  parser.add_argument("--gas-half-range-kms", type=float, default=None)
   args = parser.parse_args(cmd_args)
+  if args.gas_velocity_scale is not None and (
+      not np.isfinite(args.gas_velocity_scale) or args.gas_velocity_scale <= 0
+      or args.gas_half_range_kms is None or
+      not np.isfinite(args.gas_half_range_kms) or args.gas_half_range_kms <= 0
+  ):
+    parser.error("a gas scale and half-range must be finite and positive")
   print(cmd_args)
   print(args)
   if not args.debug:
@@ -299,6 +307,16 @@ def _main(cmd_args=sys.argv[1:]):
     "auto_z_max": float(z_max),
     "auto_z_del": float(auto_z_del),
   }
+
+  if args.gas_velocity_scale is not None:
+    gas_v = args.gas_velocity_scale * a_vel_pos[0] + args.hvcor_sign * HVCOR
+    gas_half = args.gas_half_range_kms
+    overrides.update({
+        "gas_prior_redshift": float(gas_v / __c__),
+        "gas_map_velocity_half_range_kms": float(gas_half),
+        "auto_z_min": float((gas_v - gas_half) / __c__),
+        "auto_z_max": float((gas_v + gas_half) / __c__),
+    })
 
   with open(args.config_yaml, "r") as f:
     before = yaml.safe_load(f)

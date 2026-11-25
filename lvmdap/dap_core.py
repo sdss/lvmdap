@@ -1843,7 +1843,7 @@ def initialize_dap_parameters(args):
         'pm_fit_engine': 'fit3d',
         # New gas-map prepass; disable to reproduce the original DAP exactly.
         'gas_map_enabled': True,
-        'gas_map_fixed_velocity': True,
+        'gas_map_fixed_velocity': False,
         'gas_map_sn_cut': 5.0,
         'gas_map_min_matches': 2,
         'gas_map_peak_threshold': 2.0,
@@ -4302,7 +4302,8 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
     stellar_z = np.asarray(z_st, dtype=float)
     nf = flux.shape[0] if flux.ndim == 2 else stellar_z.size
     try:
-        z_system = float(args.redshift[0])
+        gas_prior = getattr(args, 'gas_prior_redshift', None)
+        z_system = float(args.redshift[0] if gas_prior is None else gas_prior)
     except (ValueError, TypeError, IndexError, AttributeError):
         z_system = np.nan
     if not np.isfinite(z_system):
