@@ -1869,6 +1869,8 @@ def initialize_dap_parameters(args):
         # Optional second-stage constrained Gaussian emission-line fit.
         'fit_PEK': True,
         'pek_halpha_restart': False,
+        'pek_velocity_start': 'np_weighted',
+        'pek_np_weighted_halfwidth': 20.0,  # km/s
         'pek_fit_padding': 20.0,            # Angstrom outside each cluster
         'pek_max_cluster_span': 75.0,       # Angstrom
         'pek_max_adjacent_distance': 25.0,  # Angstrom

@@ -64,10 +64,10 @@ def _line_key(line):
     return f'{str(name).strip()}_{float(line["wl"]):.2f}'
 
 
-def _table_value(tab, i, field, linekey, suffix='', default=np.nan):
+def _measurement_column(tab, field, linekey, suffix=''):
     """Read PM/NP values, accepting old filenames missing a trailing zero."""
     if tab is None:
-        return default
+        return None
     names = tab.colnames if hasattr(tab, 'colnames') else tab.keys()
     key = f'{field}_{linekey}{suffix}'
     if key not in names:
@@ -76,10 +76,17 @@ def _table_value(tab, i, field, linekey, suffix='', default=np.nan):
         candidates = [n for n in names if (m := pattern.match(n)) is not None
                       and abs(float(m.group(1)) - float(w)) < 0.004]
         if len(candidates) != 1:
-            return default
+            return None
         key = candidates[0]
+    return tab[key]
+
+
+def _table_value(tab, i, field, linekey, suffix='', default=np.nan):
+    column = _measurement_column(tab, field, linekey, suffix)
+    if column is None:
+        return default
     try:
-        v = float(tab[key][i])
+        v = float(column[i])
     except (ValueError, TypeError, IndexError):
         return default
     return v if np.isfinite(v) else default
@@ -100,6 +107,56 @@ def _clusters(tab_el, max_span, max_gap):
     if group:
         groups.append(group)
     return groups
+
+
+def weighted_np_velocity(tab_np, names):
+    """Return the cluster NP velocity and propagated velocity uncertainty."""
+    def measurements(field):
+        columns = [_measurement_column(tab_np, field, name) for name in names]
+        return np.column_stack([
+            np.ma.asarray(col, dtype=float).filled(np.nan) if col is not None
+            else np.full(len(tab_np), np.nan) for col in columns
+        ])
+
+    flux = measurements('flux')
+    e_flux = measurements('e_flux')
+    velocity = measurements('vel')
+    e_velocity = measurements('e_vel')
+    eligible = (np.isfinite(flux) & np.isfinite(e_flux) & (e_flux > 0)
+                & (flux >= 3 * e_flux) & np.isfinite(velocity))
+    weights = np.where(eligible, flux, 0.0)
+    total = weights.sum(axis=1)
+    use = total > 0
+    mean = np.full(len(tab_np), np.nan)
+    error = mean.copy()
+    mean[use] = (weights * np.where(eligible, velocity, 0.0)).sum(axis=1)[use] / total[use]
+    valid_error = np.isfinite(e_velocity) & (e_velocity >= 0)
+    known = use & np.all(~eligible | valid_error, axis=1)
+    weighted_error = weights * np.where(valid_error, e_velocity, 0.0)
+    error[known] = np.linalg.norm(weighted_error, axis=1)[known] / total[known]
+    return mean, error
+
+
+def add_weighted_np_velocities(tab_np, tab_el, max_cluster_span, max_adjacent_distance):
+    """Append cluster diagnostics to the existing per-line NP table."""
+    line_names = [_line_key(line) for line in tab_el]
+    for group in _clusters(tab_el, max_cluster_span, max_adjacent_distance):
+        names = [line_names[k] for k in group]
+        velocity, error = weighted_np_velocity(tab_np, names)
+        for name in names:
+            tab_np[f'vel_w_{name}'] = velocity.copy()
+            tab_np[f'e_vel_w_{name}'] = error.copy()
+
+
+def _weighted_velocity_bounds(velocity, error, halfwidth, map_bounds):
+    if np.isfinite(error):
+        halfwidth = max(halfwidth, 3 * error)
+    bounds = (velocity - halfwidth, velocity + halfwidth)
+    if map_bounds is None:
+        return bounds, False
+    lo, hi = max(bounds[0], map_bounds[0]), min(bounds[1], map_bounds[1])
+    # The optimizer requires a nonzero interval.
+    return ((lo, hi), False) if lo < hi else (map_bounds, True)
 
 
 def interpolate_ha_kinematics(tab_pt, tab_pm, sn_cut=3.0, line_key="Halpha_6562.85"):
@@ -180,15 +237,14 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 max_cluster_span=75.0, max_adjacent_distance=25.0,
                 min_valid_pixels=8, max_nfev=120, verbose=False,
                 reference_line='Halpha_6562.85', fixed_velocity=None,
-                map_velocity_bounds=None, restart_velocity=None):
+                map_velocity_bounds=None, restart_velocity=None,
+                velocity_start='np_weighted', np_weighted_halfwidth=20.0):
     """Refine the PM Gaussian solution with the common SciPy linked-line fitter.
 
-    PM is always the initial kinematic solution.  NP does not replace that
-    starting point; PM and NP measurements, together with their reported
-    1-sigma velocity/dispersion errors, define the kinematic search interval.
-    ``velocity_tolerance`` [km/s] and ``dispersion_tolerance`` [Angstrom]
-    are YAML-configured fallback half-widths used only when the corresponding
-    PM/NP reported uncertainty is unavailable, nonfinite, or nonpositive.
+    The default start is the flux-weighted NP cluster velocity. Its bounds
+    intersect the gas-map interval when available. The PM start and original
+    error-defined bounds are used when no valid weighted seed is available
+    or when velocity_start='pm'. Explicit fixed velocities take precedence.
 
     The optimized model is gas-only (no hidden background) and uses the same
     input spectrum, error vector and bad-pixel mask supplied by the DAP.
@@ -203,8 +259,7 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
     The restart must improve the cluster and the local Halpha residual.
 
     Line fluxes remain signed and are solved linearly by ``fit_linked_lines``;
-    no PM/NP flux prior, sign restriction, S/N cut, or extra scientific
-    threshold is introduced.
+    the NP S/N cut applies only to the starting velocity.
     """
     from astropy.table import Table
 
@@ -236,6 +291,12 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
             not np.isfinite(dispersion_tolerance) or dispersion_tolerance <= 0 or
             not np.isfinite(fit_padding) or fit_padding <= 0):
         raise ValueError('PEK YAML tolerances and fit_padding must be positive finite values')
+
+    if velocity_start not in ('pm', 'np_weighted'):
+        raise ValueError("pek_velocity_start must be 'pm' or 'np_weighted'")
+    np_weighted_halfwidth = float(np_weighted_halfwidth)
+    if not np.isfinite(np_weighted_halfwidth) or np_weighted_halfwidth <= 0:
+        raise ValueError('pek_np_weighted_halfwidth must be positive and finite')
 
     vs = np.broadcast_to(np.asarray(vel_interp, float), (nf,)).copy()
     ss = np.broadcast_to(np.asarray(disp_interp, float), (nf,))
@@ -300,6 +361,13 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
     for line_key in line_names:
         for field in _FIELDS:
             result[f'{field}_{line_key}_pek'] = np.full(nf, np.nan)
+    weighted = {}
+    if velocity_start == 'np_weighted':
+        for cluster in groups:
+            names = [line_names[k] for k in cluster]
+            weighted[cluster[0]] = weighted_np_velocity(tab_fe, names)
+        for key in line_names:
+            result[f'vel_w_conflict_{key}_pek'] = np.zeros(nf, dtype=bool)
     model = np.zeros((nf, nw), float)
 
     def lsf_row(i):
@@ -389,9 +457,6 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
             pm_values = pm_cluster_arrays(i, names, rest)
             pm_valid, pm_flux, pm_eflux, pm_vel, pm_evel, pm_disp, pm_edisp, pm_ew, pm_eew = pm_values
 
-            # PM is always the PEK starting point when that cluster has a valid
-            # saved PM solution.  The interpolated reference-line map is only
-            # a fallback for clusters lacking usable PM kinematics.
             finite_pm_v = pm_vel[np.isfinite(pm_vel)]
             initial_velocity = (float(np.median(finite_pm_v)) if finite_pm_v.size
                                 else float(vs[i]))
@@ -400,6 +465,16 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 local_bounds = tuple(map_velocity_bounds[i])
                 initial_velocity = (np.clip(initial_velocity, *local_bounds)
                                     if np.isfinite(initial_velocity) else np.mean(local_bounds))
+            weighted_bounds = None
+            if cluster[0] in weighted and not fixed_now[i]:
+                weighted_vel, weighted_error = weighted[cluster[0]]
+                if np.isfinite(weighted_vel[i]):
+                    weighted_bounds, conflict = _weighted_velocity_bounds(
+                        weighted_vel[i], weighted_error[i], np_weighted_halfwidth, local_bounds)
+                    initial_velocity = float(np.clip(weighted_vel[i], *weighted_bounds))
+                    if conflict:
+                        for key in names:
+                            result[f'vel_w_conflict_{key}_pek'][i] = True
             if fixed_now[i]:
                 initial_velocity = float(fixed_vel[i])
             if not np.isfinite(initial_velocity):
@@ -442,7 +517,9 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
             # The YAML tolerance is used only when an individual reported
             # uncertainty is unavailable/nonpositive.
             velocity_ranges = []
-            if local_bounds is not None:
+            if weighted_bounds is not None:
+                velocity_bounds = weighted_bounds
+            elif local_bounds is not None:
                 velocity_bounds = local_bounds
             elif not fixed_now[i]:
                 for key in names:
@@ -651,7 +728,7 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
                 not pm_valid or candidate_chi < pm_chi)
 
             if restart is not None and local_bounds is not None and np.isfinite(restart[i]):
-                new_start = float(np.clip(restart[i], *local_bounds))
+                new_start = float(np.clip(restart[i], *velocity_bounds))
                 if 'Halpha_6562.85' in names and abs(new_start - initial_velocity) >= 10.0:
                     j = names.index('Halpha_6562.85')
                     retry = fit_linked_lines(

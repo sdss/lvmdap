@@ -12,6 +12,7 @@ from lvmdap.dap_core import *  # noqa: F401,F403 - preserve original CLI namespa
 
 from lvmdap import memory_diagnostics as _mem
 from lvmdap.cube_io import write_dap_parameter_cubes
+from lvmdap.pek_tools import add_weighted_np_velocities
 
 def _main(cmd_args=sys.argv[1:]):
     print("########################################")
@@ -491,6 +492,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
                 bad_pixel_mask=bad_m_pek,
                 velocity_tolerance=getattr(args, 'pek_velocity_tolerance', None),
                 dispersion_tolerance=getattr(args, 'pek_dispersion_tolerance', None),
+                # Integrated BEST can supply weights to the gas prepass.
+                # Preserve that upstream input when changing fiber PEK.
+                velocity_start='pm',
                 fit_padding=float(getattr(args, 'pek_fit_padding', 20.0)),
                 max_cluster_span=float(getattr(args, 'pek_max_cluster_span', 75.0)),
                 max_adjacent_distance=float(getattr(args, 'pek_max_adjacent_distance', 25.0)),
@@ -617,6 +621,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
 
 
 
+    add_weighted_np_velocities(
+        tab_m_fe, integrated_lines, float(args.pek_max_cluster_span),
+        float(args.pek_max_adjacent_distance))
     tab_m_fe_B, tab_m_fe_R, tab_m_fe_I = split_fe_table(tab_m_fe, w_br=FIT_QUALITY_W_BR, w_ri=FIT_QUALITY_W_RI)
     tab_m_PM_B, tab_m_PM_R, tab_m_PM_I = split_fe_table(tab_m_PM, w_br=FIT_QUALITY_W_BR, w_ri=FIT_QUALITY_W_RI)
     hdr_0['SPLITBR'] = (FIT_QUALITY_W_BR, 'B/R table wavelength boundary [A]')
@@ -1172,6 +1179,8 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
             bad_pixel_mask=bad_pixels,
             velocity_tolerance=getattr(args, 'pek_velocity_tolerance', None),
             dispersion_tolerance=getattr(args, 'pek_dispersion_tolerance', None),
+            velocity_start=args.pek_velocity_start,
+            np_weighted_halfwidth=args.pek_np_weighted_halfwidth,
             fit_padding=float(getattr(args, 'pek_fit_padding', 20.0)),
             max_cluster_span=float(getattr(args, 'pek_max_cluster_span', 75.0)),
             max_adjacent_distance=float(getattr(args, 'pek_max_adjacent_distance', 25.0)),
@@ -1225,6 +1234,9 @@ def _dap_yaml(cmd_args=sys.argv[1:]):
         f'{method}={sum(np.count_nonzero(np.asarray(tab_best[c]) == method) for c in tab_best.colnames if c.startswith("best_method_"))}'
         for method in ('NP', 'PM', 'PEK')))
 
+    add_weighted_np_velocities(
+        tab_fe, tab_el, float(args.pek_max_cluster_span),
+        float(args.pek_max_adjacent_distance))
     tab_fe_B, tab_fe_R, tab_fe_I = split_fe_table(tab_fe, w_br=FIT_QUALITY_W_BR, w_ri=FIT_QUALITY_W_RI)
     tab_PM_B, tab_PM_R, tab_PM_I = split_fe_table(tab_PM, w_br=FIT_QUALITY_W_BR, w_ri=FIT_QUALITY_W_RI)
     hdr_0['SPLITBR'] = (FIT_QUALITY_W_BR, 'B/R table wavelength boundary [A]')

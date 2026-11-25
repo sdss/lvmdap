@@ -3495,7 +3495,8 @@ def read_DAP_file(dap_file, verbose=False):
       PM_ELINES (long): 'flux_pe_<wavelength>', etc.
       PM_KEL (long): 'flux_pek_<wavelength>', etc.
       COEFFS: 'n_W_rsp_<rsp index>', etc.
-      NP_ELINES bands: original wide column names.
+      NP_ELINES bands: original wide column names, including optional
+      vel_w_<line> and e_vel_w_<line> cluster diagnostics.
       New PM_ELINES bands: original wide column names ('*_pm').
       Global output diagnostics: X_sq/RMS (NP), X_sq_pm/RMS_pm (PM),
       X_sq_PEK/RMS_PEK (PEK), and optional X_sq_BEST/RMS_BEST.

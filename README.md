@@ -182,6 +182,8 @@ The gas velocity prepass seeds parametric (PM), nonparametric (NP), and constrai
 | `fit_PEK` | `true` | Run the PEK stage |
 | `pek_velocity_tolerance` | Unset | Optional PEK velocity tolerance in km/s |
 | `pek_fit_padding`, `pek_max_cluster_span`, `pek_max_adjacent_distance` | `20.0`, `75.0`, `25.0` Å | Control PEK cluster fitting windows and grouping |
+| `pek_velocity_start` | `np_weighted` | Start per-fiber PEK at the flux-weighted NP cluster velocity. Use `pm` for the legacy PM start. |
+| `pek_np_weighted_halfwidth` | 20 km/s | Minimum NP-centred half-width. PEK uses the larger of this value and three times the propagated uncertainty, intersected with the gas-map window when available. |
 | `pek_halpha_restart` | `false` | Opt in to the Hα-seeded alternate PEK fit where eligible |
 
 ### Experimental spatial peak seeds
@@ -197,6 +199,17 @@ Enable `gas_map_spatial_peak_seed: true` with the gas map enabled. Supply a posi
 A narrow fit interval can limit recovery from an incorrect seed. Check the seed map and line residuals when testing these options.
 
 ## FITS products and utilities
+
+NP emission-line bands include `vel_w_<line>` and `e_vel_w_<line>` in km/s.
+They repeat the group's flux-weighted velocity and propagated uncertainty for
+each member, using positive NP measurements with flux S/N ≥ 3. The original
+per-line NP measurements remain available. PEK marks disjoint or zero-width NP
+and map intersections with `vel_w_conflict_<line>_pek` and uses the map
+window in those cases. Explicitly fixed velocities take precedence. The
+integrated PEK fit uses its PM start because integrated BEST can supply the
+line weights used by the upstream gas prepass. BEST uses
+the selected estimator's measurements and its existing common-pixel scoring.
+
 
 - `LABEL.dap.fits` contains PT, stellar results, emission-line tables by method and arm, fit diagnostics and masks. Wide tables can span several extensions. When spatial-seed diagnostics are written in RSS mode, `GAS_SPATIAL_SEED` appears before the final `INFO` extension. Access extensions by name and use `lvmdap.dap_tools.read_DAP_file` for version-aware RSS table reading.
 - `LABEL.model.fits` contains the observed spectra and model components. Inspect the plane metadata before indexing the arrays.
