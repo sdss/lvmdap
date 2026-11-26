@@ -3961,6 +3961,14 @@ def fit_individual_rss_spectrum(
 
 
 
+def gas_velocity_reference_lines(catalog):
+    """Exclude known aliases and sky residuals from peak velocity identities."""
+    wave = np.asarray(catalog['wl'], dtype=float)
+    keep = (np.isfinite(wave) & (np.abs(wave - 6560.10) > 0.05)
+            & (np.abs(wave - 6300.30) > 0.05))
+    return catalog[keep]
+
+
 def estimate_gas_redshift(
     wl, flux, eflux,
     z=0.0,
@@ -3977,6 +3985,7 @@ def estimate_gas_redshift(
     return_details=False,
     sn_weighted=False,
     return_all_solutions=False,
+    reference_catalog=None,
 ):
     """
     Detect redshift from a gas-only spectrum, respecting the DRP pixel mask.
@@ -4052,8 +4061,15 @@ def estimate_gas_redshift(
     pixel_noise = float(np.median(eflux[measured]))
     dw = float(np.median(np.diff(wl)))
 
-    rest_names = list(REFERENCE_LINES.keys())
-    rest_waves = np.asarray(list(REFERENCE_LINES.values()), dtype=float)
+    if reference_catalog is None:
+        rest_names = list(REFERENCE_LINES)
+        rest_waves = np.asarray(list(REFERENCE_LINES.values()), dtype=float)
+    else:
+        references = gas_velocity_reference_lines(reference_catalog)
+        rest_waves = np.asarray(references['wl'], dtype=float)
+        rest_names = [f'{line["id"]}_{wave:.2f}' for line, wave in zip(references, rest_waves)]
+        if not len(rest_waves):
+            return output(z)
     if reference_wavelength_range is not None:
         lo, hi = map(float, reference_wavelength_range)
         keep = (rest_waves >= lo) & (rest_waves <= hi)
@@ -4381,15 +4397,12 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
         if len(catalog) < n_matches_min:
             return fallback('insufficient [NII]--[SII] reference lines')
         search_catalog = catalog
-        if spatial_mode and spatial_search_lines is not None:
+        if spatial_search_lines is not None:
             search_wave = np.asarray(spatial_search_lines['wl'], float)
             search_catalog = spatial_search_lines[
                 np.isfinite(search_wave) & (search_wave >= rest_min) &
                 (search_wave <= rest_max)]
-        if spatial_mode:
-            # Sky residuals at [O I] 6300 must not supply a redshift identity.
-            search_wave = np.asarray(search_catalog['wl'], float)
-            search_catalog = search_catalog[np.round(search_wave, 2) != 6300.30]
+        search_catalog = gas_velocity_reference_lines(search_catalog)
         coords = np.column_stack((np.asarray(tab_pt['ra'], float),
                                   np.asarray(tab_pt['dec'], float)))
         if coords.shape != (nf, 2):
@@ -4503,6 +4516,7 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
                 velocity_tolerance=float(getattr(args, 'velocity_tolerance', 100.0)),
                 min_matches=n_matches_min, bad_pixel_mask=bad[i, select],
                 reference_wavelength_range=(rest_min, rest_max),
+                reference_catalog=search_catalog if spatial_search_lines is not None else None,
                 return_details=True, sn_weighted=True,
                 return_all_solutions=True)
             for sol in candidate['solutions']:
@@ -4539,7 +4553,7 @@ def estimate_rss_gas_velocity_map(wl, rss_flux, rss_eflux, lsf_rss,
             # when the required multi-line solution is unavailable. Reuse
             # the exact peak selection, systemic search limits, and gas-map
             # S/N requirement above; do not relax any existing threshold.
-            if (use_halpha_only and not np.isfinite(measured_z[i]) and
+            if (use_halpha_only and halpha_eligible and not np.isfinite(measured_z[i]) and
                     rest_min <= ha_rest <= rest_max):
                 solo = estimate_gas_redshift(
                     wl=w, flux=gas, eflux=err[i, select], z=z_system,
@@ -5107,6 +5121,7 @@ def fit_individual_rss_spectrum_or_adopt_result(
     bad_pixel_mask=None,
     gas_fit_halfwidth=None,
     continuum_lines=None,
+    gas_velocity_search_lines=None,
 ):
     """Fit one RSS spectrum and return its DAP products.
 
@@ -5467,7 +5482,8 @@ def fit_individual_rss_spectrum_or_adopt_result(
             velocity_tolerance=float(getattr(args, 'velocity_tolerance', 100.0)),
             min_matches=float(getattr(args, 'min_matches', 3)),
             verbose=args.verbose,
-            bad_pixel_mask=bad_pixel_mask
+            bad_pixel_mask=bad_pixel_mask,
+            reference_catalog=gas_velocity_search_lines
         ))
         if not np.isfinite(z_gas):
             raise ValueError('Supplied gas redshift is not finite')

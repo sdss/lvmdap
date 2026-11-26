@@ -202,7 +202,10 @@ A narrow fit interval can limit recovery from an incorrect seed. Check the seed 
 
 NP emission-line bands include `vel_w_<line>` and `e_vel_w_<line>` in km/s.
 They repeat the group's flux-weighted velocity and propagated uncertainty for
-each member, using positive NP measurements with flux S/N ≥ 3. The original
+each member, using positive NP measurements with flux S/N ≥ 3. Lines
+flagged as blended by the catalogue are excluded from the weighted seed.
+A group with no eligible unblended measurement has NaN weighted NP fields
+and PEK uses the PM start. The original
 per-line NP measurements remain available. PEK marks disjoint or zero-width NP
 and map intersections with `vel_w_conflict_<line>_pek` and uses the map
 window in those cases. Explicitly fixed velocities take precedence. The

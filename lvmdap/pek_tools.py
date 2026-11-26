@@ -109,8 +109,8 @@ def _clusters(tab_el, max_span, max_gap):
     return groups
 
 
-def weighted_np_velocity(tab_np, names):
-    """Return the cluster NP velocity and propagated velocity uncertainty."""
+def weighted_np_velocity(tab_np, names, *, blended=None):
+    """Return the cluster NP velocity from unblended members and its error."""
     def measurements(field):
         columns = [_measurement_column(tab_np, field, name) for name in names]
         return np.column_stack([
@@ -124,6 +124,8 @@ def weighted_np_velocity(tab_np, names):
     e_velocity = measurements('e_vel')
     eligible = (np.isfinite(flux) & np.isfinite(e_flux) & (e_flux > 0)
                 & (flux >= 3 * e_flux) & np.isfinite(velocity))
+    if blended is not None:
+        eligible &= ~np.asarray(blended, dtype=bool)
     weights = np.where(eligible, flux, 0.0)
     total = weights.sum(axis=1)
     use = total > 0
@@ -137,12 +139,19 @@ def weighted_np_velocity(tab_np, names):
     return mean, error
 
 
+def _catalog_blended(tab_el):
+    if 'blended' not in tab_el.colnames:
+        return np.zeros(len(tab_el), dtype=bool)
+    return np.ma.asarray(tab_el['blended'], dtype=bool).filled(False)
+
+
 def add_weighted_np_velocities(tab_np, tab_el, max_cluster_span, max_adjacent_distance):
     """Append cluster diagnostics to the existing per-line NP table."""
     line_names = [_line_key(line) for line in tab_el]
+    blended = _catalog_blended(tab_el)
     for group in _clusters(tab_el, max_cluster_span, max_adjacent_distance):
         names = [line_names[k] for k in group]
-        velocity, error = weighted_np_velocity(tab_np, names)
+        velocity, error = weighted_np_velocity(tab_np, names, blended=blended[group])
         for name in names:
             tab_np[f'vel_w_{name}'] = velocity.copy()
             tab_np[f'e_vel_w_{name}'] = error.copy()
@@ -363,9 +372,11 @@ def fit_pek_rss(gas_spectrum, error_spectrum, vel_interp, disp_interp,
             result[f'{field}_{line_key}_pek'] = np.full(nf, np.nan)
     weighted = {}
     if velocity_start == 'np_weighted':
+        blended = _catalog_blended(tab_el)
         for cluster in groups:
             names = [line_names[k] for k in cluster]
-            weighted[cluster[0]] = weighted_np_velocity(tab_fe, names)
+            weighted[cluster[0]] = weighted_np_velocity(
+                tab_fe, names, blended=blended[cluster])
         for key in line_names:
             result[f'vel_w_conflict_{key}_pek'] = np.zeros(nf, dtype=bool)
     model = np.zeros((nf, nw), float)

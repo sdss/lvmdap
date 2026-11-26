@@ -763,6 +763,23 @@ def nanaverage(A,weights,axis):
     return np.nansum(A*weights,axis=axis)/((~np.isnan(A))*weights).sum(axis=axis)
 
         
+def _sky_map_aspect(dec):
+    """Convert RA coordinate degrees to projected angular degrees."""
+    finite = dec[np.isfinite(dec)]
+    if not finite.size:
+        return 1.0
+    return 1.0 / max(np.cos(np.deg2rad(np.median(finite))), 1e-6)
+
+
+def _map_display_limits(values):
+    """Use central percentiles, with a finite interval for constant maps."""
+    lo, hi = np.percentile(values, (2, 98))
+    if lo == hi:
+        padding = (abs(lo) or 1.0) * 0.01
+        lo, hi = lo - padding, hi + padding
+    return lo, hi
+
+
 def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
                  vmin=0, vmax=0, title=None, filename='junk',\
                  cmap='Spectral', fsize=5, figs_dir='.',fig_type='png',\
@@ -792,20 +809,30 @@ def map_plot_DAP(tab_DAP,line='flux_Halpha_6562.85', \
                'axes.facecolor' : "w",\
                })
     
-    X=tab_DAP['ra']
-    Y=tab_DAP['dec']
-    C=tab_DAP[line]    
-    if (title== None):
-        title=line.replace("_"," ")
-        title=line.replace("_"," ")
-    if (vmin==vmax):
-        vmin=np.nanmin(C)
-        vmax=np.nanmax(C)
-#    print(line,vmin,vmax)
-    fig,ax = plt.subplots(1,1,figsize=(fsize,fsize))
-    norm=mpl_colors.PowerNorm(vmin=vmin,vmax=vmax,gamma=gamma)
-    scat=scatter(X, Y, ax, size=sf*35.6/3600, c=C, cmap=cmap, norm=norm)
-#    scat=scatter(X, Y, ax, size=35.6/3600, c=C,vmin = vmin, vmax = vmax, cmap=cmap, norm=colors.PowerNorm(gamma=gamma))
+    X, Y = (np.ma.asarray(tab_DAP[key], dtype=float).filled(np.nan)
+            for key in ('ra', 'dec'))
+    C = np.ma.asarray(tab_DAP[line], dtype=float).filled(np.nan)
+    on_sky = np.isfinite(X) & np.isfinite(Y)
+    visible = on_sky & np.isfinite(C)
+    if title is None:
+        title = line.replace("_", " ")
+    if vmin == vmax:
+        if line.startswith('flux_'):
+            visible &= C > 0
+        if not visible.any():
+            print(f'# Map skipped: no usable values for {line}')
+            return
+        vmin, vmax = _map_display_limits(C[visible])
+    if not visible.any():
+        return
+    C = np.clip(C, vmin, vmax)
+    fig, ax = plt.subplots(1, 1, figsize=(fsize, fsize))
+    ax.set_aspect(_sky_map_aspect(Y), adjustable='box')
+    scat = scatter(X[visible], Y[visible], ax, size=sf*35.6/3600,
+                   c=C[visible], cmap=cmap,
+                   norm=mpl_colors.PowerNorm(vmin=vmin, vmax=vmax, gamma=gamma))
+    ax.update_datalim(np.column_stack((X[on_sky], Y[on_sky])))
+    ax.autoscale_view()
     ax.set_xlabel('Ra [deg]')#,fontsize=21)
     ax.set_ylabel('Dec [deg]')#,fontsize=21)
     xx = ax.get_xlim()
@@ -853,81 +880,44 @@ def map_plot_DAP_rgb(tab_DAP,\
                'axes.facecolor' : "w",\
                })
     
-    X= tab_DAP['ra'].value
-    Y= tab_DAP['dec'].value
-    # rgb_key and rgb_scale are in conventional (red, green, blue) order.
-    # The original implementation had the first and third channels reversed.
-    R=tab_DAP[rgb_key[0]].value
-    G=tab_DAP[rgb_key[1]].value
-    B=tab_DAP[rgb_key[2]].value
-    R = R * rgb_scale[0]
-    G = G * rgb_scale[1]
-    B = B * rgb_scale[2]
-    RGB = np.stack((R, G, B), axis=1)
-    if (vmin==vmax):
-        finite_rgb = RGB[np.isfinite(RGB)]
-        if not finite_rgb.size:
-            print('# RGB map skipped: no finite channel fluxes')
+    X, Y = (np.ma.asarray(tab_DAP[key], dtype=float).filled(np.nan)
+            for key in ('ra', 'dec'))
+    on_sky = np.isfinite(X) & np.isfinite(Y)
+    rgb = np.column_stack([
+        np.ma.asarray(tab_DAP[key], dtype=float).filled(np.nan)
+        for key in rgb_key
+    ]) * rgb_scale
+    visible = on_sky & np.any(np.isfinite(rgb), axis=1)
+    if vmin == vmax:
+        positive = np.isfinite(rgb) & (rgb > 0) & on_sky[:, None]
+        if not positive.any():
+            print('# RGB map skipped: no positive channel fluxes')
             return
-        vmin=np.min(finite_rgb)
-        vmax=np.max(finite_rgb)
-    if not (np.isfinite(vmin) and np.isfinite(vmax) and vmax > vmin):
+        vmin, vmax = 0.0, np.percentile(rgb[positive], 98)
+        visible = np.any(positive, axis=1)
+    if not (np.isfinite(vmin) and np.isfinite(vmax) and vmax > vmin
+            and visible.any()):
         print('# RGB map skipped: no usable flux dynamic range')
         return
-    r = (R-vmin)/(vmax-vmin)
-    g = (G-vmin)/(vmax-vmin)
-    b = (B-vmin)/(vmax-vmin)
+    rgb = np.where(np.isfinite(rgb[visible]), rgb[visible], vmin)
+    colors = np.clip((rgb - vmin) / (vmax - vmin), 0.0, 1.0) ** gamma
 
-    r[r>1]=1
-    r[r<0]=0
-    b[b>1]=1
-    b[b<0]=0
-    g[g>1]=1
-    g[g<0]=0    
-    
-    r = np.ma.filled(r, fill_value=0.0)
-    g = np.ma.filled(g, fill_value=0.0)
-    b = np.ma.filled(b, fill_value=0.0)
-
-
-    # gamma_scale(0, gamma) divides 0 by 0; power is equivalent on
-    # nonnegative RGB channels and correctly maps a zero flux to black.
-    r=np.nan_to_num(np.power(r, gamma), nan=0.0, posinf=1.0, neginf=0.0)
-    g=np.nan_to_num(np.power(g, gamma), nan=0.0, posinf=1.0, neginf=0.0)
-    b=np.nan_to_num(np.power(b, gamma), nan=0.0, posinf=1.0, neginf=0.0)
-
-#    r=r**gamma
-#    g=g**gamma
-#    b=b**gamma
-    
-#    print (r)
-    r = np.ma.compressed(r)
-    g = np.ma.compressed(g)
-    b = np.ma.compressed(b)   
-
-
-    #print(r,g,b)
-    colors = np.stack((r, g, b), axis=1)
-    colors[colors>1]=1
-    colors[colors<0]=0
-#    print(colors)
-    fig,ax = plt.subplots(1,1,figsize=(fsize,fsize*0.95))
-#    norm=mpl_colors.PowerNorm(vmin=0,vmax=1,gamma=gamma)
-    scatter(X, Y, ax, color=colors, size=sf*35.6/3600)#, color=colors)
-    ax.set_xlabel('Ra [deg]')#,fontsize=21)
-    ax.set_ylabel('Dec [deg]')#,fontsize=21)
-    xx = ax.get_xlim()
-    yy = ax.get_ylim()
-    ax.set_xlim(xx[1],xx[0])
-    ax.text(xx[1]-0.03*(xx[1]-xx[0]),yy[1]-0.06*(yy[1]-yy[0]),titles[0],fontsize=fs*(fsize/5),color='tomato')
-    ax.text(xx[1]-0.03*(xx[1]-xx[0]),yy[1]-0.12*(yy[1]-yy[0]),titles[1],fontsize=fs*(fsize/5),color='forestgreen')
-    ax.text(xx[1]-0.03*(xx[1]-xx[0]),yy[1]-0.18*(yy[1]-yy[0]),titles[2],fontsize=fs*(fsize/5),color='steelblue')
+    fig, ax = plt.subplots(1, 1, figsize=(fsize, fsize*0.95))
+    if equal:
+        ax.set_aspect(_sky_map_aspect(Y), adjustable='box')
+    scatter(X[visible], Y[visible], ax, color=colors, size=sf*35.6/3600)
+    ax.update_datalim(np.column_stack((X[on_sky], Y[on_sky])))
+    ax.autoscale_view()
+    ax.set_xlabel('Ra [deg]')
+    ax.set_ylabel('Dec [deg]')
+    ax.invert_xaxis()
+    for j, (title, color) in enumerate(zip(titles, ('tomato', 'forestgreen', 'steelblue'))):
+        ax.text(.03, .97 - .075*j, title, transform=ax.transAxes, va='top',
+                fontsize=fs*(fsize/5), color=color)
 
     if (tab_pt != None):
         for tap_pt_now in tab_pt:
             ax.text(tab_pt['ra'],tab_pt['dec'],tab_pt['id'])
-    if (equal == True):
-        ax.set_aspect('equal', adjustable='box')
     fig.tight_layout()
     fig.savefig(f'{figs_dir}/{filename}.{fig_type}', facecolor='white')
     plt.close(fig)

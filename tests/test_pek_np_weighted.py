@@ -87,6 +87,22 @@ class TestNPWeightedPEK(unittest.TestCase):
         self.assertEqual(pek_tools._weighted_velocity_bounds(0., 10., 20., None),
                          ((-30., 30.), False))
 
+    def test_blended_members_do_not_supply_the_seed(self):
+        self.catalog['blended'] = [True, False]
+        pek_tools.add_weighted_np_velocities(self.np, self.catalog, 75., 25.)
+        for name in self.names:
+            self.assertEqual(self.np[f'vel_w_{name}'][0], -38.)
+        _, call = self.fit()
+        self.assertEqual(call['initial_velocity'], -38.)
+        self.catalog['blended'] = [True, True]
+        pek_tools.add_weighted_np_velocities(self.np, self.catalog, 75., 25.)
+        for name in self.names:
+            self.assertTrue(np.isnan(self.np[f'vel_w_{name}'][0]))
+        _, call = self.fit()
+        _, legacy = self.fit(velocity_start='pm')
+        self.assertEqual(call['initial_velocity'], legacy['initial_velocity'])
+        self.assertEqual(call['velocity_bounds'], legacy['velocity_bounds'])
+
     def test_weighted_bounds_can_recover_outside_legacy_union(self):
         for name in self.names:
             self.np[f'vel_{name}'] = [0.]
